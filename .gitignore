@@ -1,0 +1,57 @@
+# ---- .NET ----
+bin/
+obj/
+out/
+*.user
+*.suo
+*.userprefs
+*.swp
+.vs/
+*.DotSettings.user
+TestResults/
+coverage/
+*.coverage
+*.trx
+artifacts/
+
+# ---- Node / frontend ----
+node_modules/
+src/frontend/dist/
+src/frontend/.vite/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---- IDEs / editors ----
+.idea/
+.vscode/
+!.vscode/extensions.json
+*.code-workspace
+.DS_Store
+Thumbs.db
+
+# ---- Secrets and local config ----
+.env
+.env.*
+!.env.example
+*.pfx
+*.key
+*.pem
+appsettings.*.local.json
+secrets.json
+
+# ---- Docker / local data ----
+deploy/data/
+*.log
+
+# ---- AI tooling: never committed (see AGENTS.md section 8) ----
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+.cursor/
+.cursorrules
+.aider*
+.copilot/
+.windsurf/
+.continue/
+.codex/
