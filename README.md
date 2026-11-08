@@ -32,6 +32,9 @@ Monitoring should make problems easier to find, not introduce another system to 
 | **Alerts** | Configurable rules, incident history, email/webhook notifications |
 | **Web UI** | Overview, Log Explorer, Incident Details, and focused service/infrastructure views |
 
+The full list of targets, supported database versions, and retention is in
+[`docs/architecture/monitoring-scope.md`](docs/architecture/monitoring-scope.md).
+
 ## Architecture (proposed)
 
 ```mermaid
@@ -60,7 +63,8 @@ Veyra will aim to receive telemetry directly over OTLP where appropriate. Existi
 - **Deployment:** Docker Compose (Veyra plus PostgreSQL) with persistent volumes; reverse-proxy and TLS examples included.
 - **License:** Apache 2.0.
 
-Each decision is recorded with its context and alternatives in [`docs/adr/`](docs/adr/README.md).
+Each decision is recorded with its context and alternatives in [`docs/adr/`](docs/adr/README.md). The libraries and tools
+beyond those decisions are listed in [`docs/architecture/tech-stack.md`](docs/architecture/tech-stack.md).
 
 ## Repository layout
 
@@ -95,7 +99,8 @@ Each decision is recorded with its context and alternatives in [`docs/adr/`](doc
 - Distributed tracing and cross-signal correlation
 - Windows/IIS, Docker, SQL Server, and PostgreSQL integrations
 - Background job and data-pipeline monitoring
-- Browser and Blazor WebAssembly telemetry
+- Browser telemetry: Blazor WebAssembly, then React, Angular, and Blazor Server
+- macOS hosts, Azure platform services, uptime and certificate checks, and message queues
 - Advanced incident workflows, alert routing, and multi-user access
 - Optional storage adapters and visual collector configuration
 

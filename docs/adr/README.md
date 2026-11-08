@@ -12,6 +12,7 @@ supersedes the old one and update both status lines.
 | [0004](0004-frontend-react-typescript.md) | Frontend: React + TypeScript with Vite | Accepted |
 | [0005](0005-license-apache-2.md) | License: Apache 2.0 | Accepted |
 | [0006](0006-deployment-docker-compose.md) | Deployment: Docker Compose with Veyra and PostgreSQL | Accepted |
+| [0007](0007-home-dashboards-blocks-and-groups.md) | Home dashboards on a shared block and group model | Accepted |
 
 ## Template
 
