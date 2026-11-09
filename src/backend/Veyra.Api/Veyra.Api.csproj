@@ -6,6 +6,7 @@
     <ProjectReference Include="..\Veyra.Storage\Veyra.Storage.csproj" />
     <ProjectReference Include="..\Veyra.Query\Veyra.Query.csproj" />
     <ProjectReference Include="..\Veyra.Alerting\Veyra.Alerting.csproj" />
+    <ProjectReference Include="..\Veyra.Access\Veyra.Access.csproj" />
   </ItemGroup>
 
   <ItemGroup>

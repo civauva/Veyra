@@ -1,0 +1,20 @@
+# Keep the Docker build context small and free of secrets and local state.
+.git
+.github
+.claude
+.vs
+.vscode
+.idea
+**/bin
+**/obj
+**/node_modules
+**/TestResults
+**/.env
+**/.env.*
+docs
+tests
+samples
+scripts
+integrations
+deploy
+**/dist

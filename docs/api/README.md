@@ -1,6 +1,6 @@
 # API reference
 
-- `otlp.md` — OTLP/HTTP and OTLP/gRPC endpoints, supported signals, authentication, limits.
-- `rest.md` — query, incident, alert, and administration endpoints used by the web UI and by automation.
+- [`otlp.md`](otlp.md) — OTLP/HTTP and OTLP/gRPC endpoints, authentication, responses, limits.
+- [`rest.md`](rest.md) — the REST endpoints used by the web UI and by scripts: sign-in, users, ingestion keys, logs.
 
-The REST API is also published as OpenAPI from the running service.
+An OpenAPI document generated from the running service is planned; until then these pages are the reference.

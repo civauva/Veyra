@@ -40,16 +40,18 @@ Status: agreed. A choice that is hard to reverse has an ADR in
 - **Ingestion.** API keys per sender. Browser apps get separate write-only keys bound to their allowed origins.
 - **TLS.** Terminated by a reverse proxy. Caddy is the documented default because it obtains certificates
   automatically. nginx and Traefik examples follow.
-- **ADR needed.** The authentication model, roles, and browser ingestion each get an ADR before they are built.
+- **ADRs.** Authentication, roles, and ingestion keys are decided in
+  [ADR 0008](../adr/0008-authentication-roles-and-ingestion-keys.md). Browser ingestion still needs its own ADR.
 
 ## Frontend
 
 - **Framework.** React with strict TypeScript, function components, and hooks, as ADR 0004 decides.
 - **Visuals.** Home dashboards are hand-drawn SVG, so they do not depend on a chart library.
 - **Tooling.** ESLint and Prettier for linting and formatting. Vitest and Testing Library for unit and component
-  tests. Playwright for end-to-end tests, run at desktop, tablet, and phone viewports. Other libraries, such as the
-  virtualised table and the chart library for the Log Explorer, are chosen when that screen is built and recorded
-  here.
+  tests. Playwright for end-to-end tests, run at desktop, tablet, and phone viewports against the built app, with
+  the REST API answered by the tests.
+- **Log Explorer.** React Router keeps the filters in the URL. TanStack Virtual renders only the rows in view, so
+  thousands of loaded records stay fast. The histogram is plain HTML and CSS, so there is still no chart library.
 - **Documentation.** Every exported component, hook, function, and type has a TSDoc comment. See
   [`coding-standards.md`](../guides/coding-standards.md).
 
@@ -64,5 +66,7 @@ Status: agreed. A choice that is hard to reverse has an ADR in
 
 - **Collector.** The OpenTelemetry Collector Contrib distribution, pinned to one tested version for all
   configurations in `integrations/`.
-- **CI.** GitHub Actions builds, tests, and checks formatting on every pull request. The workflows do not exist yet.
+- **CI.** GitHub Actions (`.github/workflows/ci.yml`) restores, builds in Release, runs all tests, and checks
+  formatting on every push and pull request. A frontend job lints, checks formatting, runs the unit and
+  end-to-end tests, and builds the app.
 - **Images.** One multi-stage `Dockerfile` builds the API and the frontend into a single image.

@@ -1,0 +1,99 @@
+/* The app frame: a fixed top bar and the screen below it, filling the window. */
+.shell {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.shell-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 56px;
+  padding: 0 16px;
+  background: var(--bar-bg);
+  border-bottom: 1px solid var(--line);
+}
+
+.shell-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 17px;
+  color: var(--accent);
+}
+
+.shell-name {
+  color: var(--fg);
+}
+
+.shell-nav {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--chip);
+}
+
+.shell-nav a {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  border-radius: 999px;
+  color: var(--muted);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.shell-nav a.active {
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 600;
+}
+
+.shell-spacer {
+  flex: 1;
+}
+
+.shell-theme {
+  min-width: 40px;
+  padding: 0 10px;
+  font-size: 16px;
+}
+
+.shell-user {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--chip);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.app-loading {
+  padding: 24px 16px;
+  color: var(--muted);
+}
+
+/* Phones: the name and the user badge give way to the navigation. */
+@media (max-width: 767px) {
+  .shell-bar {
+    gap: 8px;
+    padding: 0 12px;
+  }
+
+  .shell-name,
+  .shell-user {
+    display: none;
+  }
+
+  .shell-nav a {
+    min-height: 40px;
+  }
+}

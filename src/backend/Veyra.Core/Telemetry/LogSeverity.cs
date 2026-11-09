@@ -4,31 +4,29 @@ namespace Veyra.Core.Telemetry;
 /// Coarse log severity, derived from the OpenTelemetry severity number ranges
 /// (TRACE 1-4, DEBUG 5-8, INFO 9-12, WARN 13-16, ERROR 17-20, FATAL 21-24).
 /// </summary>
+/// <remarks>
+/// The numeric values are stored in the database, so existing values must never change.
+/// </remarks>
 public enum LogSeverity
 {
+    /// <summary>The sender did not set a severity, or set one outside the OTLP range.</summary>
     Unspecified = 0,
-    Trace = 1,
-    Debug = 2,
-    Information = 3,
-    Warning = 4,
-    Error = 5,
-    Fatal = 6,
-}
 
-public static class LogSeverityExtensions
-{
-    /// <summary>
-    /// Maps an OTLP <c>severity_number</c> (0-24) to a <see cref="LogSeverity"/>.
-    /// Values outside the defined range map to <see cref="LogSeverity.Unspecified"/>.
-    /// </summary>
-    public static LogSeverity FromOtlpSeverityNumber(int severityNumber) => severityNumber switch
-    {
-        >= 1 and <= 4 => LogSeverity.Trace,
-        >= 5 and <= 8 => LogSeverity.Debug,
-        >= 9 and <= 12 => LogSeverity.Information,
-        >= 13 and <= 16 => LogSeverity.Warning,
-        >= 17 and <= 20 => LogSeverity.Error,
-        >= 21 and <= 24 => LogSeverity.Fatal,
-        _ => LogSeverity.Unspecified,
-    };
+    /// <summary>Fine-grained diagnostic detail. OTLP severity numbers 1 to 4.</summary>
+    Trace = 1,
+
+    /// <summary>Debugging information. OTLP severity numbers 5 to 8.</summary>
+    Debug = 2,
+
+    /// <summary>Normal operational messages. OTLP severity numbers 9 to 12.</summary>
+    Information = 3,
+
+    /// <summary>Something unexpected that the application handled. OTLP severity numbers 13 to 16.</summary>
+    Warning = 4,
+
+    /// <summary>An operation failed. OTLP severity numbers 17 to 20.</summary>
+    Error = 5,
+
+    /// <summary>The application or a component cannot continue. OTLP severity numbers 21 to 24.</summary>
+    Fatal = 6,
 }

@@ -9,6 +9,7 @@ ASP.NET Core WebAPI on .NET 10, organized as a modular monolith.
 | `Veyra.Storage` | PostgreSQL persistence, migrations, retention enforcement. | Core |
 | `Veyra.Query` | Search, filtering, and correlation across signals. | Core |
 | `Veyra.Alerting` | Rule evaluation, incidents, email/webhook notifications. | Core |
+| `Veyra.Access` | Users, roles, sessions, ingestion keys, first-run setup (ADR 0008). | Core |
 | `Veyra.Api` | Host process: HTTP endpoints, auth, DI wiring, serves the frontend. | all modules |
 
 Rules:
@@ -33,4 +34,18 @@ supplied through environment variables, for example `Veyra__Storage__ConnectionS
 
 ## Endpoints
 
-- `GET /healthz` returns `200 OK` when the process is up. Readiness checks will be added with the Storage module.
+- `GET /healthz` returns `200 OK` when the process is up. It never checks dependencies.
+- `GET /readyz` returns `200 OK` when Veyra can also reach PostgreSQL, otherwise `503`.
+- `/api/v1/setup`, `/api/v1/session`, `/api/v1/users`, and `/api/v1/ingestion-keys` belong to `Veyra.Access`.
+  Everything else requires a signed-in user; the anonymous endpoints are listed in `AnonymousEndpointTests`.
+- `GET /api/v1/logs` belongs to `Veyra.Query` and searches stored logs.
+- OTLP: `POST /v1/logs` and the gRPC `LogsService/Export` belong to `Veyra.Ingestion` and check ingestion keys.
+  Kestrel listens on 8080 (API and OTLP/HTTP), 4317 (OTLP/gRPC), and 4318 (OTLP/HTTP). See `docs/api/`.
+
+## Database migrations
+
+- Each module embeds forward-only SQL scripts named `V0001__create_log_record.sql` in its `Migrations` folder and
+  registers an `ISchemaMigrationSource` (`Veyra.Core.Schema`).
+- At startup, before it listens, Veyra applies all pending scripts in one transaction under a PostgreSQL advisory
+  lock, and records them in `storage.schema_migration` with a checksum.
+- Editing a script that was already applied stops startup with an error. Add a new script instead.

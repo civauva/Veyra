@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\backend\Veyra.Storage\Veyra.Storage.csproj" />
+    <ProjectReference Include="..\Veyra.Testing\Veyra.Testing.csproj" />
   </ItemGroup>
 
   <ItemGroup>

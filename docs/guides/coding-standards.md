@@ -40,8 +40,8 @@ and `.editorconfig`, the analyzers, ESLint, and Prettier enforce what can be enf
   - `<example>` is added when usage is not obvious.
   - `<see cref="..."/>` links related types.
 - **Output.** XML comments generate the API reference and feed the OpenAPI document of the REST API.
-- **Enforcement.** The build will generate documentation files and fail on missing comments for public members
-  (`CS1591`). This is being switched on in `Directory.Build.props` and is not active yet.
+- **Enforcement.** `Directory.Build.props` turns on `GenerateDocumentationFile`, so a public member without an XML
+  comment fails the build (`CS1591`). Test projects are exempt, because test classes are not an API.
 
 ### TSDoc in TypeScript
 

@@ -1,0 +1,56 @@
+# Veyra and PostgreSQL (ADR 0006). Run from the repository root:
+#   docker compose -f deploy/docker-compose.yml up -d --build
+# Settings come from deploy/.env; copy deploy/.env.example and fill it in. Never commit deploy/.env.
+# For a public server with TLS, add deploy/docker-compose.caddy.yml (see docs/guides/deployment.md).
+
+name: veyra
+
+services:
+  veyra:
+    image: veyra:local
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    environment:
+      # GSS encryption (Kerberos) is off: the image has no Kerberos library and the database is on the same host.
+      Veyra__Storage__ConnectionString: >-
+        Host=postgres;Database=veyra;Username=veyra;Gss Encryption Mode=Disable;
+        Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in deploy/.env}
+      Veyra__Storage__LogRetentionDays: ${VEYRA_LOG_RETENTION_DAYS:-14}
+      # Empty means no size budget.
+      Veyra__Storage__MaxLogStorageGigabytes: ${VEYRA_MAX_LOG_STORAGE_GB:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      # Data protection keys. Without them every restart signs everyone out.
+      - veyra-keys:/home/app/.aspnet/DataProtection-Keys
+    # Reachable from this machine only. Public traffic goes through the reverse proxy.
+    ports:
+      - "127.0.0.1:${VEYRA_HTTP_PORT:-8080}:8080"
+      # OTLP for senders on this machine, such as a Collector watching the host. Remote senders use the public
+      # address through Caddy, which adds TLS.
+      - "127.0.0.1:${VEYRA_OTLP_GRPC_PORT:-4317}:4317"
+      - "127.0.0.1:${VEYRA_OTLP_HTTP_PORT:-4318}:4318"
+
+  postgres:
+    # Major version 18, the version the integration tests run against.
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: veyra
+      POSTGRES_USER: veyra
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in deploy/.env}
+    volumes:
+      # PostgreSQL 18 images keep their data under /var/lib/postgresql/18, so the volume mounts one level up.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username=veyra --dbname=veyra"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  postgres-data:
+  veyra-keys:

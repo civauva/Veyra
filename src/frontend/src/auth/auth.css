@@ -1,0 +1,73 @@
+/* The sign-in and setup card. Centred on every screen size, full width on phones. */
+.auth {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  box-sizing: border-box;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 400px;
+  padding: 28px;
+  border-radius: 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-sizing: border-box;
+}
+
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 18px;
+  color: var(--accent);
+}
+
+.auth-card h1 {
+  margin: 18px 0 8px;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.auth-hint,
+.auth-rule {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.auth-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.auth-notice,
+.auth-error {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.auth-notice {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+}
+
+.auth-error {
+  background: var(--error-bg);
+  color: var(--error-fg);
+}

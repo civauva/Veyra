@@ -24,4 +24,26 @@ public class StorageServiceCollectionExtensionsTests
 
         Assert.Equal("Host=localhost;Database=veyra", options.ConnectionString);
     }
+
+    [Fact]
+    public void AddVeyraStorage_EmptyStorageBudget_MeansNoBudget()
+    {
+        // Compose passes an empty value when VEYRA_MAX_LOG_STORAGE_GB is not set.
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Veyra:Storage:LogRetentionDays"] = "30",
+                ["Veyra:Storage:MaxLogStorageGigabytes"] = "",
+            })
+            .Build();
+
+        using var provider = new ServiceCollection()
+            .AddVeyraStorage(configuration)
+            .BuildServiceProvider();
+
+        var options = provider.GetRequiredService<IOptions<StorageOptions>>().Value;
+
+        Assert.Equal(30, options.LogRetentionDays);
+        Assert.Null(options.MaxLogStorageGigabytes);
+    }
 }

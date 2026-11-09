@@ -1,0 +1,232 @@
+/* Ingestion keys: a form, the new secret, and a table that becomes cards on phones. */
+
+.keys {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px clamp(16px, 4vw, 40px) 40px;
+}
+
+.keys h1 {
+  margin: 0 0 6px;
+  font-size: 22px;
+}
+
+.keys-intro {
+  max-width: 70ch;
+  margin: 0 0 20px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.keys-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 24px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.keys-form label {
+  display: grid;
+  gap: 4px;
+  flex: 1 1 200px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.keys-form input {
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--input);
+  color: var(--fg);
+  font: inherit;
+}
+
+.keys-form .button {
+  min-height: 38px;
+}
+
+.keys-optional {
+  font-weight: 400;
+  color: var(--faint);
+}
+
+.keys-new {
+  margin-bottom: 24px;
+  padding: 16px;
+  border: 1px solid var(--ok-fg);
+  border-radius: 12px;
+  background: var(--ok-bg);
+}
+
+.keys-new h2 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+
+.keys-new p {
+  margin: 0 0 12px;
+}
+
+.keys-secret {
+  display: block;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--panel);
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.keys-new-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.keys-copied {
+  font-size: 13px;
+}
+
+.keys-error {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--error-bg);
+  color: var(--error-fg);
+}
+
+.keys-form .keys-error {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.keys-empty {
+  color: var(--muted);
+}
+
+.keys-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  font-size: 13px;
+}
+
+.keys-table th,
+.keys-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.keys-table thead th {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.keys-table tbody th {
+  font-weight: 600;
+}
+
+.keys-inactive {
+  color: var(--faint);
+}
+
+.key-state {
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.key-state-active {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+}
+
+.key-state-revoked,
+.key-state-expired {
+  background: var(--chip);
+  color: var(--muted);
+}
+
+.keys-actions {
+  text-align: right;
+}
+
+.keys-confirm {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.button.danger {
+  border-color: var(--error-fg);
+  background: var(--error-bg);
+  color: var(--error-fg);
+}
+
+/* Phones: each key becomes a card with labelled fields. */
+@media (max-width: 767px) {
+  .keys-table,
+  .keys-table tbody,
+  .keys-table tr,
+  .keys-table th,
+  .keys-table td {
+    display: block;
+  }
+
+  .keys-table {
+    border: 0;
+    background: none;
+  }
+
+  .keys-table thead {
+    display: none;
+  }
+
+  .keys-table tr {
+    margin-bottom: 12px;
+    padding: 6px 0;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--panel);
+  }
+
+  .keys-table th,
+  .keys-table td {
+    border: 0;
+    padding: 4px 14px;
+  }
+
+  .keys-table td[data-label]::before {
+    content: attr(data-label);
+    display: inline-block;
+    min-width: 96px;
+    color: var(--muted);
+  }
+
+  .keys-actions {
+    text-align: left;
+  }
+
+  .keys-confirm {
+    justify-content: flex-start;
+  }
+}

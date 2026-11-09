@@ -25,6 +25,7 @@ Do not re-open these without a new ADR (see section 7).
 | Ingestion | OTLP only. Platform and database collection is done by the OpenTelemetry Collector, not by Veyra | `README.md` |
 | Instrumentation | Applications use the standard OpenTelemetry SDKs. There is no Veyra-specific SDK | `README.md` |
 | Home dashboards | Shared block and group model; Forecast (default) and City homes | `docs/adr/0007` |
+| Security | Ingestion keys for senders; local or OIDC sign-in with cookies; Viewer, Editor, Admin | `docs/adr/0008` |
 | Monitoring scope | Targets, supported versions, and retention | `docs/architecture/monitoring-scope.md` |
 | Tech stack | Libraries and tools beyond the ADRs | `docs/architecture/tech-stack.md` |
 
@@ -49,7 +50,8 @@ folders without updating this map.
 
 ## 4. Architecture rules
 
-- Modular monolith. Modules: `Core`, `Ingestion`, `Storage`, `Query`, `Alerting`. Host: `Api`.
+- Modular monolith. Modules: `Core`, `Ingestion`, `Storage`, `Query`, `Alerting`, and `Access` (ADR 0008). Host:
+  `Api`.
 - Modules reference `Veyra.Core` only. Modules never reference each other. `Veyra.Api` is the only composition root.
 - Cross-module communication goes through interfaces or messages defined in `Veyra.Core`.
 - Each module owns its configuration section, its database schema objects, and its migrations.
@@ -97,7 +99,7 @@ To be kept current as the solution grows. Run from the repository root.
 dotnet build src/Veyra.sln
 dotnet test  src/Veyra.sln
 dotnet format src/Veyra.sln --verify-no-changes
-cd src/frontend && npm ci && npm run build && npm test
+cd src/frontend && npm ci && npm run lint && npm test && npm run build && npm run test:e2e
 docker compose -f deploy/docker-compose.yml up
 ```
 
@@ -143,7 +145,7 @@ docker compose -f deploy/docker-compose.yml up
 
 A change is done when:
 
-1. It builds with zero warnings and all tests pass.
+1. It builds with zero warnings, all tests pass, and CI is green.
 2. New behaviour has tests at the appropriate level.
 3. Documentation and, if applicable, an ADR are updated.
 4. `README.md`s and this file still describe reality.

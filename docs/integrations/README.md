@@ -11,4 +11,4 @@ configuration in `/integrations/<target>/`.
 | Docker containers | `docker_stats`, `filelog` | `docker.md` |
 | PostgreSQL | `postgresql` | `postgres.md` |
 | SQL Server | `sqlserver` | `sqlserver.md` |
-| .NET applications | OpenTelemetry .NET SDK, OTLP exporter | `dotnet.md` |
+| .NET applications | OpenTelemetry .NET SDK, OTLP exporter | [`dotnet.md`](dotnet.md) |

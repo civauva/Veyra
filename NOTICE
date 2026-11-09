@@ -2,3 +2,6 @@ Veyra
 Copyright 2026 Dražan Kosić and Veyra contributors
 
 Licensed under the Apache License, Version 2.0. See LICENSE.
+
+This product includes the OpenTelemetry protocol definitions (opentelemetry-proto), Copyright The OpenTelemetry
+Authors, licensed under the Apache License, Version 2.0. They are in src/backend/Veyra.Ingestion/Otlp/Protos.

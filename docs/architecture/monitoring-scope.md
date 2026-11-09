@@ -115,10 +115,11 @@ flowchart LR
 All retention applies to Veyra's own storage. Monitored hosts keep nothing for Veyra. The Collector holds data on a
 host only while Veyra is unreachable, in a bounded queue that each integration configuration documents.
 
-- **Per signal.** Retention is configured per signal. Proposed defaults are 14 days for logs, 90 days for metrics,
-  and 7 days for traces.
-- **Partitions.** Old data is removed by dropping whole time partitions, which is cheap.
-- **Disk guard.** When free disk falls below a configured threshold, Veyra raises an alert and drops the oldest
-  partitions first, so ingestion never stops because the disk is full.
+- **Per signal.** Retention is configured per signal. Logs keep 14 days by default (`Veyra:Storage:LogRetentionDays`).
+  Proposed defaults for later signals are 90 days for metrics and 7 days for traces.
+- **Partitions.** Old data is removed by dropping whole daily partitions, which is instant and frees disk at once.
+- **Disk guard.** Veyra cannot see free space on the database host, so the guard is a size budget instead
+  (`Veyra:Storage:MaxLogStorageGigabytes`). When log storage exceeds it, the oldest days are dropped first and a
+  warning is logged; today is always kept. Raising an alert for it follows with the Alerting module.
 - **Sizing.** Expected volume is not known yet. The defaults are validated against real numbers from the reference
   installation, and a sizing guide follows.

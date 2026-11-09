@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!-- ASP.NET Core provides cookie authentication, authorization, antiforgery, MVC controllers, and the PBKDF2
+         password hasher. All of it is part of the shared framework, so no extra packages are needed. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Veyra.Core\Veyra.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Forward-only schema scripts for the access schema, applied by the Storage module at startup. -->
+    <EmbeddedResource Include="Migrations\*.sql" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Veyra.Access.Tests" />
+    <InternalsVisibleTo Include="Veyra.Api.Tests" />
+  </ItemGroup>
+
+</Project>

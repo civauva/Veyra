@@ -1,0 +1,91 @@
+# Builds, tests, and checks formatting on every push and pull request.
+# A red run blocks merging: the build treats warnings, missing XML comments, and style violations as errors.
+name: CI
+
+on:
+  push:
+    branches: [main, "feature/**", "fix/**", "docs/**"]
+  pull_request:
+    branches: [main]
+
+# Read-only access is enough: the workflow only checks code.
+permissions:
+  contents: read
+
+# A newer push to the same branch cancels the run that is still going.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      # The SDK version comes from global.json, so CI and local builds match.
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore src/Veyra.sln
+
+      - name: Build
+        run: dotnet build src/Veyra.sln --configuration Release --no-restore
+
+      # Integration tests start PostgreSQL with Testcontainers; GitHub-hosted Ubuntu runners include Docker.
+      - name: Test
+        run: dotnet test src/Veyra.sln --configuration Release --no-build
+
+      - name: Check formatting
+        run: dotnet format src/Veyra.sln --verify-no-changes --no-restore
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: src/frontend
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      # Node 24 matches the frontend stage of deploy/Dockerfile, so CI builds what the image builds.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: src/frontend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Test
+        run: npm test
+
+      # Type-checks, then bundles; a type error fails the build.
+      - name: Build
+        run: npm run build
+
+      # End-to-end tests run the built app in Chromium at desktop, tablet, and phone sizes (playwright.config.ts).
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: End-to-end tests
+        run: npm run test:e2e

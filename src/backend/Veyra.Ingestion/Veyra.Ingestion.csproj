@@ -1,15 +1,27 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\Veyra.Core\Veyra.Core.csproj" />
+    <!-- The OTLP endpoints are ASP.NET Core endpoints and a gRPC service. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
-    <PackageReference Include="Microsoft.Extensions.Options" />
-    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+    <ProjectReference Include="../Veyra.Core/Veyra.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Grpc.AspNetCore" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The official OTLP definitions from github.com/open-telemetry/opentelemetry-proto, release v1.11.1, unchanged.
+         Only the files the logs service needs. Generated types are internal: they are wire formats, not Veyra API. -->
+    <Protobuf Include="Otlp/Protos/**/*.proto" ProtoRoot="Otlp/Protos" Access="Internal" GrpcServices="Both" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Veyra.Ingestion.Tests" />
+    <InternalsVisibleTo Include="Veyra.Api.Tests" />
   </ItemGroup>
 
 </Project>

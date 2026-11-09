@@ -1,0 +1,26 @@
+# Adds Caddy in front of Veyra for a public server with automatic HTTPS certificates. Use it together with the
+# main file, from the repository root:
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.caddy.yml up -d --build
+# Needs VEYRA_DOMAIN in deploy/.env, a DNS record pointing that name at this server, and ports 80 and 443 open.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      VEYRA_DOMAIN: ${VEYRA_DOMAIN:?Set VEYRA_DOMAIN in deploy/.env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./reverse-proxy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and their keys live here. Keep this volume when upgrading, or Caddy requests new certificates.
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - veyra
+
+volumes:
+  caddy-data:
+  caddy-config:

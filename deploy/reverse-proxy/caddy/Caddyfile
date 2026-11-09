@@ -1,0 +1,13 @@
+# Caddy configuration for Veyra. Caddy obtains and renews the TLS certificate for VEYRA_DOMAIN by itself.
+
+{$VEYRA_DOMAIN} {
+	# Compress responses for browsers that accept it.
+	encode zstd gzip
+
+	# OTLP/gRPC: Caddy forwards gRPC calls to Veyra's HTTP/2 port. Senders use https://<host> as their gRPC endpoint.
+	@otlpgrpc path /opentelemetry.proto.collector.*
+	reverse_proxy @otlpgrpc h2c://veyra:4317
+
+	# Everything else, including OTLP/HTTP at /v1/logs. Caddy adds X-Forwarded-For and X-Forwarded-Proto.
+	reverse_proxy veyra:8080
+}

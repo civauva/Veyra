@@ -83,16 +83,16 @@ beyond those decisions are listed in [`docs/architecture/tech-stack.md`](docs/ar
 
 ### v0.1 — Useful logging foundation
 
-- [ ] Run Veyra locally with a single Docker Compose command
-- [ ] Receive structured logs via OTLP
-- [ ] Persist and query logs by time, severity, service, and attributes
-- [ ] Search log messages and inspect exceptions/stack traces
+- [x] Run Veyra locally with a single Docker Compose command
+- [x] Receive structured logs via OTLP
+- [x] Persist and query logs by time, severity, service, and attributes
+- [x] Search log messages and inspect exceptions/stack traces
 - [ ] Build Overview, Log Explorer, and Event/Incident Details screens
 - [ ] Implement basic application/host metrics display
-- [ ] Add configurable data retention
-- [ ] Add basic authentication and secure ingestion configuration
+- [x] Add configurable data retention
+- [x] Add basic authentication and secure ingestion configuration
 - [ ] Provide a minimal alerting workflow with email or webhook notifications
-- [ ] Publish a working .NET sample application and setup guide
+- [x] Publish a working .NET sample application and setup guide
 
 ### Later milestones
 
@@ -114,9 +114,11 @@ beyond those decisions are listed in [`docs/architecture/tech-stack.md`](docs/ar
 
 ## Getting started
 
-Veyra is **not yet available to install**. Docker images, configuration examples, and quick-start commands will be added when the first working build is published.
+Veyra is pre-alpha and has **no released images yet**. It can be built and run from source with Docker Compose;
+see [`docs/guides/deployment.md`](docs/guides/deployment.md).
 
-In the meantime, the project is defining its ingestion pipeline, storage model, and initial UI workflows.
+Today it receives logs over OTLP, stores them in PostgreSQL, and shows them in the Log Explorer, with accounts,
+roles, and ingestion keys. The Overview and Incident Details screens are not built yet.
 
 ## Contributing
 
