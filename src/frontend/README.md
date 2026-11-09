@@ -6,12 +6,12 @@ that `Veyra.Api` serves from the same container; the app talks to the backend on
 
 ## Screens
 
-| Path | Who | What |
-| --- | --- | --- |
-| `/setup?token=…` | anyone, until the first administrator exists | First-run setup with the link from Veyra's log |
-| sign-in | anyone | Local sign-in; shown whenever there is no session |
-| `/logs` | Viewer | Log Explorer: filters, message search, histogram, result list, the selected record |
-| `/keys` | Admin | Ingestion keys: create (the secret is shown once), list, revoke |
+| Path             | Who                                          | What                                                                               |
+| ---------------- | -------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `/setup?token=…` | anyone, until the first administrator exists | First-run setup with the link from Veyra's log                                     |
+| sign-in          | anyone                                       | Local sign-in; shown whenever there is no session                                  |
+| `/logs`          | Viewer                                       | Log Explorer: filters, message search, histogram, result list, the selected record |
+| `/keys`          | Admin                                        | Ingestion keys: create (the secret is shown once), list, revoke                    |
 
 The Log Explorer keeps its filters in the URL, so a link or a reload shows the same view. "Follow new" asks for new
 records every 5 seconds. "± 1 minute, this service" switches to a fixed window around the selected record. Times are

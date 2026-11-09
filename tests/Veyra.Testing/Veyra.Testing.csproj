@@ -3,6 +3,8 @@
   <!-- Shared test infrastructure, such as the PostgreSQL container fixture. Referenced only by test projects. -->
   <PropertyGroup>
     <IsPackable>false</IsPackable>
+    <!-- A library for test projects, not a test project: dotnet test must not try to run it. -->
+    <IsTestProject>false</IsTestProject>
   </PropertyGroup>
 
   <ItemGroup>
