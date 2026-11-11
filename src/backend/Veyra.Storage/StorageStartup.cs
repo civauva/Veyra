@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Veyra.Storage.Logs;
+using Veyra.Storage.Metrics;
 using Veyra.Storage.Schema;
 
 namespace Veyra.Storage;
@@ -11,8 +12,8 @@ namespace Veyra.Storage;
 public static partial class StorageStartup
 {
     /// <summary>
-    /// Applies all pending schema migrations and creates the current log partitions. <c>Veyra.Api</c> calls it after
-    /// building the app and before it starts listening, so no request ever sees an old schema.
+    /// Applies all pending schema migrations and creates the current log and metric partitions. <c>Veyra.Api</c> calls
+    /// it after building the app and before it starts listening, so no request ever sees an old schema.
     /// </summary>
     /// <param name="services">The application's service provider.</param>
     /// <param name="cancellationToken">Cancels the migration, for example when the process is asked to stop.</param>
@@ -41,6 +42,7 @@ public static partial class StorageStartup
 
         // The first partitions must exist before ingestion starts; the background service keeps them ahead later.
         await services.GetRequiredService<LogPartitions>().EnsureAsync(cancellationToken);
+        await services.GetRequiredService<MetricPartitions>().EnsureAsync(cancellationToken);
 
         return true;
     }

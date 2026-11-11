@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type * as client from "../api/client";
 import { api, ApiError } from "../api/client";
+import { clearSnapshot } from "../home/testSnapshots";
 import { SessionProvider } from "../session/SessionProvider";
 import { App } from "./App";
 
@@ -21,6 +22,7 @@ vi.mock("../api/client", async (importOriginal) => {
       signOut: vi.fn(),
       searchLogs: vi.fn(),
       summarizeLogs: vi.fn(),
+      home: vi.fn(),
       listKeys: vi.fn(),
       createKey: vi.fn(),
       revokeKey: vi.fn(),
@@ -43,6 +45,7 @@ function renderAt(path: string) {
 beforeEach(() => {
   vi.mocked(api.searchLogs).mockResolvedValue({ items: [], nextCursor: null });
   vi.mocked(api.summarizeLogs).mockResolvedValue({ bucketSeconds: 120, buckets: [], services: [] });
+  vi.mocked(api.home).mockResolvedValue(clearSnapshot);
 });
 
 describe("App", () => {
@@ -58,7 +61,7 @@ describe("App", () => {
   it("shows sign-in when nobody is signed in, and the Log Explorer after signing in", async () => {
     vi.mocked(api.currentSession).mockResolvedValue(null);
     vi.mocked(api.setupStatus).mockResolvedValue({ required: false });
-    vi.mocked(api.signIn).mockResolvedValue(admin);
+    vi.mocked(api.signIn).mockResolvedValue({ session: admin });
     const user = userEvent.setup();
 
     renderAt("/logs");
@@ -113,7 +116,7 @@ describe("App", () => {
 
     renderAt("/keys");
 
-    expect(await screen.findByRole("heading", { name: "Logs" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Clear skies" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Keys" })).not.toBeInTheDocument();
   });
 
@@ -126,11 +129,20 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "Ingestion keys" })).toBeInTheDocument();
   });
 
-  it("shows the Log Explorer straight away when a session exists", async () => {
+  it("shows the home straight away when a session exists", async () => {
     vi.mocked(api.currentSession).mockResolvedValue(admin);
 
     renderAt("/");
 
-    expect(await screen.findByRole("heading", { name: "Logs" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Clear skies" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("sends unknown paths to the home", async () => {
+    vi.mocked(api.currentSession).mockResolvedValue(admin);
+
+    renderAt("/no-such-screen");
+
+    expect(await screen.findByRole("heading", { name: "Clear skies" })).toBeInTheDocument();
   });
 });

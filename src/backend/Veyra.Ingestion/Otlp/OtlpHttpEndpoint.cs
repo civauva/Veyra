@@ -6,13 +6,14 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using OpenTelemetry.Proto.Collector.Logs.V1;
+using OpenTelemetry.Proto.Collector.Metrics.V1;
 using Veyra.Core.Security;
 using Veyra.Ingestion.Pipeline;
 
 namespace Veyra.Ingestion.Otlp;
 
 /// <summary>
-/// The OTLP/HTTP logs endpoint, <c>POST /v1/logs</c>, as the OTLP specification defines it.
+/// The OTLP/HTTP endpoints, <c>POST /v1/logs</c> and <c>POST /v1/metrics</c>, as the OTLP specification defines them.
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
@@ -22,7 +23,7 @@ namespace Veyra.Ingestion.Otlp;
 /// <item>The sender's ingestion key comes in <c>Authorization: Bearer</c> (ADR 0008). Without a valid key: 401.</item>
 /// <item>After repeated wrong keys from one address: 429 for the rest of the minute.</item>
 /// <item>When the queue is full: 503 with <c>Retry-After</c>, so the SDK or Collector retries.</item>
-/// <item>Refused records, for example for a disallowed environment, are reported as partial success.</item>
+/// <item>Refused data, for example for a disallowed environment, is reported as partial success.</item>
 /// </list>
 /// </remarks>
 internal static class OtlpHttpEndpoint
@@ -36,22 +37,65 @@ internal static class OtlpHttpEndpoint
     private const int _maxBodyBytes = 16 * 1024 * 1024;
 
     /// <summary>
-    /// Maps <c>POST /v1/logs</c>. It is open to anonymous callers because it checks ingestion keys itself.
+    /// Maps <c>POST /v1/logs</c> and <c>POST /v1/metrics</c>. They are open to anonymous callers because they check
+    /// ingestion keys themselves.
     /// </summary>
     /// <param name="endpoints">The application's endpoint builder.</param>
-    /// <returns>The endpoint's convention builder.</returns>
-    public static IEndpointConventionBuilder Map(IEndpointRouteBuilder endpoints) =>
-        endpoints.MapPost("/v1/logs", HandleAsync)
+    public static void Map(IEndpointRouteBuilder endpoints)
+    {
+        endpoints.MapPost("/v1/logs", HandleLogsAsync)
             .AllowAnonymous()
             .WithMetadata(new RequestSizeLimitAttribute(_maxBodyBytes))
             .WithName("OtlpHttpLogs");
 
-    private static async Task<IResult> HandleAsync(
+        endpoints.MapPost("/v1/metrics", HandleMetricsAsync)
+            .AllowAnonymous()
+            .WithMetadata(new RequestSizeLimitAttribute(_maxBodyBytes))
+            .WithName("OtlpHttpMetrics");
+    }
+
+    private static Task<IResult> HandleLogsAsync(
         HttpContext context,
         IIngestionKeyValidator keys,
         FailedKeyThrottle throttle,
         LogPipeline pipeline,
+        CancellationToken cancellationToken) =>
+        HandleAsync(
+            context,
+            keys,
+            throttle,
+            json => OtlpJson.ParseLogsRequest(json),
+            ExportLogsServiceRequest.Parser.ParseFrom,
+            (request, key) => pipeline.Accept(request, key),
+            OtlpResponses.Logs,
+            cancellationToken);
+
+    private static Task<IResult> HandleMetricsAsync(
+        HttpContext context,
+        IIngestionKeyValidator keys,
+        FailedKeyThrottle throttle,
+        MetricPipeline pipeline,
+        CancellationToken cancellationToken) =>
+        HandleAsync(
+            context,
+            keys,
+            throttle,
+            json => OtlpJson.ParseMetricsRequest(json),
+            ExportMetricsServiceRequest.Parser.ParseFrom,
+            (request, key) => pipeline.Accept(request, key),
+            OtlpResponses.Metrics,
+            cancellationToken);
+
+    private static async Task<IResult> HandleAsync<TRequest, TResponse>(
+        HttpContext context,
+        IIngestionKeyValidator keys,
+        FailedKeyThrottle throttle,
+        Func<string, TRequest> parseJson,
+        Func<byte[], TRequest> parseProtobuf,
+        Func<TRequest, IngestionKeyCheck, IngestResult> accept,
+        Func<IngestResult, TResponse> respond,
         CancellationToken cancellationToken)
+        where TResponse : IMessage
     {
         var client = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
@@ -88,20 +132,18 @@ internal static class OtlpHttpEndpoint
             return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
         }
 
-        ExportLogsServiceRequest request;
+        TRequest request;
 
         try
         {
-            request = mediaType == _json
-                ? OtlpJson.ParseLogsRequest(System.Text.Encoding.UTF8.GetString(body))
-                : ExportLogsServiceRequest.Parser.ParseFrom(body);
+            request = mediaType == _json ? parseJson(System.Text.Encoding.UTF8.GetString(body)) : parseProtobuf(body);
         }
         catch (Exception exception) when (exception is InvalidProtocolBufferException or OtlpFormatException)
         {
             return Results.BadRequest();
         }
 
-        var result = pipeline.Accept(request, key);
+        var result = accept(request, key);
 
         if (result.QueueFull)
         {
@@ -111,16 +153,7 @@ internal static class OtlpHttpEndpoint
             return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
         }
 
-        var response = new ExportLogsServiceResponse();
-
-        if (result.Rejected > 0)
-        {
-            response.PartialSuccess = new ExportLogsPartialSuccess
-            {
-                RejectedLogRecords = result.Rejected,
-                ErrorMessage = result.RejectionReason ?? string.Empty,
-            };
-        }
+        var response = respond(result);
 
         return mediaType == _json
             ? Results.Text(OtlpJson.Format(response), _json)

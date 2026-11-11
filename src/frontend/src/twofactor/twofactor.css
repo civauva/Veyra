@@ -1,0 +1,281 @@
+/* Two-factor sign-in (ADR 0011): the code field, setup steps, and recovery codes. Shared by sign-in and Account. */
+
+.code-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.code-field > label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.code-boxes {
+  position: relative;
+}
+
+/* The real input covers the boxes, transparent, so typing and pasting go to one field. */
+.code-boxes input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  font-size: 1px;
+}
+
+.code-boxes input:focus-visible {
+  outline: none;
+}
+
+.code-digits {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr) 14px repeat(3, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.code-digits span {
+  height: 54px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 24px;
+  font-weight: 500;
+}
+
+.code-digits i {
+  height: 2px;
+  border-radius: 1px;
+  background: var(--faint);
+}
+
+.code-boxes:focus-within .code-digits span.next {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.code-tick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--faint);
+  font-size: 12.5px;
+}
+
+.code-tick span {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--chip);
+  overflow: hidden;
+}
+
+.code-tick b {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 1s linear;
+}
+
+.setup-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.stepper {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stepper li {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--faint);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.stepper li::before {
+  content: "";
+  height: 4px;
+  border-radius: 2px;
+  background: var(--chip);
+}
+
+.stepper li.done::before,
+.stepper li.on::before {
+  background: var(--accent);
+}
+
+.stepper li.on {
+  color: var(--fg);
+}
+
+.setup-pair {
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.qr {
+  display: block;
+  width: 176px;
+  height: 176px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+}
+
+.setup-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.setup-side p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.setup-side .setup-small {
+  font-size: 12.5px;
+}
+
+.setup-apps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.setup-apps li {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--chip);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.setup-secret {
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px dashed var(--line);
+  background: var(--panel-2);
+  font-family: var(--mono);
+  font-size: 13.5px;
+  letter-spacing: 0.06em;
+  word-break: break-all;
+}
+
+.recovery {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.recovery-lead {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.recovery-codes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recovery-codes code {
+  display: block;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  font-family: var(--mono);
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
+.recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.recovery-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
+}
+
+.recovery-check input {
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+.twofactor-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.twofactor-error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--error-bg);
+  color: var(--error-fg);
+  font-size: 13px;
+}
+
+.button.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+@media (max-width: 560px) {
+  .setup-pair {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .setup-side {
+    width: 100%;
+  }
+}

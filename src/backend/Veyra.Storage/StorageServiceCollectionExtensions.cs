@@ -4,9 +4,11 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
 using Veyra.Core;
+using Veyra.Core.Metrics;
 using Veyra.Core.Schema;
 using Veyra.Core.Telemetry;
 using Veyra.Storage.Logs;
+using Veyra.Storage.Metrics;
 using Veyra.Storage.Schema;
 
 namespace Veyra.Storage;
@@ -42,6 +44,8 @@ public static class StorageServiceCollectionExtensions
             .Validate(
                 o => o.MaxLogStorageGigabytes is null or > 0,
                 "Veyra:Storage:MaxLogStorageGigabytes must be positive when set.")
+            .Validate(o => o.MetricRetentionDays >= 1, "Veyra:Storage:MetricRetentionDays must be at least 1.")
+            .Validate(o => o.MaxMetricSeries >= 1, "Veyra:Storage:MaxMetricSeries must be at least 1.")
             .ValidateOnStart();
 
         services.TryAddSingleton(TimeProvider.System);
@@ -60,14 +64,21 @@ public static class StorageServiceCollectionExtensions
         services.AddSingleton<ISchemaMigrationSource, StorageMigrations>();
         services.AddSingleton<LogPartitions>();
         services.AddSingleton<LogRetention>();
+        services.AddSingleton<MetricPartitions>();
 
         if (configured)
         {
             services.AddSingleton<LogStore>();
             services.AddSingleton<ILogWriter>(provider => provider.GetRequiredService<LogStore>());
             services.AddSingleton<ILogSearch>(provider => provider.GetRequiredService<LogStore>());
+            services.AddSingleton<ILogRates>(provider => provider.GetRequiredService<LogStore>());
+            services.AddSingleton<ILogStorageUsage>(provider => provider.GetRequiredService<LogRetention>());
+            services.AddSingleton<MetricStore>();
+            services.AddSingleton<IMetricWriter>(provider => provider.GetRequiredService<MetricStore>());
+            services.AddSingleton<IMetricSearch>(provider => provider.GetRequiredService<MetricStore>());
+            services.AddSingleton<MetricRetention>();
             services.AddSingleton<SchemaMigrator>();
-            services.AddHostedService<LogPartitionMaintenance>();
+            services.AddHostedService<StorageMaintenance>();
         }
         else
         {
@@ -75,6 +86,11 @@ public static class StorageServiceCollectionExtensions
             services.AddSingleton<UnconfiguredLogStore>();
             services.AddSingleton<ILogWriter>(provider => provider.GetRequiredService<UnconfiguredLogStore>());
             services.AddSingleton<ILogSearch>(provider => provider.GetRequiredService<UnconfiguredLogStore>());
+            services.AddSingleton<ILogRates>(provider => provider.GetRequiredService<UnconfiguredLogStore>());
+            services.AddSingleton<ILogStorageUsage>(provider => provider.GetRequiredService<UnconfiguredLogStore>());
+            services.AddSingleton<UnconfiguredMetricStore>();
+            services.AddSingleton<IMetricWriter>(provider => provider.GetRequiredService<UnconfiguredMetricStore>());
+            services.AddSingleton<IMetricSearch>(provider => provider.GetRequiredService<UnconfiguredMetricStore>());
         }
 
         services.AddHealthChecks()

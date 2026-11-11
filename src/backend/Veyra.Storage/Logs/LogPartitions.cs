@@ -1,6 +1,6 @@
-using System.Globalization;
 using Microsoft.Extensions.Logging;
 using Npgsql;
+using Veyra.Storage.Schema;
 
 namespace Veyra.Storage.Logs;
 
@@ -25,9 +25,6 @@ internal sealed partial class LogPartitions(
     TimeProvider clock,
     ILogger<LogPartitions> logger)
 {
-    // PostgreSQL's error code for a violated check, raised when the default partition already holds rows for the day.
-    private const string _checkViolation = "23514";
-
     /// <summary>
     /// Makes sure the partitions around the current time exist.
     /// </summary>
@@ -53,23 +50,7 @@ internal sealed partial class LogPartitions(
 
     private async Task EnsureDayAsync(DateOnly day, CancellationToken cancellationToken)
     {
-        var name = $"log_record_{day.ToString("yyyyMMdd", CultureInfo.InvariantCulture)}";
-        var from = day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        var to = day.AddDays(1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-
-        // Partition bounds cannot be parameters, so the SQL is built from a date this method formatted itself.
-        await using var command = dataSource.CreateCommand(
-            $"""
-            CREATE TABLE IF NOT EXISTS storage.{name}
-                PARTITION OF storage.log_record
-                FOR VALUES FROM ('{from} 00:00:00+00') TO ('{to} 00:00:00+00')
-            """);
-
-        try
-        {
-            await command.ExecuteNonQueryAsync(cancellationToken);
-        }
-        catch (PostgresException exception) when (exception.SqlState == _checkViolation)
+        if (!await DailyPartitions.EnsureDayAsync(dataSource, "log_record", day, cancellationToken))
         {
             LogDayStaysInDefault(day);
         }

@@ -32,6 +32,9 @@
   --bar-bg: rgba(255, 255, 255, 0.9);
   --histogram: rgba(14, 36, 64, 0.22);
   --histogram-error: #e5483d;
+  --metric-violet: #7c5cd6;
+  --metric-teal: #0f8f8a;
+  --metric-pink: #c2417a;
 
   color-scheme: light;
 }
@@ -63,6 +66,9 @@
     --bar-bg: rgba(6, 8, 18, 0.7);
     --histogram: rgba(255, 255, 255, 0.22);
     --histogram-error: #ff4b3e;
+    --metric-violet: #a58cf0;
+    --metric-teal: #4fd1c5;
+    --metric-pink: #f07aaa;
 
     color-scheme: dark;
   }
@@ -93,6 +99,9 @@
   --bar-bg: rgba(6, 8, 18, 0.7);
   --histogram: rgba(255, 255, 255, 0.22);
   --histogram-error: #ff4b3e;
+  --metric-violet: #a58cf0;
+  --metric-teal: #4fd1c5;
+  --metric-pink: #f07aaa;
 
   color-scheme: dark;
 }

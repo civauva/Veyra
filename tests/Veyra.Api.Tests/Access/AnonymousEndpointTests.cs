@@ -22,7 +22,9 @@ public class AnonymousEndpointTests(WebApplicationFactory<Program> factory)
         "POST /api/v1/session",
         // OTLP checks ingestion keys itself, not sessions.
         "POST /v1/logs",
+        "POST /v1/metrics",
         "POST /opentelemetry.proto.collector.logs.v1.LogsService/Export",
+        "POST /opentelemetry.proto.collector.metrics.v1.MetricsService/Export",
         // The single-page app: index.html for its own routes, never for the API or OTLP.
         "GET /",
         "HEAD /",

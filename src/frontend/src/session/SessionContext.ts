@@ -1,6 +1,6 @@
 import { createContext } from "react";
 
-import type { Session } from "../api/types";
+import type { Session, SignInNext } from "../api/types";
 
 /** Where the person stands when the app starts or after a sign-in, sign-out, or setup. */
 export type SessionState =
@@ -14,8 +14,13 @@ export type SessionState =
 export interface SessionValue {
   /** The current state. */
   state: SessionState;
-  /** Signs in; throws an ApiError the form can show. */
-  signIn(email: string, password: string): Promise<void>;
+  /**
+   * The password step of signing in; throws an ApiError the form can show. Resolves to `null` when the session
+   * started, or to the step that comes next (ADR 0011).
+   */
+  signIn(email: string, password: string): Promise<SignInNext | null>;
+  /** Starts the session that a later sign-in step, such as the code, returned. */
+  completeSignIn(session: Session): void;
   /** Signs out and returns to the sign-in screen. */
   signOut(): Promise<void>;
   /** Moves from first-run setup to sign-in, with a confirmation for the person. */

@@ -8,10 +8,10 @@ using Veyra.Core.Telemetry;
 namespace Veyra.Storage.Logs;
 
 /// <summary>
-/// Writes log records to <c>storage.log_record</c> and searches them.
+/// Writes log records to <c>storage.log_record</c>, searches them, and counts them per service.
 /// </summary>
 /// <param name="dataSource">The PostgreSQL connection pool.</param>
-internal sealed class LogStore(NpgsqlDataSource dataSource) : ILogWriter, ILogSearch
+internal sealed class LogStore(NpgsqlDataSource dataSource) : ILogWriter, ILogSearch, ILogRates
 {
     private const string _copyCommand =
         """
@@ -193,6 +193,83 @@ internal sealed class LogStore(NpgsqlDataSource dataSource) : ILogWriter, ILogSe
         }
 
         return new LogSummary(bucketSize, buckets, services);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<LogMessageGroup>> GroupMessagesAsync(
+        LogQuery query,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
+
+        await using var command = dataSource.CreateCommand();
+        command.Parameters.AddWithValue(query.From);
+        command.Parameters.AddWithValue(query.To);
+
+        var sql = new StringBuilder(
+            """
+            SELECT body, count(*), min(timestamp), max(timestamp)
+            FROM storage.log_record
+            WHERE timestamp >= $1 AND timestamp < $2
+            """);
+        AppendFilters(sql, command, query, includeServices: true);
+
+        command.Parameters.AddWithValue(limit);
+        sql.Append(
+            CultureInfo.InvariantCulture,
+            $" GROUP BY body ORDER BY count(*) DESC, body LIMIT ${command.Parameters.Count}");
+        command.CommandText = sql.ToString();
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        var groups = new List<LogMessageGroup>();
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            groups.Add(new LogMessageGroup(
+                reader.GetString(0),
+                reader.GetInt64(1),
+                reader.GetFieldValue<DateTimeOffset>(2),
+                reader.GetFieldValue<DateTimeOffset>(3)));
+        }
+
+        return groups;
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<ServiceLogRate>> GetServiceRatesAsync(
+        DateTimeOffset windowStart,
+        DateTimeOffset windowEnd,
+        CancellationToken cancellationToken)
+    {
+        // Uses the time index; the alert rules call it every 30 seconds over a few minutes of records.
+        await using var command = dataSource.CreateCommand(
+            """
+            SELECT environment, service_name, count(*), count(*) FILTER (WHERE severity >= $3)
+            FROM storage.log_record
+            WHERE timestamp >= $1 AND timestamp < $2
+            GROUP BY environment, service_name
+            """);
+        command.Parameters.AddWithValue(windowStart);
+        command.Parameters.AddWithValue(windowEnd);
+        command.Parameters.AddWithValue((short)LogSeverity.Error);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        var rates = new List<ServiceLogRate>();
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            rates.Add(new ServiceLogRate(
+                reader.IsDBNull(0) ? null : reader.GetString(0),
+                reader.GetString(1),
+                reader.GetInt64(2),
+                reader.GetInt64(3)));
+        }
+
+        return rates;
     }
 
     /// <summary>

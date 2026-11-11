@@ -1,0 +1,53 @@
+/*
+ * The day cells of a weather log (VEY-21), shared by the Alerts screen and the home wall (VEY-24). Colours come from
+ * the scene variables in home/home.css.
+ */
+
+.log-days {
+  display: grid;
+  grid-template-columns: repeat(30, minmax(0, 1fr));
+  gap: 3px;
+  margin: 0;
+  padding: 10px 0 0;
+  list-style: none;
+}
+
+.log-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 7px 0 6px;
+  border-radius: 10px;
+}
+
+.log-date {
+  font-size: 10.5px;
+  font-weight: 600;
+  opacity: 0.65;
+}
+
+.log-count {
+  min-height: 13px;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.log-day.w {
+  background: color-mix(in srgb, var(--fc-red) 18%, transparent);
+}
+
+.log-day.c {
+  background: color-mix(in srgb, var(--fc-amber) 14%, transparent);
+}
+
+.log-day.today {
+  box-shadow: inset 0 0 0 1px var(--now-line);
+  background: var(--now-bg);
+}
+
+.log-day.today .log-date {
+  opacity: 1;
+}

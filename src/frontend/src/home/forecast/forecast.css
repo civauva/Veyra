@@ -1,0 +1,366 @@
+/*
+ * The Forecast visual (ADR 0007): hero, key metrics, hourly strip, outlook. Colours come from the scene variables
+ * in home.css, so every part follows the weather and the theme.
+ */
+
+.forecast {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* ---- Hero ---- */
+
+.fc-hero {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 18px 4px 10px;
+}
+
+.fc-hero-icon {
+  flex: 0 0 auto;
+  filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.18));
+}
+
+.fc-big {
+  flex: 0 0 auto;
+  font-size: 156px;
+  font-weight: 200;
+  letter-spacing: -0.06em;
+  line-height: 0.9;
+  font-variant-numeric: tabular-nums;
+}
+
+.fc-big span {
+  font-size: 64px;
+  letter-spacing: -0.02em;
+}
+
+.fc-hero-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fc-hero h1 {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.05;
+}
+
+.fc-say {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.45;
+  opacity: 0.88;
+}
+
+/* ---- Key metrics ---- */
+
+.fc-metrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.fc-tile {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 13px 14px 14px;
+}
+
+.fc-tile .cap {
+  font-size: 10.5px;
+}
+
+.fc-tile-value {
+  font-size: 30px;
+  font-weight: 300;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.fc-tile-detail {
+  font-size: 12.5px;
+  opacity: 0.8;
+}
+
+/* Not measured yet: drawn dashed, with what it needs instead of a number. */
+.fc-tile.waiting {
+  background: transparent;
+  border-style: dashed;
+  box-shadow: none;
+}
+
+.fc-tile.waiting .fc-tile-value {
+  margin-top: 4px;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.3;
+  opacity: 0.88;
+}
+
+.fc-tile.waiting .fc-tile-detail {
+  opacity: 0.65;
+}
+
+.fc-gauge {
+  position: relative;
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #7ce3b1, #ffb627 50%, #ff4b3e);
+}
+
+.fc-gauge i {
+  position: absolute;
+  top: -3px;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border-radius: 50%;
+  background: var(--marker);
+  box-shadow: 0 0 0 3px var(--marker-ring);
+}
+
+/* ---- Hourly strip ---- */
+
+.fc-hours {
+  padding: 12px 14px 8px;
+}
+
+.fc-hours-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 4px 8px;
+  border-bottom: 1px solid var(--scene-line);
+}
+
+.fc-hour-row {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(13, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.fc-hour {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 0;
+  border-radius: 12px;
+}
+
+.fc-hour-time {
+  font-size: 13px;
+  font-weight: 500;
+  opacity: 0.78;
+}
+
+.fc-hour-value {
+  font-size: 14.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.fc-hour-note {
+  min-height: 13px;
+  max-width: 100%;
+  padding: 0 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  opacity: 0.8;
+  overflow-wrap: anywhere;
+}
+
+.fc-hour.now {
+  background: var(--now-bg);
+  box-shadow: inset 0 0 0 1px var(--now-line);
+}
+
+.fc-hour.now .fc-hour-time {
+  font-weight: 700;
+  opacity: 1;
+}
+
+.fc-hour.expected .fc-hour-icon {
+  opacity: 0.85;
+}
+
+.fc-hour.learning .fc-hour-icon,
+.fc-hour.learning .fc-hour-value {
+  opacity: 0.5;
+  font-weight: 500;
+}
+
+/* ---- Outlook ---- */
+
+.fc-outlook {
+  padding: 14px 18px 4px;
+}
+
+.fc-outlook-head,
+.fc-outlook-row {
+  display: grid;
+  grid-template-columns: 76px 30px minmax(0, 1fr) 240px;
+  gap: 14px;
+  align-items: center;
+}
+
+.fc-outlook-head {
+  align-items: end;
+  padding-bottom: 8px;
+}
+
+.fc-outlook-head .cap {
+  grid-column: 1 / span 3;
+}
+
+.fc-ticks {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+.fc-outlook-row {
+  min-height: 50px;
+  border-top: 1px solid var(--scene-line);
+  font-size: 14.5px;
+}
+
+.fc-outlook-row b {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.fc-outlook-row.waiting {
+  opacity: 0.62;
+}
+
+.fc-outlook-row.fc-warm .fc-outlook-icon,
+.fc-outlook-row.fc-hot .fc-outlook-icon {
+  color: var(--fc-amber);
+}
+
+.fc-track {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--scene-chip);
+}
+
+.fc-track i {
+  position: absolute;
+  top: -4px;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  border-radius: 50%;
+  background: var(--fc-amber);
+  box-shadow: 0 0 0 3px var(--marker-ring);
+}
+
+.fc-hot .fc-track i {
+  background: var(--fc-red);
+}
+
+/* ---- Tablet ---- */
+
+@media (max-width: 1199px) {
+  .fc-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .fc-big {
+    font-size: 120px;
+  }
+}
+
+/* ---- Phone: everything in one column; the hours scroll sideways ---- */
+
+@media (max-width: 767px) {
+  .fc-hero {
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    padding-top: 6px;
+  }
+
+  .fc-hero-icon {
+    width: 64px;
+    height: 64px;
+  }
+
+  .fc-big {
+    font-size: 86px;
+  }
+
+  .fc-big span {
+    font-size: 38px;
+  }
+
+  .fc-hero h1 {
+    font-size: 26px;
+  }
+
+  .fc-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fc-hours {
+    overflow-x: auto;
+  }
+
+  .fc-hours-head {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .fc-hour-row {
+    grid-template-columns: repeat(13, 64px);
+  }
+
+  .fc-outlook-head,
+  .fc-outlook-row {
+    grid-template-columns: 64px 26px minmax(0, 1fr);
+  }
+
+  .fc-track,
+  .fc-ticks {
+    display: none;
+  }
+}
+
+/* Without records the hero says so in words, at a size that reads as text rather than as a figure. */
+.fc-big-empty {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  font-size: 40px;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.fc-big-empty small {
+  font-size: 14px;
+  letter-spacing: 0;
+  opacity: 0.7;
+}

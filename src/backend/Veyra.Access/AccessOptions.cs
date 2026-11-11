@@ -31,4 +31,16 @@ public sealed class AccessOptions
 
     /// <summary>How long the one-time setup link for the first administrator stays valid.</summary>
     public TimeSpan SetupTokenLifetime { get; set; } = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// How many days sign-in attempts and ended sessions are kept (ADR 0011). They hold addresses, which are personal
+    /// data, so they are not kept longer than an Admin needs to look back after an incident.
+    /// </summary>
+    public int SignInHistoryDays { get; set; } = 90;
+
+    /// <summary>
+    /// The last way back in (ADR 0011): an email whose second factor Veyra removes at startup, for the only Admin who
+    /// lost both phone and recovery codes. Set it, restart, sign in, and take it out again.
+    /// </summary>
+    public string? RemoveSecondFactor { get; set; }
 }

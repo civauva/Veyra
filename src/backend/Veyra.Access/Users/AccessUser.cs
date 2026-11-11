@@ -15,6 +15,7 @@ namespace Veyra.Access.Users;
 /// <param name="LockedUntil">When a lockout ends, or <see langword="null"/> when not locked.</param>
 /// <param name="CreatedAt">When the user was created.</param>
 /// <param name="LastSignInAt">When the user last signed in, or <see langword="null"/> if never.</param>
+/// <param name="Team">A free-text team an Admin set, or <see langword="null"/> (ADR 0011).</param>
 internal sealed record AccessUser(
     Guid Id,
     string Email,
@@ -25,8 +26,12 @@ internal sealed record AccessUser(
     int FailedSignIns,
     DateTimeOffset? LockedUntil,
     DateTimeOffset CreatedAt,
-    DateTimeOffset? LastSignInAt)
+    DateTimeOffset? LastSignInAt,
+    string? Team = null)
 {
+    /// <summary>The longest team name an Admin can set.</summary>
+    public const int MaxTeamLength = 100;
+
     /// <summary>
     /// Returns the form of an email address used for lookups and uniqueness: trimmed and lower case.
     /// </summary>

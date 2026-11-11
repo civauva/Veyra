@@ -14,6 +14,10 @@ supersedes the old one and update both status lines.
 | [0006](0006-deployment-docker-compose.md) | Deployment: Docker Compose with Veyra and PostgreSQL | Accepted |
 | [0007](0007-home-dashboards-blocks-and-groups.md) | Home dashboards on a shared block and group model | Accepted |
 | [0008](0008-authentication-roles-and-ingestion-keys.md) | Authentication, roles, and ingestion keys | Accepted |
+| [0009](0009-alert-notifications.md) | Alert notifications: channels, a delivery outbox, and the webhook payload | Accepted |
+| [0010](0010-metrics-storage.md) | Metrics storage: series and points in PostgreSQL | Accepted |
+| [0011](0011-two-factor-sign-in.md) | Two-factor sign-in, sessions, and sign-in history | Accepted |
+| [0012](0012-metric-alert-rules-and-alert-subjects.md) | Metric alert rules, alerts on hosts, and alert history | Accepted |
 
 ## Template
 

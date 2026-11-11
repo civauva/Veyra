@@ -1,6 +1,12 @@
 import type { Page, Request } from "@playwright/test";
 
-import type { IngestionKey, LogEntry, LogSummary } from "../src/api/types";
+import { historyItems, historySummary } from "../src/alerts/testAlertHistory";
+import { openDiskFilling, openWarning, resolvedLatency } from "../src/alerts/testAlerts";
+import type { AlertDetails, HomeSnapshot, IngestionKey, LogEntry, LogSummary } from "../src/api/types";
+import { stormSnapshot } from "../src/home/testSnapshots";
+import { durationChart, hostMetrics, names, overview, serviceMetrics } from "../src/metrics/testMetrics";
+import { channels, emailServer } from "../src/notifications/testChannels";
+import { lenaAccount, people, tomDetail } from "../src/users/testUsers";
 
 /** A signed-in administrator. */
 const session = { id: "u1", email: "ana@example.com", displayName: "Ana Admin", role: "Admin" };
@@ -63,10 +69,18 @@ const keys: IngestionKey[] = [
  * Answers the REST API inside the browser, as a signed-in administrator would see it.
  *
  * @param page - The page to answer for.
+ * @param options - What to answer that differs from the defaults.
+ * @param options.home - The home snapshot; the storm from the VEY-17 mockups when left out.
+ * @param options.alert - The alert every `/api/v1/alerts/{id}` answers with; the open warning of VEY-18 when left out.
+ * @param options.signIn - `code` to start signed out, with a password step that asks for a code (VEY-20).
  * @returns The log searches the page made, newest last, so tests can check the filters it sent.
  */
-export async function answerApi(page: Page): Promise<Request[]> {
+export async function answerApi(
+  page: Page,
+  options: { home?: HomeSnapshot; alert?: AlertDetails; signIn?: "code" } = {},
+): Promise<Request[]> {
   const searches: Request[] = [];
+  let signedIn = options.signIn === undefined;
 
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
@@ -74,7 +88,23 @@ export async function answerApi(page: Page): Promise<Request[]> {
 
     switch (url.pathname) {
       case "/api/v1/session":
+        if (request.method() === "POST") {
+          return route.fulfill({ status: 202, json: { next: "code" } });
+        }
+
+        return signedIn ? route.fulfill({ json: session }) : route.fulfill({ status: 401, json: { title: "Sign in" } });
+      case "/api/v1/setup":
+        return route.fulfill({ json: { required: false } });
+      case "/api/v1/session/second-factor":
+        signedIn = true;
+
         return route.fulfill({ json: session });
+      case "/api/v1/users":
+        return route.fulfill({ json: people });
+      case "/api/v1/users/second-factor-policy":
+        return route.fulfill({ json: { requiredFor: "Admins" } });
+      case "/api/v1/account":
+        return route.fulfill({ json: lenaAccount });
       case "/api/v1/session/antiforgery":
         return route.fulfill({ json: { token: "e2e" } });
       case "/api/v1/logs/summary":
@@ -88,7 +118,45 @@ export async function answerApi(page: Page): Promise<Request[]> {
       }
       case "/api/v1/ingestion-keys":
         return route.fulfill({ json: keys });
+      case "/api/v1/home":
+        return route.fulfill({ json: options.home ?? stormSnapshot });
+      case "/api/v1/metrics/overview":
+        return route.fulfill({ json: overview });
+      case "/api/v1/metrics/names":
+        return route.fulfill({ json: names });
+      case "/api/v1/metrics/chart":
+        return route.fulfill({ json: durationChart });
+      case "/api/v1/notification-channels":
+        return route.fulfill({ json: { emailServer, channels } });
+      case "/api/v1/alerts":
+        return route.fulfill({ json: { items: historyItems, next: null } });
+      case "/api/v1/alerts/summary":
+        return route.fulfill({ json: historySummary });
+      case `/api/v1/alerts/${openDiskFilling.id}`:
+        return route.fulfill({ json: openDiskFilling });
+      case `/api/v1/alerts/${resolvedLatency.id}`:
+        return route.fulfill({ json: resolvedLatency });
       default:
+        if (url.pathname.startsWith("/api/v1/metrics/hosts/")) {
+          return route.fulfill({ json: hostMetrics });
+        }
+
+        if (url.pathname.startsWith("/api/v1/metrics/services/")) {
+          return route.fulfill({ json: serviceMetrics });
+        }
+
+        if (url.pathname.startsWith("/api/v1/users/")) {
+          return route.fulfill({ json: tomDetail });
+        }
+
+        if (url.pathname.startsWith("/api/v1/alerts/")) {
+          return route.fulfill({ json: options.alert ?? openWarning });
+        }
+
+        if (url.pathname.endsWith("/test")) {
+          return route.fulfill({ json: { succeeded: true, status: 204, error: null } });
+        }
+
         return route.fulfill({ status: 404, json: { title: "Not found" } });
     }
   });

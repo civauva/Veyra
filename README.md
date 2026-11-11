@@ -87,11 +87,11 @@ beyond those decisions are listed in [`docs/architecture/tech-stack.md`](docs/ar
 - [x] Receive structured logs via OTLP
 - [x] Persist and query logs by time, severity, service, and attributes
 - [x] Search log messages and inspect exceptions/stack traces
-- [ ] Build Overview, Log Explorer, and Event/Incident Details screens
-- [ ] Implement basic application/host metrics display
+- [x] Build Overview, Log Explorer, and Event/Incident Details screens
+- [x] Implement basic application/host metrics display
 - [x] Add configurable data retention
 - [x] Add basic authentication and secure ingestion configuration
-- [ ] Provide a minimal alerting workflow with email or webhook notifications
+- [x] Provide a minimal alerting workflow with email or webhook notifications
 - [x] Publish a working .NET sample application and setup guide
 
 ### Later milestones
@@ -117,8 +117,12 @@ beyond those decisions are listed in [`docs/architecture/tech-stack.md`](docs/ar
 Veyra is pre-alpha and has **no released images yet**. It can be built and run from source with Docker Compose;
 see [`docs/guides/deployment.md`](docs/guides/deployment.md).
 
-Today it receives logs over OTLP, stores them in PostgreSQL, and shows them in the Log Explorer, with accounts,
-roles, and ingestion keys. The Overview and Incident Details screens are not built yet.
+Today it receives logs and metrics over OTLP, stores them in PostgreSQL, and shows them on the Forecast home, in
+the Log Explorer, and on the Metrics screens for hosts and services. Accounts have roles and optional two-factor
+sign-in, and the Users screen shows each account's sign-ins and sessions; senders use ingestion keys. Built-in
+rules raise alerts on a service's error rate and request latency and on a host's disk space and growth, each with
+its own details screen; the Alerts screen keeps 90 days of history, and alerts go to webhook and email channels. A
+tested Collector configuration watches Linux hosts. Traces and user-defined rules are not built yet.
 
 ## Contributing
 

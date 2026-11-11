@@ -15,7 +15,8 @@
 
   <ItemGroup>
     <!-- The official OTLP definitions from github.com/open-telemetry/opentelemetry-proto, release v1.11.1, unchanged.
-         Only the files the logs service needs. Generated types are internal: they are wire formats, not Veyra API. -->
+         Only the files the logs and metrics services need. Generated types are internal: they are wire formats, not
+         Veyra API. -->
     <Protobuf Include="Otlp/Protos/**/*.proto" ProtoRoot="Otlp/Protos" Access="Internal" GrpcServices="Both" />
   </ItemGroup>
 

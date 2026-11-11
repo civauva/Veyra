@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { api } from "../api/client";
+import type { Session } from "../api/types";
 import { SessionContext, type SessionState, type SessionValue } from "./SessionContext";
 
 /** Props for {@link SessionProvider}. */
@@ -47,8 +48,18 @@ export function SessionProvider({ children }: SessionProviderProps) {
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
-    const session = await api.signIn(email, password);
+    const step = await api.signIn(email, password);
 
+    if (step.session) {
+      setState({ status: "signedIn", session: step.session });
+
+      return null;
+    }
+
+    return step.next;
+  }, []);
+
+  const completeSignIn = useCallback((session: Session) => {
     setState({ status: "signedIn", session });
   }, []);
 
@@ -63,8 +74,8 @@ export function SessionProvider({ children }: SessionProviderProps) {
   }, []);
 
   const value = useMemo<SessionValue>(
-    () => ({ state, signIn, signOut, setupCompleted }),
-    [state, signIn, signOut, setupCompleted],
+    () => ({ state, signIn, completeSignIn, signOut, setupCompleted }),
+    [state, signIn, completeSignIn, signOut, setupCompleted],
   );
 
   return <SessionContext value={value}>{children}</SessionContext>;

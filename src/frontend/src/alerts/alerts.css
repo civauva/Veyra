@@ -1,0 +1,531 @@
+/*
+ * The Alerts screen (VEY-21 mockups): a hero with counts, a month of weather, the list of alerts, and the built-in
+ * rules. It lives in a weather scene from home/home.css, so colours come from the scene variables and work in both
+ * themes. Red is warning, amber is caution.
+ */
+
+/* ---- Hero ---- */
+
+.alerts-hero {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 24px;
+  align-items: center;
+  padding: 4px 4px 0;
+}
+
+.alerts-hero h1 {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+
+.alerts-hero .say {
+  max-width: 720px;
+  margin: 6px 0 0;
+  font-size: 15px;
+  line-height: 1.5;
+  opacity: 0.85;
+}
+
+.alerts-stats {
+  display: flex;
+  gap: 10px;
+  margin: 0;
+}
+
+.alerts-stats .fact {
+  min-width: 128px;
+}
+
+/* ---- Weather log ---- */
+
+.weather-log {
+  padding: 14px 16px 12px;
+}
+
+.weather-log-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px 16px;
+  padding: 0 4px 10px;
+  border-bottom: 1px solid var(--scene-line);
+}
+
+.weather-log-head h2 {
+  margin: 0;
+}
+
+.log-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.log-legend li::before {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 3px;
+  vertical-align: -1px;
+}
+
+.log-legend li:last-child::before {
+  display: none;
+}
+
+.legend-day-warning::before {
+  background: color-mix(in srgb, var(--fc-red) 60%, transparent);
+}
+
+.legend-day-caution::before {
+  background: color-mix(in srgb, var(--fc-amber) 55%, transparent);
+}
+
+/* ---- List and filters ---- */
+
+.alerts-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  gap: 16px;
+  align-items: start;
+}
+
+.alerts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px 16px;
+}
+
+.alerts-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.weather-log-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.alerts-screen .seg {
+  display: flex;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--scene-chip);
+}
+
+.alerts-screen .seg button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.8;
+  cursor: pointer;
+}
+
+.alerts-screen .seg button[aria-pressed="true"] {
+  background: var(--scene-nav-on-bg);
+  color: var(--scene-nav-on-fg);
+  opacity: 1;
+}
+
+.alerts-filters em,
+.rule-chip em {
+  font-style: normal;
+  font-weight: 500;
+  opacity: 0.7;
+}
+
+.rule-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rule-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--glass-line);
+  border-radius: 999px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rule-chip[aria-pressed="true"] {
+  border-color: currentColor;
+  background: var(--scene-chip);
+}
+
+.alerts-find {
+  flex: 1 1 200px;
+}
+
+.alerts-find input {
+  width: 100%;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--glass-line);
+  border-radius: 10px;
+  background: var(--glass-bg);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+}
+
+.alerts-screen .seg button:focus-visible,
+.alerts-filters button:focus-visible,
+.alerts-find input:focus-visible,
+.alert-line:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.alerts-empty {
+  margin: 6px 2px;
+}
+
+.alerts-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.alerts-day {
+  margin: 6px 0;
+}
+
+.alert-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.alert-line {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 96px 160px 18px;
+  gap: 14px;
+  align-items: center;
+  padding: 11px 12px;
+  border: 1px solid var(--glass-line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--glass-bg) 70%, transparent);
+  color: inherit;
+  text-decoration: none;
+}
+
+.alert-line:hover {
+  border-color: currentColor;
+}
+
+.alert-line.open.w {
+  border-color: color-mix(in srgb, var(--fc-red) 55%, transparent);
+  background: color-mix(in srgb, var(--fc-red) 15%, transparent);
+}
+
+.alert-line.open.c {
+  border-color: color-mix(in srgb, var(--fc-amber) 55%, transparent);
+  background: color-mix(in srgb, var(--fc-amber) 13%, transparent);
+}
+
+.alert-line-what b {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.alert-line-what small,
+.alert-line-peak small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  opacity: 0.75;
+}
+
+.rule-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--scene-chip);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.alert-line-peak {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.alert-line-peak b {
+  font-size: 16px;
+  font-weight: 500;
+}
+
+/* How long it lasted, on its day's 24 hours. */
+.alert-line-span {
+  position: relative;
+  height: 24px;
+}
+
+.alert-line-span::before {
+  content: "";
+  position: absolute;
+  top: 15px;
+  right: 0;
+  left: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--scene-line);
+}
+
+.alert-line-span em {
+  position: absolute;
+  top: -2px;
+  left: 0;
+  font-size: 10.5px;
+  font-style: normal;
+  white-space: nowrap;
+  opacity: 0.75;
+}
+
+.alert-line-span i {
+  position: absolute;
+  top: 12px;
+  height: 8px;
+  border-radius: 4px;
+}
+
+.alert-line-span i.w {
+  background: var(--fc-red);
+}
+
+.alert-line-span i.c {
+  background: var(--fc-amber);
+}
+
+.alert-line-span i.live {
+  box-shadow: 0 0 10px color-mix(in srgb, var(--fc-red) 70%, transparent);
+}
+
+.alert-line-span i.c.live {
+  box-shadow: 0 0 10px color-mix(in srgb, var(--fc-amber) 70%, transparent);
+}
+
+.alert-line-go {
+  opacity: 0.6;
+}
+
+.alerts-more {
+  align-self: center;
+  background: none;
+  cursor: pointer;
+}
+
+/* ---- Built-in rules ---- */
+
+.built-in-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.built-in-rules h2,
+.built-in-rules ul {
+  margin: 0;
+}
+
+.built-in-rules ul {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.built-in-rule {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  align-items: center;
+  padding-top: 12px;
+  border-top: 1px solid var(--scene-line);
+}
+
+.built-in-rule:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.built-in-rule.off {
+  opacity: 0.6;
+}
+
+.rule-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--scene-chip);
+}
+
+.built-in-rule b {
+  font-size: 14px;
+}
+
+.rule-count {
+  font-size: 22px;
+  font-weight: 300;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.rule-count small {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  opacity: 0.7;
+}
+
+.built-in-rule p {
+  grid-column: 2 / -1;
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  opacity: 0.85;
+}
+
+.built-in-rule .caution {
+  color: var(--fc-amber);
+  font-weight: 600;
+}
+
+.built-in-rule .warning {
+  color: var(--fc-red-strong);
+  font-weight: 600;
+}
+
+.built-in-rules > .fine {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* ---- Tablet ---- */
+
+@media (max-width: 1199px) {
+  .alerts-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .alerts-hero {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .alerts-stats {
+    grid-column: 1 / -1;
+  }
+
+  .log-days {
+    grid-template-columns: repeat(15, minmax(0, 1fr));
+    row-gap: 6px;
+  }
+}
+
+/* ---- Phone ---- */
+
+@media (max-width: 767px) {
+  .alerts-hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .alerts-hero .weather-icon {
+    width: 60px;
+    height: 60px;
+  }
+
+  .alerts-hero h1 {
+    font-size: 28px;
+  }
+
+  .alerts-stats {
+    gap: 8px;
+  }
+
+  .alerts-stats .fact {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 12px;
+  }
+
+  .weather-log-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .log-days {
+    grid-template-columns: repeat(10, minmax(0, 1fr));
+  }
+
+  .alert-line {
+    grid-template-columns: 30px minmax(0, 1fr) 72px;
+  }
+
+  .alert-line-span,
+  .alert-line-go {
+    display: none;
+  }
+}
+
+/* A 90-day log keeps 30 cells a row on wide screens. */
+.log-days.long .log-date {
+  font-size: 9.5px;
+}
+
+/* Touch screens get larger targets. */
+@media (pointer: coarse) {
+  .alerts-screen .seg button,
+  .rule-chip,
+  .alerts-find input {
+    min-height: 44px;
+  }
+}

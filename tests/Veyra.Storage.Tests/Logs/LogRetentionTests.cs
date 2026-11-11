@@ -73,6 +73,64 @@ public class LogRetentionTests(PostgresFixture postgres)
         Assert.Equal(0, result.DeletedDefaultRows);
     }
 
+    [Fact]
+    public async Task GetUsageAsync_ReportsSizeBudgetRetentionAndDailyAverage()
+    {
+        await using var database = await CreateAsync();
+        await PartitionsAsync(database).EnsureAsync(_now.AddDays(-1), CancellationToken.None);
+        await PartitionsAsync(database).EnsureAsync(_now, CancellationToken.None);
+        await new LogStore(database).WriteAsync(
+            [Record(_now.AddDays(-2), "two days ago"), Record(_now.AddDays(-1), "yesterday"), Record(_now, "today")],
+            default);
+        var options = new StorageOptions { LogRetentionDays = 7, MaxLogStorageGigabytes = 2 };
+
+        var usage = await Retention(database, options).GetUsageAsync(_now, CancellationToken.None);
+
+        // The full days before today: the 7th and the 8th of November.
+        var fullDays = await SizeAsync(database, "storage.log_record_20261107", "storage.log_record_20261108");
+        var all = await SizeAsync(
+            database,
+            "storage.log_record_20261107",
+            "storage.log_record_20261108",
+            "storage.log_record_20261109",
+            "storage.log_record_20261110",
+            "storage.log_record_20261111",
+            "storage.log_record_default");
+        Assert.Equal(all, usage.UsedBytes);
+        Assert.Equal(2L * 1024 * 1024 * 1024, usage.BudgetBytes);
+        Assert.Equal(7, usage.RetentionDays);
+        Assert.Equal(fullDays / 2, usage.DailyBytes);
+    }
+
+    [Fact]
+    public async Task GetUsageAsync_BeforeTheFirstFullDay_HasNoDailyAverageOrBudget()
+    {
+        await using var database = await CreateAsync();
+        await PartitionsAsync(database).EnsureAsync(_now, CancellationToken.None);
+        await new LogStore(database).WriteAsync([Record(_now, "today")], default);
+
+        // The partition for yesterday exists, because partitions are made around today, but it holds nothing: the
+        // installation started today.
+        var usage = await Retention(database, new StorageOptions()).GetUsageAsync(_now, CancellationToken.None);
+
+        Assert.Null(usage.DailyBytes);
+        Assert.Null(usage.BudgetBytes);
+        Assert.True(usage.UsedBytes > 0);
+    }
+
+    private static async Task<long> SizeAsync(NpgsqlDataSource database, params string[] tables)
+    {
+        long total = 0;
+
+        foreach (var table in tables)
+        {
+            await using var command = database.CreateCommand($"SELECT pg_total_relation_size('{table}')");
+            total += (long)(await command.ExecuteScalarAsync())!;
+        }
+
+        return total;
+    }
+
     private Task<NpgsqlDataSource> CreateAsync() => postgres.CreateMigratedDatabaseAsync(new StorageMigrations());
 
     private static LogPartitions PartitionsAsync(NpgsqlDataSource database) =>

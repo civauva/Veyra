@@ -1,8 +1,9 @@
 using OpenTelemetry.Logs;
+using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 
-// A minimal web app that sends its logs to Veyra with the standard OpenTelemetry .NET SDK and nothing else.
-// Where to send them is the SDK's usual environment configuration, for example:
+// A minimal web app that sends its logs and metrics to Veyra with the standard OpenTelemetry .NET SDK and nothing
+// else. Where to send them is the SDK's usual environment configuration, for example:
 //
 //   OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 //   OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer vyk_...
@@ -11,14 +12,24 @@ using OpenTelemetry.Resources;
 // See docs/integrations/dotnet.md.
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Logging.AddOpenTelemetry(logging =>
-{
-    // Keep the rendered message as the body, so the Log Explorer shows readable text.
-    logging.IncludeFormattedMessage = true;
-    logging.IncludeScopes = true;
-    logging.SetResourceBuilder(ResourceBuilder.CreateDefault().AddService("veyra-sample"));
-    logging.AddOtlpExporter();
-});
+builder.Services
+    .AddOpenTelemetry()
+    .ConfigureResource(resource => resource.AddService("veyra-sample"))
+    .WithLogging(
+        logging => logging.AddOtlpExporter(),
+        options =>
+        {
+            // Keep the rendered message as the body, so the Log Explorer shows readable text.
+            options.IncludeFormattedMessage = true;
+            options.IncludeScopes = true;
+        })
+    .WithMetrics(metrics =>
+    {
+        // Both meters are built into .NET: ASP.NET Core's request durations and the runtime's CPU, memory, garbage
+        // collections, and thread pool. No instrumentation package is needed.
+        metrics.AddMeter("Microsoft.AspNetCore.Hosting", "System.Runtime");
+        metrics.AddOtlpExporter();
+    });
 
 var app = builder.Build();
 
@@ -30,7 +41,8 @@ app.MapGet("/", (ILogger<SampleEndpoints> logger) =>
     return Results.Ok("Logged a greeting. Look for it in Veyra.");
 });
 
-// Writes one error record with an exception, to see how failures arrive.
+// Writes one error record with an exception, to see how failures arrive. It answers 500, so the request also counts
+// as a server error in the metrics.
 app.MapGet("/fail", (ILogger<SampleEndpoints> logger) =>
 {
     try
@@ -42,7 +54,7 @@ app.MapGet("/fail", (ILogger<SampleEndpoints> logger) =>
         SampleLog.Failed(logger, exception);
     }
 
-    return Results.Ok("Logged an error. Look for it in Veyra.");
+    return Results.Problem("Logged an error. Look for it in Veyra.");
 });
 
 await app.RunAsync();

@@ -1,0 +1,389 @@
+/* The Account page (VEY-20): who you are, your password and second factor, sessions, and sign-ins. */
+
+.account {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 28px 24px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  box-sizing: border-box;
+}
+
+.account-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.account-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding: 20px 22px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: var(--panel);
+  box-sizing: border-box;
+}
+
+.account-panel h2 {
+  margin: 0;
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.account-full {
+  grid-column: 1 / -1;
+}
+
+.account-id {
+  background:
+    radial-gradient(circle at 85% 30%, color-mix(in srgb, var(--rc) 16%, transparent), transparent 55%), var(--panel);
+}
+
+.account-who {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.account-who b {
+  display: block;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.account-who small {
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+.account-team {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--rc);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.account-place {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.account-place .ring {
+  fill: none;
+  stroke-width: 1.5;
+}
+
+.account-place .ring.viewer {
+  stroke: color-mix(in srgb, var(--metric-teal) 45%, transparent);
+}
+
+.account-place .ring.editor {
+  stroke: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.account-place .ring.admin {
+  stroke: color-mix(in srgb, var(--metric-violet) 55%, transparent);
+  fill: color-mix(in srgb, var(--metric-violet) 12%, transparent);
+}
+
+.account-place .ring.lit {
+  stroke: var(--rc);
+  stroke-width: 2.5;
+  fill: color-mix(in srgb, var(--rc) 10%, transparent);
+}
+
+.account-place .ring-label {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 1.3px;
+  text-anchor: middle;
+}
+
+.ring-label.viewer {
+  fill: var(--metric-teal);
+}
+
+.ring-label.editor {
+  fill: var(--accent);
+}
+
+.ring-label.admin {
+  fill: var(--metric-violet);
+}
+
+.account-place .me {
+  fill: var(--rc);
+  stroke: var(--panel);
+  stroke-width: 2.5;
+}
+
+.account-place .me-ring {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.account-can {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+
+.account-can li {
+  display: flex;
+  gap: 10px;
+}
+
+.account-can i {
+  flex: 0 0 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.account-can .yes i {
+  background: color-mix(in srgb, var(--rc) 18%, transparent);
+  color: var(--rc);
+}
+
+.account-can .no {
+  color: var(--faint);
+}
+
+.account-can .no i {
+  background: var(--chip);
+}
+
+.account-timeline {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin: 0;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--line);
+  list-style: none;
+}
+
+.account-timeline::before {
+  content: "";
+  position: absolute;
+  left: 16%;
+  right: 16%;
+  top: 21px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--faint), var(--accent));
+  opacity: 0.5;
+}
+
+.account-timeline li {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding-top: 18px;
+  text-align: center;
+}
+
+.account-timeline li::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 3px solid var(--faint);
+  background: var(--panel);
+}
+
+.account-timeline li.now::before {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.account-timeline b {
+  font-size: 13.5px;
+}
+
+.account-timeline span {
+  color: var(--faint);
+  font-size: 12px;
+}
+
+.account-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.account-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.length span {
+  position: relative;
+  display: block;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--chip);
+  overflow: hidden;
+}
+
+.length b {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--warning-fg), var(--ok-fg) 40%);
+  transition: width 0.15s;
+}
+
+.length em {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--fg);
+  opacity: 0.35;
+}
+
+.account-small {
+  margin: 0;
+  color: var(--faint);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.account-small .ok,
+.account-small.ok {
+  color: var(--ok-fg);
+  font-weight: 600;
+}
+
+.account-info {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--panel));
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+.account-done {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+  font-size: 13px;
+}
+
+.account-right {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.account-tf {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.shield {
+  flex: 0 0 46px;
+  height: 46px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--chip);
+  color: var(--faint);
+  font-size: 22px;
+}
+
+.shield.on {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+}
+
+.tf-text {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+.tf-text b {
+  font-size: 15.5px;
+}
+
+.tf-text small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.account-notme {
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.people-dialog.wide {
+  width: min(580px, calc(100vw - 32px));
+}
+
+@media (max-width: 1023px) {
+  .account-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 767px) {
+  .account {
+    padding: 18px 16px 32px;
+  }
+
+  .account-place {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .account-who .avatar.large {
+    width: 56px;
+    height: 56px;
+    font-size: 19px;
+  }
+}

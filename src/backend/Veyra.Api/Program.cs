@@ -26,6 +26,7 @@ builder.Services.AddProblemDetails();
 builder.Services
     .AddControllers(options => options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute()))
     .AddApplicationPart(typeof(AccessServiceCollectionExtensions).Assembly)
+    .AddApplicationPart(typeof(AlertingServiceCollectionExtensions).Assembly)
     .AddApplicationPart(typeof(QueryServiceCollectionExtensions).Assembly)
     .AddControllersAsServices()
     .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));

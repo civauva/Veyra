@@ -2,6 +2,9 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Veyra.Core;
+using Veyra.Core.Metrics.Health;
+using Veyra.Query.Home;
+using Veyra.Query.Metrics;
 
 namespace Veyra.Query;
 
@@ -30,6 +33,14 @@ public static class QueryServiceCollectionExtensions
             .ValidateOnStart();
 
         services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton<HomeSnapshotBuilder>();
+        services.AddSingleton<MetricViewBuilder>();
+        services.AddSingleton<IMetricHealth, MetricHealth>();
+
+        // The controller is public, as MVC requires, but its builder is internal, so the module builds it. The host's
+        // AddControllersAsServices() only adds controllers that are not registered yet.
+        services.AddTransient(provider => new HomeController(provider.GetRequiredService<HomeSnapshotBuilder>()));
+        services.AddTransient(provider => new MetricsController(provider.GetRequiredService<MetricViewBuilder>()));
 
         return services;
     }

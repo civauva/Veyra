@@ -1,11 +1,18 @@
 /* The app frame: a fixed top bar and the screen below it, filling the window. */
 .shell {
+  position: relative;
+  /* Its own stacking context, so the weather layers below can sit behind every screen and still above the background. */
+  isolation: isolate;
   height: 100dvh;
   display: flex;
   flex-direction: column;
+  background: var(--bg);
 }
 
 .shell-bar {
+  position: relative;
+  /* Above the screen below, so the phone menu opens over it; below the sheets screens open (z-index 5 and up). */
+  z-index: 2;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
@@ -14,9 +21,15 @@
   padding: 0 16px;
   background: var(--bar-bg);
   border-bottom: 1px solid var(--line);
+  backdrop-filter: blur(18px);
 }
 
+/*
+ * On wide screens the menu group dissolves into the bar, and order puts the navigation right after the slot for
+ * environment pills, as in the mockups: brand, pills, navigation, space, lights, theme, user.
+ */
 .shell-brand {
+  order: 0;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -25,16 +38,68 @@
   color: var(--accent);
 }
 
-.shell-name {
-  color: var(--fg);
+.shell-slot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.shell-slot:empty {
+  display: none;
+}
+
+.shell-slot-start {
+  order: 1;
+}
+
+.shell-menu {
+  display: contents;
 }
 
 .shell-nav {
+  order: 2;
   display: flex;
   gap: 2px;
   padding: 3px;
   border-radius: 999px;
   background: var(--chip);
+}
+
+.shell-spacer {
+  order: 3;
+  flex: 1;
+}
+
+.shell-slot-end {
+  order: 4;
+}
+
+.shell-theme {
+  order: 5;
+  min-width: 40px;
+  padding: 0 10px;
+  font-size: 16px;
+}
+
+.shell-user {
+  order: 6;
+}
+
+.shell-signout {
+  order: 7;
+}
+
+.shell-menu-toggle {
+  order: 8;
+  display: none;
+  min-width: 44px;
+  padding: 0;
+  font-size: 18px;
+}
+
+.shell-name {
+  color: var(--fg);
 }
 
 .shell-nav a {
@@ -54,16 +119,6 @@
   font-weight: 600;
 }
 
-.shell-spacer {
-  flex: 1;
-}
-
-.shell-theme {
-  min-width: 40px;
-  padding: 0 10px;
-  font-size: 16px;
-}
-
 .shell-user {
   width: 34px;
   height: 34px;
@@ -74,6 +129,23 @@
   justify-content: center;
   font-size: 13px;
   font-weight: 600;
+  color: inherit;
+  text-decoration: none;
+}
+
+.shell-user-label {
+  display: none;
+}
+
+/* The avatar leads to the Account page (VEY-20); a ring shows when it is open. */
+.shell-user:hover {
+  background: color-mix(in srgb, var(--accent) 16%, var(--chip));
+}
+
+.shell-user.active {
+  box-shadow:
+    0 0 0 2px var(--panel),
+    0 0 0 4px var(--accent);
 }
 
 .app-loading {
@@ -81,19 +153,265 @@
   color: var(--muted);
 }
 
-/* Phones: the name and the user badge give way to the navigation. */
-@media (max-width: 767px) {
+/* ---- Scenes: a home paints its weather behind the whole frame, bar included (home.css defines the colours). ---- */
+
+.shell.scene {
+  background: var(--scene-bg);
+  color: var(--scene-fg);
+}
+
+.shell.scene .shell-bar {
+  background: var(--scene-bar);
+  border-bottom-color: var(--scene-line);
+}
+
+.shell.scene .shell-name,
+.shell.scene .shell-brand {
+  color: var(--scene-fg);
+}
+
+.shell.scene .shell-nav {
+  background: var(--scene-chip);
+}
+
+.shell.scene .shell-nav a {
+  color: var(--scene-fg);
+  opacity: 0.8;
+}
+
+.shell.scene .shell-nav a.active {
+  background: var(--scene-nav-on-bg);
+  color: var(--scene-nav-on-fg);
+  opacity: 1;
+}
+
+.shell.scene .shell-bar .button {
+  background: var(--scene-chip);
+  border-color: var(--scene-line);
+}
+
+.shell.scene .shell-user {
+  background: var(--scene-chip);
+}
+
+/*
+ * ---- Weather (VEY-23): the canvas rain, the sun of clear skies, and the veil that keeps the weather to a band
+ * under the bar on work screens. All three lie behind the screens and never take clicks.
+ */
+
+.shell-weather,
+.shell-sun,
+.shell-veil {
+  position: fixed;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.shell-weather {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  view-transition-name: shell-weather;
+}
+
+.shell-sun {
+  top: -160px;
+  right: -120px;
+  width: 520px;
+  height: 520px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 214, 102, 0.5), rgba(255, 214, 102, 0) 65%);
+}
+
+.shell-veil {
+  inset: 0;
+  opacity: 0;
+  background: linear-gradient(
+    180deg,
+    transparent 0,
+    transparent 56px,
+    color-mix(in srgb, var(--bg) 55%, transparent) 150px,
+    var(--bg) 320px
+  );
+  transition: opacity 0.7s ease;
+}
+
+.shell.scene.calm .shell-veil {
+  opacity: 1;
+}
+
+/* A work screen sits on the plain background, so its text keeps the theme colour; the bar keeps the weather's. */
+.shell.scene.calm {
+  color: var(--fg);
+}
+
+.shell.scene.calm .shell-bar {
+  color: var(--scene-fg);
+}
+
+/*
+ * The panels of a work screen let the weather band show through a little, so the screen belongs to the same sky as
+ * the home; below the band they sit on the plain background as before.
+ */
+.shell.scene.calm {
+  --panel: rgba(255, 255, 255, 0.82);
+  --panel-2: rgba(248, 250, 253, 0.76);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .shell.scene.calm {
+    --panel: rgba(16, 24, 51, 0.78);
+    --panel-2: rgba(14, 21, 44, 0.72);
+  }
+}
+
+:root[data-theme="dark"] .shell.scene.calm {
+  --panel: rgba(16, 24, 51, 0.78);
+  --panel-2: rgba(14, 21, 44, 0.72);
+}
+
+/*
+ * ---- Moving between screens: the old screen fades out while the new one rises into place, so the home blends into
+ * the next screen. The bar and the weather keep their place.
+ */
+
+.shell-bar {
+  view-transition-name: shell-bar;
+}
+
+::view-transition-old(root) {
+  animation: 220ms ease-in both shell-fade-out;
+}
+
+::view-transition-new(root) {
+  animation: 480ms cubic-bezier(0.2, 0.7, 0.2, 1) 60ms both shell-rise-in;
+}
+
+::view-transition-group(shell-bar),
+::view-transition-group(shell-weather) {
+  animation-duration: 0s;
+}
+
+@keyframes shell-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes shell-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
+
+  .shell-veil {
+    transition: none;
+  }
+}
+
+/* Tablets: no room for the name beside pills and lights. */
+@media (max-width: 1199px) {
+  .shell-name {
+    display: none;
+  }
+}
+
+/* Tablets and phones: navigation, theme, and sign-out fold into a menu; the bar keeps the brand, the slots, and the
+ * toggle. With the environments and the lights on every screen there is no room for more below desktop width. */
+@media (max-width: 1199px) {
   .shell-bar {
     gap: 8px;
     padding: 0 12px;
   }
 
-  .shell-name,
-  .shell-user {
-    display: none;
+  .shell-menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
-  .shell-nav a {
-    min-height: 40px;
+  .shell-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 12px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    min-width: 220px;
+    padding: 12px;
+    border-radius: 16px;
+    background: var(--panel);
+    color: var(--fg);
+    border: 1px solid var(--line);
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.25);
+  }
+
+  .shell-menu.open {
+    display: flex;
+  }
+
+  .shell-menu .shell-nav {
+    flex-direction: column;
+    border-radius: 12px;
+  }
+
+  .shell-menu .shell-nav a {
+    min-height: 44px;
+    border-radius: 10px;
+  }
+
+  /* Inside the open menu the panel is plain, whatever scene is behind the bar. */
+  .shell.scene .shell-menu .shell-nav {
+    background: var(--chip);
+  }
+
+  .shell.scene .shell-menu .shell-nav a {
+    color: var(--fg);
+  }
+
+  .shell.scene .shell-menu .shell-nav a.active {
+    background: var(--accent);
+    color: var(--accent-fg);
+  }
+
+  .shell.scene .shell-menu .button {
+    background: var(--panel);
+    border-color: var(--line);
+  }
+
+  /* In the phone menu the avatar becomes a row that leads to the Account page. */
+  .shell-menu .shell-user {
+    width: auto;
+    height: auto;
+    min-height: 44px;
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 0 12px;
+    border-radius: 10px;
+    background: var(--chip);
+  }
+
+  .shell-menu .shell-user-initials {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--panel);
+    font-size: 12px;
+  }
+
+  .shell-menu .shell-user-label {
+    display: inline;
+    font-weight: 600;
   }
 }

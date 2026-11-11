@@ -36,10 +36,12 @@ supplied through environment variables, for example `Veyra__Storage__ConnectionS
 
 - `GET /healthz` returns `200 OK` when the process is up. It never checks dependencies.
 - `GET /readyz` returns `200 OK` when Veyra can also reach PostgreSQL, otherwise `503`.
-- `/api/v1/setup`, `/api/v1/session`, `/api/v1/users`, and `/api/v1/ingestion-keys` belong to `Veyra.Access`.
+- `/api/v1/setup`, `/api/v1/session`, `/api/v1/account`, `/api/v1/users`, and `/api/v1/ingestion-keys` belong to
+  `Veyra.Access`, with two-factor sign-in, sessions, and sign-in history (ADR 0011).
   Everything else requires a signed-in user; the anonymous endpoints are listed in `AnonymousEndpointTests`.
-- `GET /api/v1/logs` belongs to `Veyra.Query` and searches stored logs.
-- OTLP: `POST /v1/logs` and the gRPC `LogsService/Export` belong to `Veyra.Ingestion` and check ingestion keys.
+- `GET /api/v1/logs` and `/api/v1/metrics` belong to `Veyra.Query` and read stored logs and metrics.
+- OTLP: `POST /v1/logs`, `POST /v1/metrics`, and the gRPC `LogsService/Export` and `MetricsService/Export` belong
+  to `Veyra.Ingestion` and check ingestion keys.
   Kestrel listens on 8080 (API and OTLP/HTTP), 4317 (OTLP/gRPC), and 4318 (OTLP/HTTP). See `docs/api/`.
 
 ## Database migrations

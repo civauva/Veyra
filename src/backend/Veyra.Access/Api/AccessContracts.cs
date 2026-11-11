@@ -49,6 +49,11 @@ public sealed record ChangePasswordRequest(
 /// <param name="Disabled">Whether the user is blocked from signing in.</param>
 /// <param name="CreatedAt">When the user was created.</param>
 /// <param name="LastSignInAt">When the user last signed in, or <see langword="null"/> if never.</param>
+/// <param name="Team">The team an Admin set, or <see langword="null"/>.</param>
+/// <param name="LockedUntil">When a lock after wrong attempts ends, or <see langword="null"/> when not locked.</param>
+/// <param name="SecondFactorSince">When the second factor was switched on, or <see langword="null"/>.</param>
+/// <param name="ActiveSessions">How many browsers are signed in now.</param>
+/// <param name="LastActiveAt">The newest activity of any session, or <see langword="null"/>.</param>
 public sealed record UserResponse(
     Guid Id,
     string Email,
@@ -56,23 +61,31 @@ public sealed record UserResponse(
     VeyraRole Role,
     bool Disabled,
     DateTimeOffset CreatedAt,
-    DateTimeOffset? LastSignInAt);
+    DateTimeOffset? LastSignInAt,
+    string? Team,
+    DateTimeOffset? LockedUntil,
+    DateTimeOffset? SecondFactorSince,
+    int ActiveSessions,
+    DateTimeOffset? LastActiveAt);
 
 /// <summary>Creates a local user.</summary>
 /// <param name="Email">The email address the person signs in with.</param>
 /// <param name="DisplayName">The name shown in the UI.</param>
 /// <param name="Role">What the user may do.</param>
 /// <param name="Password">The initial password, at least 12 characters.</param>
+/// <param name="Team">The team, or <see langword="null"/>.</param>
 public sealed record CreateUserRequest(
     [Required, StringLength(254)] string Email,
     [StringLength(200)] string DisplayName,
     VeyraRole Role,
-    [Required] string Password);
+    [Required] string Password,
+    [StringLength(100)] string? Team = null);
 
-/// <summary>Changes a user's role or disabled flag. Fields left out stay as they are.</summary>
+/// <summary>Changes a user's role, team, or disabled flag. Fields left out stay as they are.</summary>
 /// <param name="Role">The new role.</param>
-/// <param name="Disabled">Whether the user is blocked from signing in.</param>
-public sealed record UpdateUserRequest(VeyraRole? Role, bool? Disabled);
+/// <param name="Disabled">Whether the user is blocked from signing in. Switching off ends every session.</param>
+/// <param name="Team">The new team; an empty string removes it.</param>
+public sealed record UpdateUserRequest(VeyraRole? Role, bool? Disabled, [StringLength(100)] string? Team = null);
 
 /// <summary>An ingestion key, without its secret.</summary>
 /// <param name="Id">The key's ID.</param>

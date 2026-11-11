@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Veyra.Core.Telemetry;
 
 namespace Veyra.Storage.Tests;
 
@@ -45,5 +46,22 @@ public class StorageServiceCollectionExtensionsTests
 
         Assert.Equal(30, options.LogRetentionDays);
         Assert.Null(options.MaxLogStorageGigabytes);
+    }
+
+    [Fact]
+    public async Task AddVeyraStorage_WithoutConnectionString_RatesAndUsageFailWithWhatToSet()
+    {
+        using var provider = new ServiceCollection()
+            .AddVeyraStorage(new ConfigurationBuilder().Build())
+            .BuildServiceProvider();
+
+        var rates = provider.GetRequiredService<ILogRates>();
+        var usage = provider.GetRequiredService<ILogStorageUsage>();
+
+        var ratesError = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => rates.GetServiceRatesAsync(DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow, default));
+        var usageError = await Assert.ThrowsAsync<InvalidOperationException>(() => usage.GetUsageAsync(default));
+        Assert.Contains("Veyra__Storage__ConnectionString", ratesError.Message, StringComparison.Ordinal);
+        Assert.Contains("Veyra__Storage__ConnectionString", usageError.Message, StringComparison.Ordinal);
     }
 }

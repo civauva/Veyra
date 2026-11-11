@@ -1,21 +1,23 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using Veyra.Access.SecondFactor;
 using Veyra.Access.Setup;
+using Veyra.Access.Users;
 
 namespace Veyra.Access;
 
 /// <summary>
-/// Work the Access module must finish before Veyra starts serving requests.
+/// What the Access module does once at startup, after the database is migrated.
 /// </summary>
 public static class AccessStartup
 {
     /// <summary>
-    /// Opens first-run setup when no user exists yet, which writes the one-time setup link to the log. Call it only
-    /// after the database migrations have run, because it reads the users table.
+    /// Opens first-run setup when no user exists, and applies the server's way back in for a lost second factor
+    /// when it is configured (ADR 0011).
     /// </summary>
-    /// <param name="services">The application's service provider.</param>
-    /// <param name="cancellationToken">Cancels the check, for example when the process is asked to stop.</param>
-    /// <returns>A task that completes when setup is opened or known to be done.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="services"/> is null.</exception>
+    /// <param name="services">The application's services.</param>
+    /// <param name="cancellationToken">Cancels startup.</param>
+    /// <returns>A task that completes when both are done.</returns>
     public static async Task PrepareVeyraAccessAsync(
         this IServiceProvider services,
         CancellationToken cancellationToken)
@@ -23,5 +25,13 @@ public static class AccessStartup
         ArgumentNullException.ThrowIfNull(services);
 
         await services.GetRequiredService<SetupService>().PrepareAsync(cancellationToken);
+
+        if (services.GetRequiredService<IOptions<AccessOptions>>().Value.RemoveSecondFactor is { Length: > 0 } email)
+        {
+            await services.GetRequiredService<SecondFactorService>().RemoveForEmailAsync(
+                services.GetRequiredService<UserStore>(),
+                email,
+                cancellationToken);
+        }
     }
 }

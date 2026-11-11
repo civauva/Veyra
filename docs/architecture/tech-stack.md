@@ -30,9 +30,14 @@ Status: agreed. A choice that is hard to reverse has an ADR in
   OTLP retry status, so senders back off instead of Veyra running out of memory.
 - **Configuration.** Options classes per module, validated at startup. Secrets come only from environment
   variables, documented in `deploy/.env.example`.
-- **Time.** `TimeProvider` everywhere, so tests control the clock. Timestamps are `DateTimeOffset` in UTC.
+- **Time.** `TimeProvider` everywhere, so tests control the clock (`FakeTimeProvider` in the storage tests). Timestamps are `DateTimeOffset` in UTC.
 - **Logging.** `ILogger<T>` with structured templates, and source-generated `LoggerMessage` methods on hot paths.
 - **Errors.** Problem details (RFC 9457) for every error response.
+- **Email.** MailKit sends alert emails over SMTP. `System.Net.Mail.SmtpClient` is not recommended for new code
+  and lacks modern authentication.
+- **Outgoing HTTP.** `IHttpClientFactory` with a named client for webhooks that follows no redirects.
+- **Secrets at rest.** Webhook URLs are encrypted with ASP.NET Data Protection, the same key ring as session
+  cookies.
 
 ## Security
 
@@ -47,6 +52,12 @@ Status: agreed. A choice that is hard to reverse has an ADR in
 
 - **Framework.** React with strict TypeScript, function components, and hooks, as ADR 0004 decides.
 - **Visuals.** Home dashboards are hand-drawn SVG, so they do not depend on a chart library.
+- **Two-factor sign-in.** The QR code of the setup is computed by `uqr` (MIT, no dependencies) and drawn as SVG in
+  the app: neither the browser nor .NET has a QR encoder. First passwords are four words from the BIP-39 English list
+  of `@scure/bip39` (MIT), picked with the browser's cryptographic generator; only the list is used. The codes
+  themselves are RFC 6238 over `System.Security.Cryptography`, without a library (ADR 0011).
+- **Metric charts.** The Metrics screens draw their line charts, rings, and sparklines as SVG in a few small
+  components. A chart library would add more weight than the few chart kinds need.
 - **Tooling.** ESLint and Prettier for linting and formatting. Vitest and Testing Library for unit and component
   tests. Playwright for end-to-end tests, run at desktop, tablet, and phone viewports against the built app, with
   the REST API answered by the tests.
@@ -59,13 +70,16 @@ Status: agreed. A choice that is hard to reverse has an ADR in
 
 - **Backend.** xUnit with its built-in assertions. FluentAssertions is not used, because version 8 and later
   need a paid licence for commercial use.
-- **Integration tests.** Testcontainers for PostgreSQL, and `WebApplicationFactory` for the API.
+- **Integration tests.** Testcontainers for PostgreSQL, and `WebApplicationFactory` for the API. Email tests send to
+  a Testcontainers Mailpit server, a real SMTP server that shows what it received.
 - **Golden payloads.** Recorded OTLP payloads from real SDKs and Collectors are kept as test fixtures.
 
 ## Collection and operations
 
 - **Collector.** The OpenTelemetry Collector Contrib distribution, pinned to one tested version for all
-  configurations in `integrations/`.
+  configurations in `integrations/`: 0.140.0.
+- **Metrics.** Stored in PostgreSQL as series and daily-partitioned points; rates and percentiles are computed when
+  read ([ADR 0010](../adr/0010-metrics-storage.md)).
 - **CI.** GitHub Actions (`.github/workflows/ci.yml`) restores, builds in Release, runs all tests, and checks
   formatting on every push and pull request. A frontend job lints, checks formatting, runs the unit and
   end-to-end tests, and builds the app.

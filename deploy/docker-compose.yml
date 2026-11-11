@@ -20,6 +20,23 @@ services:
       Veyra__Storage__LogRetentionDays: ${VEYRA_LOG_RETENTION_DAYS:-14}
       # Empty means no size budget.
       Veyra__Storage__MaxLogStorageGigabytes: ${VEYRA_MAX_LOG_STORAGE_GB:-}
+      # Metrics (ADR 0010): days of points kept, and how many series Veyra accepts before it drops new ones.
+      Veyra__Storage__MetricRetentionDays: ${VEYRA_METRIC_RETENTION_DAYS:-30}
+      Veyra__Storage__MaxMetricSeries: ${VEYRA_MAX_METRIC_SERIES:-50000}
+      # Sign-in attempts and ended sessions, with addresses, are kept this many days (ADR 0011).
+      Veyra__Access__SignInHistoryDays: ${VEYRA_SIGN_IN_HISTORY_DAYS:-90}
+      # The last way back in for an Admin who lost phone and recovery codes. Empty almost always; see
+      # docs/guides/deployment.md, Troubleshooting.
+      Veyra__Access__RemoveSecondFactor: ${VEYRA_REMOVE_SECOND_FACTOR:-}
+      # Alert notifications (docs/architecture/alerting.md). Links in messages use the public address; without it
+      # they carry none. Without an SMTP host, email channels cannot send.
+      Veyra__Alerting__PublicUrl: ${VEYRA_PUBLIC_URL:-}
+      Veyra__Alerting__Notifications__Smtp__Host: ${VEYRA_SMTP_HOST:-}
+      Veyra__Alerting__Notifications__Smtp__Port: ${VEYRA_SMTP_PORT:-587}
+      Veyra__Alerting__Notifications__Smtp__Security: ${VEYRA_SMTP_SECURITY:-Auto}
+      Veyra__Alerting__Notifications__Smtp__Username: ${VEYRA_SMTP_USERNAME:-}
+      Veyra__Alerting__Notifications__Smtp__Password: ${VEYRA_SMTP_PASSWORD:-}
+      Veyra__Alerting__Notifications__Smtp__From: ${VEYRA_SMTP_FROM:-}
     depends_on:
       postgres:
         condition: service_healthy

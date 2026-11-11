@@ -1,6 +1,7 @@
 # Home dashboards
 
-Status: design, not implemented. Decision record: [ADR 0007](../adr/0007-home-dashboards-blocks-and-groups.md).
+Status: Forecast implemented on log data in v0.1 (see [What v0.1 implements](#what-v01-implements)); City and
+groupings are design. Decision record: [ADR 0007](../adr/0007-home-dashboards-blocks-and-groups.md).
 
 A home dashboard is the first screen a user sees. Veyra offers several, and each user picks one. Every home draws
 the same model of **blocks** and **groups**, so the same system has the same state, colour, and name on every home.
@@ -144,14 +145,18 @@ visual in the space it is given.
 
 | Size | Width | Layout |
 | --- | --- | --- |
+| Wall | 2400 px wide and 1200 px tall, and larger | Bands fill the screen: the hero and key figures; every block and the last 30 days of alerts; the last 24 hours as a chart beside the latest alerts, the disks, and the outlook. Needs you runs the full height. |
+| Wide desktop | 1800 px and wider | A third column between the visual and Needs you lists every block and every disk. |
 | Desktop | 1200 px and wider | The visual and the Needs you pane side by side. |
-| Tablet | 768 to 1199 px | The visual on top, the Needs you pane below. Environment pills fold into a menu. |
+| Tablet | 768 to 1199 px | The visual on top, the Needs you pane below. Environment pills fold into a picker and the navigation into the menu. |
 | Phone | Below 768 px | The Needs you list first, then the visual. The bar keeps the master lights and the menu. |
 
 - **Forecast.** On a phone, the hero, the key metrics, the hourly strip, and the outlook stack in one column.
 - **City.** On a phone, the city is a map that can be panned and zoomed. The district list in the pane footer is the
   main way to move around.
 - **Touch.** Tapping selects, like a click. Touch targets are at least 44 by 44 px.
+- **Natural size.** Larger screens show more, never bigger type. A screen as wide as a wall but less tall, such as
+  an ultrawide 2560 × 1080, keeps the wide desktop layout, since the bands need the height.
 
 ## The shell
 
@@ -255,6 +260,53 @@ The layout is deterministic and stable:
 - **Pins.** A user can pin a district or a building to a position, and pins override the automatic layout.
 - **Capacity.** City draws about 200 items before the shell collapses groups. Larger estates rely on collapsed
   groups, so a district of 40 identical pods is one campus, not 40 towers.
+
+## What v0.1 implements
+
+v0.1 has only logs, so the Forecast home is built on them. Wherever the design needs data that does not exist
+yet, the screen says what it needs instead of showing a made-up number.
+
+- **Blocks.** Every service that logged in the last hour or has an open alert is a block of kind `service`, with
+  the identity `service:<environment>/<service.name>`. Every host with an open alert is a block of kind `host`,
+  `host:<environment>/<host.name>` (ADR 0012); the alerts of all its disks light it. Services come first, each kind
+  ordered by name; first-seen order, weight, activity, links, and `unknown` health follow with the block catalog.
+- **Health.** Set by the built-in rules in `Veyra.Alerting`; see [`alerting.md`](alerting.md).
+- **Groupings.** Not yet. Every service is in one group, `Services`, and every host in `Hosts`, so the headline reads
+  "Storm over Services" or "Showers over Hosts".
+- **Snapshot.** `GET /api/v1/home` as documented in [`docs/api/rest.md`](../api/rest.md). Besides the fields above
+  it lists the environments with their weather, the alerts resolved in the last 24 hours, and log storage with its
+  projection. `blocks` carries no `signals`, `headline`, `weight`, or `activity` yet.
+- **Shell.** The environment pills (with "All"), master warning and master caution, and the clock sit in the top
+  bar of every screen (VEY-23). The chosen environment is shared: the home, the Alerts screen, the Log Explorer, and
+  the Metrics cards all narrow to it (hosts whose metrics name no environment belong to every one). Below desktop
+  width the navigation, theme, and sign-out fold into a menu. The detail drawer and the home choice follow with City.
+- **Weather.** The chosen environment's weather lies behind the whole frame, drawn on a canvas: three depths of rain
+  with a little wind, more drops on larger screens, and in a storm soft sheet lightning every 9 to 21 seconds, never a
+  strobe. It is full on the home and the alert screens; on work screens (Logs, Metrics, Keys, Users, Notifications,
+  Account) it keeps to a calm band under the bar and their panels let it show through a little. The alert details
+  screen paints the alert's own weather. Nothing moves for people who ask for reduced motion, and the animation
+  pauses in hidden tabs.
+- **Moving between screens.** The navigation links start a view transition: the old screen fades out while the new
+  one rises into place in about half a second, and the bar and the weather keep their place, so the home blends into
+  the next screen. Browsers without view transitions and reduced motion switch at once.
+- **Large screens (VEY-24).** From 1800 px wide a column lists every service and host as a tile, lit only by its
+  open alerts, with its records and error share of the last five minutes and a link to its logs or metrics, and every
+  disk fullest first. Hosts are those with an open alert and those reporting disks. From 2400 by 1200 px the wall adds
+  the last 24 hours (records an hour with their errors, the six hours ahead as expected load, an hour tinted at the
+  thresholds of the built-in error-rate rule), the weather log of the last 30 days as on the Alerts screen, and the
+  latest alerts. Only the wall reads the alert history, every 30 seconds.
+- **Needs you.** Up to nine numbered alerts, each tagged service or host and measured in its rule's unit. An
+  error-rate alert offers "Open logs" (its errors in the Log Explorer) and "± 1 minute" (everything the service
+  logged around the moment the alert opened); a latency alert the service's metrics; a disk alert the host's
+  metrics. Every alert offers "Details" (the alert details screen) and states its rule. Below: alerts resolved since
+  yesterday, each linking to its details, one dot per service and per host with an alert, the ingest rate, and a link
+  to the Alerts screen.
+- **Forecast.** The hero shows the environment error ratio over the last five minutes. Key metrics: errors, p95
+  latency (from `http.server.request.duration`, with the slowest service; "Not measured" without it), ingest, log
+  storage, the fullest disk from host metrics (backups say "Not watched yet" without host metrics), and alerts. The hourly strip shows six past hours and the current one,
+  then six expected hours learned from up to seven days, instead of four weeks. The outlook projects log storage
+  against its budget and up to two disks that fill up within 30 days, from host metrics (ADR 0010).
+- **Times.** UTC, like the Log Explorer, so both screens always show the same clock.
 
 ## Open questions
 

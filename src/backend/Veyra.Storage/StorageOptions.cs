@@ -21,4 +21,16 @@ public sealed class StorageOptions
     /// are dropped first, even inside the retention period; today is always kept. Not set means no budget.
     /// </summary>
     public double? MaxLogStorageGigabytes { get; set; }
+
+    /// <summary>
+    /// How many whole days of metric points to keep. Older daily partitions are dropped, and series without points for
+    /// longer are deleted. Defaults to 30 days (ADR 0010).
+    /// </summary>
+    public int MetricRetentionDays { get; set; } = 30;
+
+    /// <summary>
+    /// The most metric series stored at once. Points of new series beyond it are dropped and logged, so one attribute
+    /// with a new value on every point cannot fill the disk. Defaults to 50,000 (ADR 0010).
+    /// </summary>
+    public int MaxMetricSeries { get; set; } = 50_000;
 }

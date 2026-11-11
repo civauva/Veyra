@@ -1,4 +1,3 @@
-using System.Net.Http.Headers;
 using Grpc.Core;
 using OpenTelemetry.Proto.Collector.Logs.V1;
 using Veyra.Core.Security;
@@ -32,47 +31,11 @@ internal sealed class OtlpGrpcLogsService(
         ExportLogsServiceRequest request,
         ServerCallContext context)
     {
-        var client = context.GetHttpContext().Connection.RemoteIpAddress?.ToString() ?? "unknown";
-
-        if (throttle.IsBlocked(client))
-        {
-            throw new RpcException(
-                new Status(StatusCode.ResourceExhausted, "Too many wrong ingestion keys. Wait a minute."));
-        }
-
-        var key = await keys.ValidateAsync(BearerToken(context.RequestHeaders), context.CancellationToken);
-
-        if (!key.IsValid)
-        {
-            throttle.RecordFailure(client);
-
-            throw new RpcException(new Status(StatusCode.Unauthenticated, "A valid ingestion key is required."));
-        }
-
+        var key = await OtlpGrpcAccess.CheckKeyAsync(context, keys, throttle);
         var result = pipeline.Accept(request, key);
 
-        if (result.QueueFull)
-        {
-            throw new RpcException(new Status(StatusCode.Unavailable, "Veyra is busy. Retry shortly."));
-        }
+        OtlpGrpcAccess.ThrowWhenBusy(result);
 
-        var response = new ExportLogsServiceResponse();
-
-        if (result.Rejected > 0)
-        {
-            response.PartialSuccess = new ExportLogsPartialSuccess
-            {
-                RejectedLogRecords = result.Rejected,
-                ErrorMessage = result.RejectionReason ?? string.Empty,
-            };
-        }
-
-        return response;
+        return OtlpResponses.Logs(result);
     }
-
-    private static string BearerToken(Metadata headers) =>
-        AuthenticationHeaderValue.TryParse(headers.GetValue("authorization"), out var header)
-        && string.Equals(header.Scheme, "Bearer", StringComparison.OrdinalIgnoreCase)
-            ? header.Parameter ?? string.Empty
-            : string.Empty;
 }

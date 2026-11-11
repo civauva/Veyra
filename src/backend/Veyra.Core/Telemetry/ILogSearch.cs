@@ -26,4 +26,20 @@ public interface ILogSearch
     /// <param name="cancellationToken">Cancels the counting.</param>
     /// <returns>The buckets and the service counts.</returns>
     Task<LogSummary> SummarizeAsync(LogQuery query, TimeSpan bucketSize, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Groups the records that match the query by their exact message and returns the most frequent messages.
+    /// </summary>
+    /// <remarks>
+    /// Messages are compared as stored. Senders that put variable values into the message, such as an order number,
+    /// produce one group per value. The query's page size and cursor are not used.
+    /// </remarks>
+    /// <param name="query">The filters and the time window.</param>
+    /// <param name="limit">The most groups to return.</param>
+    /// <param name="cancellationToken">Cancels the counting.</param>
+    /// <returns>The groups, most records first; equal counts ordered by message.</returns>
+    Task<IReadOnlyList<LogMessageGroup>> GroupMessagesAsync(
+        LogQuery query,
+        int limit,
+        CancellationToken cancellationToken);
 }

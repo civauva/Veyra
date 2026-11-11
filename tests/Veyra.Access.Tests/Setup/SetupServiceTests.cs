@@ -27,7 +27,14 @@ public class SetupServiceTests(PostgresFixture postgres)
     public async Task PrepareAsync_UsersExist_IssuesNoToken()
     {
         var access = new AccessServices(await AccessDatabase.CreateAsync(postgres), _clock);
-        await access.Users.CreateAsync("root@example.com", "Root", VeyraRole.Admin, _password, CancellationToken.None);
+        await access.Users.CreateAsync(
+            "root@example.com",
+            "Root",
+            VeyraRole.Admin,
+            _password,
+            null,
+            null,
+            CancellationToken.None);
         var setup = access.CreateSetup();
 
         await setup.PrepareAsync(CancellationToken.None);
@@ -91,7 +98,14 @@ public class SetupServiceTests(PostgresFixture postgres)
         var token = setup.Token!;
 
         // Someone created a user another way between issuing the token and using it.
-        await access.Users.CreateAsync("ops@example.com", "Ops", VeyraRole.Admin, _password, CancellationToken.None);
+        await access.Users.CreateAsync(
+            "ops@example.com",
+            "Ops",
+            VeyraRole.Admin,
+            _password,
+            null,
+            null,
+            CancellationToken.None);
 
         var result = await setup.CompleteAsync(token, "root@example.com", "Root", _password, CancellationToken.None);
 

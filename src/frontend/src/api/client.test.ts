@@ -45,6 +45,25 @@ describe("api.signIn", () => {
     expect(new Headers(initOf(fetchMock, 2)?.headers).get("X-Veyra-Antiforgery")).toBe("af-1");
   });
 
+  it("returns the next step without a session when a second factor follows", async () => {
+    const fetchMock = mockFetch(json({ next: "code" }, 202));
+
+    const step = await api.signIn("ana@example.com", "secret secret");
+
+    expect(step).toEqual({ next: "code" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("fetches the antiforgery token once the code step started the session", async () => {
+    const fetchMock = mockFetch(json(session), json({ token: "af-2" }));
+
+    const signedIn = await api.signInWithCode("482 093");
+
+    expect(signedIn).toEqual(session);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(initOf(fetchMock, 0)?.body))).toEqual({ code: "482 093" });
+  });
+
   it("throws an ApiError with the problem title when the API refuses", async () => {
     mockFetch(json({ title: "The email or password is wrong." }, 401));
 

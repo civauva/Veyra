@@ -12,8 +12,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Veyra.Access.Api;
+using Veyra.Access.History;
 using Veyra.Access.Keys;
+using Veyra.Access.SecondFactor;
 using Veyra.Access.Sessions;
+using Veyra.Access.Settings;
 using Veyra.Access.Setup;
 using Veyra.Access.Users;
 using Veyra.Core;
@@ -36,6 +39,11 @@ public static class AccessServiceCollectionExtensions
     private const string _sessionCookieName = "veyra.session";
 
     private const string _antiforgeryCookieName = "veyra.antiforgery";
+
+    // Between the password and the second factor (ADR 0011).
+    private const string _pendingCookieName = "veyra.pending";
+
+    private static readonly TimeSpan _pendingLifetime = TimeSpan.FromMinutes(5);
 
     /// <summary>
     /// Registers the Access module: users, roles, sessions, ingestion keys, and first-run setup (ADR 0008).
@@ -67,6 +75,9 @@ public static class AccessServiceCollectionExtensions
             .Validate(o => o.LockoutThreshold > 0, "Veyra:Access:LockoutThreshold must be greater than zero.")
             .Validate(o => o.MinimumPasswordLength >= 12, "Veyra:Access:MinimumPasswordLength must be at least 12.")
             .Validate(o => o.SessionIdleTimeout > TimeSpan.Zero, "Veyra:Access:SessionIdleTimeout must be positive.")
+            .Validate(
+                o => o.SignInHistoryDays is >= 1 and <= 3650,
+                "Veyra:Access:SignInHistoryDays must be between 1 and 3650.")
             .ValidateOnStart();
 
         services.TryAddSingleton(TimeProvider.System);
@@ -77,6 +88,16 @@ public static class AccessServiceCollectionExtensions
         services.AddSingleton<UserStore>();
         services.AddSingleton<UserService>();
         services.AddSingleton<SignInService>();
+        services.AddSingleton<SessionStore>();
+        services.AddSingleton<SessionService>();
+        services.AddSingleton<SignInEventStore>();
+        services.AddSingleton<UserEventStore>();
+        services.AddSingleton<SecondFactorStore>();
+        services.AddSingleton<SecondFactorService>();
+        services.AddSingleton<AccessSettingStore>();
+        services.AddSingleton<UserDirectory>();
+        services.AddSingleton<AccessCleanup>();
+        services.AddHostedService<AccessCleanupService>();
         services.AddSingleton<SetupService>();
         services.AddSingleton<IngestionKeyStore>();
         services.AddSingleton<IngestionKeyService>();
@@ -102,10 +123,21 @@ public static class AccessServiceCollectionExtensions
         services.AddTransient(provider => new SetupController(provider.GetRequiredService<SetupService>()));
         services.AddTransient(provider => new SessionController(
             provider.GetRequiredService<SignInService>(),
+            provider.GetRequiredService<SessionService>(),
+            provider.GetRequiredService<SecondFactorService>(),
             provider.GetRequiredService<UserService>(),
             provider.GetRequiredService<UserStore>(),
             provider.GetRequiredService<IAntiforgery>()));
-        services.AddTransient(provider => new UsersController(provider.GetRequiredService<UserService>()));
+        services.AddTransient(provider => new UsersController(
+            provider.GetRequiredService<UserService>(),
+            provider.GetRequiredService<UserDirectory>(),
+            provider.GetRequiredService<SecondFactorService>(),
+            provider.GetRequiredService<SessionService>()));
+        services.AddTransient(provider => new AccountController(
+            provider.GetRequiredService<UserDirectory>(),
+            provider.GetRequiredService<UserService>(),
+            provider.GetRequiredService<SecondFactorService>(),
+            provider.GetRequiredService<SessionService>()));
         services.AddTransient(provider =>
             new IngestionKeysController(provider.GetRequiredService<IngestionKeyService>()));
     }
@@ -132,10 +164,27 @@ public static class AccessServiceCollectionExtensions
                 options.Events.OnRedirectToAccessDenied = context =>
                     WriteStatusAsync(context, StatusCodes.Status403Forbidden);
                 options.Events.OnValidatePrincipal = SessionPrincipal.ValidateAsync;
+            })
+            .AddCookie(SessionPrincipal.PendingScheme, options =>
+            {
+                // Only allows the next sign-in step, for five minutes. Strict, because it never follows a redirect
+                // from elsewhere, so no other site can make a browser send it.
+                options.Cookie.Name = _pendingCookieName;
+                options.Cookie.HttpOnly = true;
+                options.Cookie.SameSite = SameSiteMode.Strict;
+                options.ExpireTimeSpan = _pendingLifetime;
+                options.SlidingExpiration = false;
+                options.Events.OnRedirectToLogin = context =>
+                    WriteStatusAsync(context, StatusCodes.Status401Unauthorized);
+                options.Events.OnRedirectToAccessDenied = context =>
+                    WriteStatusAsync(context, StatusCodes.Status403Forbidden);
             });
 
         // Secure cookies everywhere except local development over plain HTTP.
         services.AddOptions<CookieAuthenticationOptions>(CookieAuthenticationDefaults.AuthenticationScheme)
+            .Configure<IHostEnvironment>((options, environment) =>
+                options.Cookie.SecurePolicy = SecurePolicy(environment));
+        services.AddOptions<CookieAuthenticationOptions>(SessionPrincipal.PendingScheme)
             .Configure<IHostEnvironment>((options, environment) =>
                 options.Cookie.SecurePolicy = SecurePolicy(environment));
     }

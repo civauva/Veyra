@@ -1,0 +1,116 @@
+# OpenTelemetry Collector (contrib distribution) for one Linux host: CPU, memory, load, disks, and network, sent to
+# Veyra over OTLP/HTTP. See docs/integrations/linux.md.
+#
+# Settings come from the environment, never from this file:
+#   VEYRA_OTLP_ENDPOINT   Veyra's OTLP/HTTP address, for example https://veyra.example.com or http://127.0.0.1:4318
+#   VEYRA_INGESTION_KEY   an ingestion key created in Veyra (vyk_...)
+#   VEYRA_ENVIRONMENT     the environment the host belongs to, for example production
+#   HOST_ROOT             where the host's root file system is mounted; "/" when the Collector runs on the host,
+#                         "/hostfs" when it runs in a container with the host mounted there
+
+receivers:
+  hostmetrics:
+    # Veyra charts in one-minute buckets at the finest; two points a minute keep the newest bucket filled.
+    collection_interval: 30s
+    root_path: ${env:HOST_ROOT:-/}
+    scrapers:
+      # system.cpu.time per CPU and state. Veyra turns it into the share of time busy.
+      cpu:
+      # system.cpu.load_average.1m, 5m, and 15m.
+      load:
+      # system.memory.usage per state. The states add up to the host's memory.
+      memory:
+      # system.filesystem.usage per mount point and state. Veyra estimates when each disk fills.
+      filesystem:
+        # Pseudo and in-memory file systems never fill a disk.
+        exclude_fs_types:
+          fs_types:
+            - autofs
+            - binfmt_misc
+            - bpf
+            - cgroup2
+            - configfs
+            - debugfs
+            - devpts
+            - devtmpfs
+            - fusectl
+            - hugetlbfs
+            - iso9660
+            - mqueue
+            - nsfs
+            - overlay
+            - proc
+            - pstore
+            - securityfs
+            - squashfs
+            - sysfs
+            - tmpfs
+            - tracefs
+          match_type: strict
+        exclude_mount_points:
+          mount_points:
+            - /dev/.*
+            - /proc/.*
+            - /run/.*
+            - /snap/.*
+            - /sys/.*
+            - /var/lib/docker/.*
+          match_type: regexp
+      # system.disk.io per device and direction.
+      disk:
+      # system.network.io per interface and direction. Loopback is local traffic only.
+      network:
+        exclude:
+          interfaces:
+            - lo
+          match_type: strict
+
+processors:
+  # host.name and os.description from the host, deployment.environment.name from the environment. Veyra names the
+  # host card after host.name.
+  resourcedetection:
+    detectors:
+      - system
+    system:
+      hostname_sources:
+        - os
+      resource_attributes:
+        os.description:
+          enabled: true
+  resource:
+    attributes:
+      - key: deployment.environment.name
+        value: ${env:VEYRA_ENVIRONMENT:-production}
+        action: upsert
+  # Keeps the Collector's own memory bounded when Veyra is unreachable for a while.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 128
+  batch:
+    timeout: 10s
+
+exporters:
+  otlphttp:
+    endpoint: ${env:VEYRA_OTLP_ENDPOINT}
+    headers:
+      Authorization: Bearer ${env:VEYRA_INGESTION_KEY}
+    # Veyra answers 503 when its metric queue is full. The exporter retries and queues meanwhile.
+    retry_on_failure:
+      enabled: true
+      max_elapsed_time: 10m
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+
+service:
+  pipelines:
+    metrics:
+      receivers:
+        - hostmetrics
+      processors:
+        - memory_limiter
+        - resourcedetection
+        - resource
+        - batch
+      exporters:
+        - otlphttp

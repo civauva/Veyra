@@ -4,6 +4,7 @@ using System.Text;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Veyra.Access.History;
 using Veyra.Access.Users;
 using Veyra.Core.Security;
 
@@ -22,6 +23,7 @@ namespace Veyra.Access.Setup;
 /// </para>
 /// </remarks>
 /// <param name="store">Where users are stored.</param>
+/// <param name="events">Where the first account change, its creation, is recorded.</param>
 /// <param name="hasher">The PBKDF2 password hasher.</param>
 /// <param name="policy">The password rules.</param>
 /// <param name="options">The Access settings, for the token lifetime.</param>
@@ -29,6 +31,7 @@ namespace Veyra.Access.Setup;
 /// <param name="logger">Receives the setup link and the security events.</param>
 internal sealed partial class SetupService(
     UserStore store,
+    UserEventStore events,
     IPasswordHasher<AccessUser> hasher,
     PasswordPolicy policy,
     IOptions<AccessOptions> options,
@@ -106,6 +109,14 @@ internal sealed partial class SetupService(
 
             return SetupResult.AlreadyCompleted;
         }
+
+        await events.RecordAsync(
+            admin.Id,
+            admin.CreatedAt,
+            UserEventKind.Added,
+            null,
+            admin.Role.ToString(),
+            cancellationToken);
 
         CloseSetup();
         LogSetupCompleted(admin.Id);

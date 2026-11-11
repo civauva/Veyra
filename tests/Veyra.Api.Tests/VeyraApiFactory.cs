@@ -60,6 +60,10 @@ internal sealed class VeyraApiFactory(string connectionString) : WebApplicationF
     {
         builder.UseEnvironment("Production");
         builder.UseSetting("Veyra:Storage:ConnectionString", connectionString);
+
+        // Tests run the alert rules themselves, when their records are in place. The background run at startup
+        // finds nothing; a later one must not race a test's own run.
+        builder.UseSetting("Veyra:Alerting:EvaluationInterval", "01:00:00");
     }
 
     private sealed record AntiforgeryResponse(string Token);

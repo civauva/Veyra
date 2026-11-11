@@ -1,0 +1,444 @@
+/*
+ * The home on large screens (VEY-24), at natural size. From 1800 px a third column lists every service, host, and
+ * disk; from 2400 by 1200 px bands fill the screen with the day, the month, and the latest alerts. Colours come from the scene
+ * variables in home.css, so every panel follows the weather and the theme.
+ */
+
+/* ---- Wide: the Forecast, the blocks and disks, and Needs you side by side ---- */
+
+.home-body.wide {
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) 440px;
+}
+
+/* Six tiles in a row would be too narrow for their notes beside the third column; two rows of three read easily. */
+.home-body.wide .fc-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.home-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* ---- Wall: bands that reach the foot of the screen, Needs you the full height beside them ---- */
+
+.home-body.wall {
+  grid-template-columns: minmax(0, 1fr) 480px;
+  gap: 20px;
+  align-items: stretch;
+  box-sizing: border-box;
+  min-height: calc(100dvh - 56px);
+}
+
+.wall {
+  display: grid;
+  grid-template-rows: auto auto minmax(380px, 1fr);
+  gap: 20px;
+  min-width: 0;
+}
+
+.wall-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  gap: 20px;
+  align-items: center;
+}
+
+.wall-top .fc-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.wall-mid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 20px;
+}
+
+.wall-low {
+  display: grid;
+  grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr);
+  gap: 20px;
+  min-height: 0;
+}
+
+.wall-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-height: 0;
+}
+
+/* The latest alerts take what the disks and the outlook leave, and scroll when there are more. */
+.wall-stack .lg-latest {
+  flex: 1 1 0;
+  min-height: 220px;
+  overflow: auto;
+}
+
+.log-days.wall-days {
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  row-gap: 6px;
+}
+
+/* ---- Panels ---- */
+
+.lg-panel {
+  min-width: 0;
+  padding: 16px 18px;
+}
+
+.lg-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.lg-subhead {
+  margin-top: 14px;
+}
+
+.lg-count,
+.lg-legend,
+.lg-more {
+  font-size: 12.5px;
+  opacity: 0.78;
+}
+
+.lg-more {
+  color: inherit;
+  text-decoration: none;
+}
+
+.lg-more:hover {
+  text-decoration: underline;
+}
+
+.lg-tile:focus-visible,
+.lg-disk:focus-visible,
+.lg-alert:focus-visible,
+.lg-more:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* ---- Services and hosts ---- */
+
+.lg-tiles,
+.lg-disk-rows,
+.lg-alerts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.lg-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 8px;
+}
+
+.lg-tile,
+.lg-alert {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--glass-line);
+  border-radius: 12px;
+  background: var(--scene-chip);
+  color: inherit;
+  text-decoration: none;
+}
+
+.lg-tile:hover,
+.lg-alert:hover {
+  border-color: color-mix(in srgb, var(--scene-fg) 32%, transparent);
+}
+
+.lg-tile.w,
+.lg-alert.w {
+  background: color-mix(in srgb, var(--fc-red) 16%, transparent);
+  border-color: color-mix(in srgb, var(--fc-red) 45%, transparent);
+}
+
+.lg-tile.c,
+.lg-alert.c {
+  background: color-mix(in srgb, var(--fc-amber) 13%, transparent);
+  border-color: color-mix(in srgb, var(--fc-amber) 42%, transparent);
+}
+
+.lg-tile-what,
+.lg-alert-what {
+  min-width: 0;
+}
+
+.lg-tile-what b,
+.lg-alert-what b {
+  display: block;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lg-tile-what small,
+.lg-alert-what small {
+  display: block;
+  overflow: hidden;
+  font-size: 11.5px;
+  opacity: 0.7;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lg-tile-value,
+.lg-alert-value {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.lg-tile-value.kind-tag {
+  margin-right: 0;
+  font-size: 10px;
+}
+
+/* ---- Disks ---- */
+
+.lg-disk {
+  display: grid;
+  grid-template-columns: minmax(110px, 170px) minmax(0, 1fr) 52px minmax(90px, 120px);
+  gap: 12px;
+  align-items: center;
+  padding: 8px 4px;
+  border-top: 1px solid var(--scene-line);
+  border-radius: 6px;
+  color: inherit;
+  font-size: 13.5px;
+  text-decoration: none;
+}
+
+.lg-disk-rows li:first-child .lg-disk {
+  border-top: 0;
+}
+
+.lg-disk:hover {
+  background: var(--scene-chip);
+}
+
+.lg-disk-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lg-disk-name small {
+  margin-left: 6px;
+  opacity: 0.68;
+}
+
+.lg-disk-bar {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--scene-chip);
+}
+
+.lg-disk-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--fc-green);
+}
+
+.lg-disk.c .lg-disk-bar i {
+  background: var(--fc-amber);
+}
+
+.lg-disk.w .lg-disk-bar i {
+  background: var(--fc-red);
+}
+
+.lg-disk-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.lg-disk-note {
+  text-align: right;
+  opacity: 0.7;
+}
+
+.lg-disk.c .lg-disk-note,
+.lg-disk.w .lg-disk-note {
+  font-weight: 600;
+  opacity: 1;
+}
+
+/* ---- The last 24 hours ---- */
+
+.lg-day {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 18px 20px 16px;
+}
+
+.lg-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin: 0 6px 0 14px;
+  border-radius: 3px;
+  vertical-align: -1px;
+}
+
+.lg-legend .records {
+  background: color-mix(in srgb, var(--scene-fg) 32%, transparent);
+}
+
+.lg-legend .errors {
+  background: var(--fc-red);
+}
+
+.lg-legend .expected {
+  background: color-mix(in srgb, var(--scene-fg) 18%, transparent);
+}
+
+.lg-chart {
+  position: relative;
+  flex: 1;
+  min-height: 260px;
+  margin: 10px 0 4px 40px;
+}
+
+.lg-grid,
+.lg-bars {
+  position: absolute;
+  inset: 0 0 24px;
+}
+
+.lg-grid span {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px dashed var(--scene-line);
+}
+
+.lg-grid em {
+  position: absolute;
+  top: -8px;
+  left: -40px;
+  font-size: 11px;
+  font-style: normal;
+  opacity: 0.6;
+}
+
+.lg-bars {
+  display: grid;
+  gap: 6px;
+  align-items: end;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lg-bar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+}
+
+.lg-bar i {
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+  max-width: 36px;
+  overflow: hidden;
+  border-radius: 6px 6px 2px 2px;
+  background: color-mix(in srgb, var(--scene-fg) 22%, transparent);
+}
+
+.lg-bar b {
+  display: block;
+  width: 100%;
+  min-height: 2px;
+  background: var(--fc-red);
+}
+
+.lg-bar.shower i {
+  background: color-mix(in srgb, var(--fc-amber) 34%, transparent);
+}
+
+.lg-bar.storm i {
+  background: color-mix(in srgb, var(--fc-red) 30%, transparent);
+}
+
+.lg-bar.now i {
+  box-shadow: inset 0 0 0 1px var(--now-line);
+}
+
+.lg-bar.expected i {
+  background: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--scene-fg) 18%, transparent) 0 6px,
+    color-mix(in srgb, var(--scene-fg) 6%, transparent) 6px 12px
+  );
+}
+
+.lg-bar-time {
+  position: absolute;
+  bottom: -24px;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.72;
+}
+
+.lg-bar.now .lg-bar-time {
+  font-weight: 700;
+  opacity: 1;
+}
+
+.lg-note {
+  margin: 14px 0 0;
+  font-size: 13.5px;
+  opacity: 0.84;
+}
+
+/* ---- Latest alerts ---- */
+
+.lg-latest {
+  display: flex;
+  flex-direction: column;
+}
+
+.lg-alerts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lg-alert {
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 9px 12px;
+}
+
+/* Touch screens get larger targets. */
+@media (pointer: coarse) {
+  .lg-tile,
+  .lg-disk,
+  .lg-alert {
+    min-height: 44px;
+  }
+}

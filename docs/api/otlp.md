@@ -1,6 +1,6 @@
 # OTLP endpoints
 
-Veyra receives telemetry over OTLP only. Today it accepts logs; metrics and traces will follow on the same
+Veyra receives telemetry over OTLP only. Today it accepts logs and metrics; traces will follow on the same
 endpoints. The behaviour follows the [OTLP specification](https://opentelemetry.io/docs/specs/otlp/).
 
 ## Where to send
@@ -8,7 +8,7 @@ endpoints. The behaviour follows the [OTLP specification](https://opentelemetry.
 | Transport | Address on the server | Through Caddy (TLS) |
 | --- | --- | --- |
 | OTLP/gRPC | `http://127.0.0.1:4317` | `https://<host>` |
-| OTLP/HTTP | `http://127.0.0.1:4318/v1/logs` | `https://<host>/v1/logs` |
+| OTLP/HTTP | `http://127.0.0.1:4318/v1/logs`, `/v1/metrics` | `https://<host>/v1/logs`, `/v1/metrics` |
 
 Senders on the Veyra server itself, such as a Collector watching the host, can use the local ports. Everything else
 goes through Caddy, so the key never travels unencrypted.
@@ -39,6 +39,16 @@ In the SDKs' environment configuration that is `OTEL_EXPORTER_OTLP_HEADERS=Autho
 | `429` | Too many wrong keys from this address this minute. | Fix the key; wait a minute |
 | `503` | Veyra is busy; see `Retry-After`. | Retry with back-off |
 
+## OTLP/HTTP: `POST /v1/metrics`
+
+The same bodies, statuses, and limits as `/v1/logs`, with an `ExportMetricsServiceRequest` and an
+`ExportMetricsServiceResponse`.
+
+- **Stored.** Gauges, sums (cumulative or delta), and cumulative explicit-bucket histograms. See ADR 0010.
+- **Refused.** Exponential histograms, summaries, and delta histograms. They are counted in
+  `partialSuccess.rejectedDataPoints`, and `errorMessage` says why. The standard SDKs and the Collector send none
+  of them by default.
+
 ## OTLP/gRPC: `opentelemetry.proto.collector.logs.v1.LogsService/Export`
 
 | Status | Meaning |
@@ -49,7 +59,11 @@ In the SDKs' environment configuration that is `OTEL_EXPORTER_OTLP_HEADERS=Autho
 | `INVALID_ARGUMENT` | The message could not be read. |
 | `RESOURCE_EXHAUSTED` | Too many wrong keys from this address this minute. |
 
+## OTLP/gRPC: `opentelemetry.proto.collector.metrics.v1.MetricsService/Export`
+
+The same statuses as for logs; `partial_success` counts the refused data points.
+
 ## What happens next
 
-Accepted records are queued in memory and written shortly after. The details, including when records can be lost,
+Accepted records and points are queued in memory and written shortly after. The details, including when records can be lost,
 are in [`docs/architecture/ingestion.md`](../architecture/ingestion.md).

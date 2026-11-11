@@ -71,3 +71,49 @@
   background: var(--error-bg);
   color: var(--error-fg);
 }
+
+.auth-card.wide {
+  max-width: 560px;
+}
+
+/* Which account the code step is for, with a way back to another one. */
+.auth-as {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--chip);
+  font-size: 13px;
+}
+
+.auth-as span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.auth-link {
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.auth-link.center {
+  align-self: center;
+}
+
+.auth-policy {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--metric-violet) 30%, transparent);
+  background: color-mix(in srgb, var(--metric-violet) 10%, var(--panel));
+  font-size: 13px;
+  line-height: 1.45;
+}

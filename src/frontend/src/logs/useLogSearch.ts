@@ -56,13 +56,15 @@ function messageOf(failure: unknown): string {
  *
  * @param filters - What the person chose.
  * @param follow - Whether to look for new records every {@link followIntervalMilliseconds}.
+ * @param environment - Only records of this environment, the one chosen in the top bar; null for all.
  * @returns The records, the counts, and the state of the search.
  */
-export function useLogSearch(filters: LogFilters, follow: boolean): LogSearch {
+export function useLogSearch(filters: LogFilters, follow: boolean, environment: string | null): LogSearch {
   // The URL form is a stable value for the effect: equal filters give an equal string, a new object does not matter.
   const filtersKey = filtersToUrl(filters);
+  const environmentKey = environment ?? "";
   const [refreshes, setRefreshes] = useState(0);
-  const requestKey = `${filtersKey}#${refreshes}`;
+  const requestKey = `${filtersKey}#${environmentKey}#${refreshes}`;
   const [result, setResult] = useState<SearchResult | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const loadingMoreRef = useRef(false);
@@ -72,7 +74,10 @@ export function useLogSearch(filters: LogFilters, follow: boolean): LogSearch {
   useEffect(() => {
     const controller = new AbortController();
     const now = new Date();
-    const params = filtersToApiParams(filtersFromUrl(new URLSearchParams(filtersKey)), now);
+    const params = withEnvironment(
+      filtersToApiParams(filtersFromUrl(new URLSearchParams(filtersKey)), now),
+      environmentKey,
+    );
     const summaryParams = new URLSearchParams(params);
     summaryParams.delete("limit");
 
@@ -95,7 +100,7 @@ export function useLogSearch(filters: LogFilters, follow: boolean): LogSearch {
     });
 
     return () => controller.abort();
-  }, [filtersKey, requestKey]);
+  }, [filtersKey, environmentKey, requestKey]);
 
   useEffect(() => {
     if (!follow) {
@@ -112,7 +117,7 @@ export function useLogSearch(filters: LogFilters, follow: boolean): LogSearch {
       return;
     }
 
-    const params = filtersToApiParams(filters, result.now, result.nextCursor);
+    const params = withEnvironment(filtersToApiParams(filters, result.now, result.nextCursor), environmentKey);
     loadingMoreRef.current = true;
     setLoadingMore(true);
 
@@ -134,7 +139,7 @@ export function useLogSearch(filters: LogFilters, follow: boolean): LogSearch {
         loadingMoreRef.current = false;
         setLoadingMore(false);
       });
-  }, [filters, requestKey, result]);
+  }, [filters, environmentKey, requestKey, result]);
 
   const window = timeWindow(filters, result?.now ?? mountedAt);
 
@@ -149,4 +154,13 @@ export function useLogSearch(filters: LogFilters, follow: boolean): LogSearch {
     to: window.to,
     loadMore,
   };
+}
+
+/** Narrows a search to one environment; an empty name leaves it across all of them. */
+function withEnvironment(params: URLSearchParams, environment: string): URLSearchParams {
+  if (environment) {
+    params.set("environment", environment);
+  }
+
+  return params;
 }

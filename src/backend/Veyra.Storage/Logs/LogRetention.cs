@@ -2,11 +2,12 @@ using System.Globalization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
+using Veyra.Core.Telemetry;
 
 namespace Veyra.Storage.Logs;
 
 /// <summary>
-/// Removes old logs: by age, and by size when a storage budget is set.
+/// Removes old logs: by age, and by size when a storage budget is set. Also reports how much space logs use.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -27,7 +28,7 @@ internal sealed partial class LogRetention(
     NpgsqlDataSource dataSource,
     IOptions<StorageOptions> options,
     TimeProvider clock,
-    ILogger<LogRetention> logger)
+    ILogger<LogRetention> logger) : ILogStorageUsage
 {
     private const string _partitionPrefix = "log_record_";
 
@@ -84,6 +85,47 @@ internal sealed partial class LogRetention(
         }
 
         return new RetentionResult(dropped, deleted);
+    }
+
+    /// <inheritdoc />
+    public Task<LogStorageUsage> GetUsageAsync(CancellationToken cancellationToken) =>
+        GetUsageAsync(clock.GetUtcNow(), cancellationToken);
+
+    /// <summary>Measures log storage as of the given time.</summary>
+    /// <remarks>
+    /// The daily average covers the last seven full days before today. Empty days at the start, which exist because
+    /// partitions are created around today before any record arrives, are left out so a new installation does not
+    /// report a misleadingly small average.
+    /// </remarks>
+    /// <param name="now">The time that decides which day is today.</param>
+    /// <param name="cancellationToken">Cancels the measurement.</param>
+    /// <returns>The size, the budget, and the recent daily growth.</returns>
+    public async Task<LogStorageUsage> GetUsageAsync(DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var settings = options.Value;
+        var today = DateOnly.FromDateTime(now.UtcDateTime);
+        var partitions = await ListPartitionsAsync(cancellationToken);
+        var used = partitions.Sum(p => p.Bytes) + await DefaultPartitionBytesAsync(cancellationToken);
+
+        var fullDays = partitions.Where(p => p.Day < today && p.Day >= today.AddDays(-7)).ToList();
+
+        while (fullDays.Count > 0 && await IsEmptyAsync(fullDays[0].Name, cancellationToken))
+        {
+            fullDays.RemoveAt(0);
+        }
+
+        long? daily = fullDays.Count == 0 ? null : fullDays.Sum(p => p.Bytes) / fullDays.Count;
+        long? budget = settings.MaxLogStorageGigabytes is { } gigabytes ? (long)(gigabytes * _bytesPerGigabyte) : null;
+
+        return new LogStorageUsage(used, budget, settings.LogRetentionDays, daily);
+    }
+
+    private async Task<bool> IsEmptyAsync(string partition, CancellationToken cancellationToken)
+    {
+        // The name comes from pg_class and was checked to be log_record_ followed by a date, so it is safe to inline.
+        await using var command = dataSource.CreateCommand($"SELECT NOT EXISTS (SELECT 1 FROM storage.{partition})");
+
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken))!;
     }
 
     private async Task<List<Partition>> ListPartitionsAsync(CancellationToken cancellationToken)

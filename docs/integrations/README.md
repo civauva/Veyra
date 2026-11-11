@@ -7,7 +7,7 @@ configuration in `/integrations/<target>/`.
 | Target | Collector receiver(s) | Page |
 | --- | --- | --- |
 | Azure | `azuremonitor`, `azureeventhub` | `azure.md` |
-| Linux hosts | `hostmetrics`, `filelog`, `journald` | `linux.md` |
+| Linux hosts | `hostmetrics`; later `filelog`, `journald` | [`linux.md`](linux.md) |
 | Docker containers | `docker_stats`, `filelog` | `docker.md` |
 | PostgreSQL | `postgresql` | `postgres.md` |
 | SQL Server | `sqlserver` | `sqlserver.md` |

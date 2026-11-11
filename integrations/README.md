@@ -6,7 +6,7 @@ Versioned, tested OpenTelemetry Collector configurations for each monitored targ
 | Folder | Target |
 | --- | --- |
 | `azure/` | Azure resources via Azure Monitor and Event Hub receivers |
-| `linux/` | Linux host metrics, journald, and log files |
+| [`linux/`](linux/collector.yaml) | Linux host metrics; journald and log files later |
 | `docker/` | Docker container stats and logs |
 | `postgres/` | PostgreSQL health and performance |
 | `sqlserver/` | SQL Server health and performance |

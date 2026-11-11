@@ -1,8 +1,5 @@
-using System.Globalization;
-using System.Text.Json;
 using Google.Protobuf;
 using OpenTelemetry.Proto.Collector.Logs.V1;
-using OpenTelemetry.Proto.Common.V1;
 using Veyra.Core.Telemetry;
 
 namespace Veyra.Ingestion.Otlp;
@@ -17,8 +14,6 @@ namespace Veyra.Ingestion.Otlp;
 /// </remarks>
 internal static class OtlpLogMapper
 {
-    private const string _unknownService = "unknown_service";
-
     /// <summary>
     /// Maps every record in the request.
     /// </summary>
@@ -31,12 +26,11 @@ internal static class OtlpLogMapper
 
         foreach (var resourceLogs in request.ResourceLogs)
         {
-            var resource = ToDictionary(resourceLogs.Resource?.Attributes);
-            var service = resource.GetValueOrDefault("service.name") is { Length: > 0 } name ? name : _unknownService;
-
-            // deployment.environment was renamed to deployment.environment.name; older SDKs still send the old one.
-            var environment = resource.GetValueOrDefault("deployment.environment.name")
-                ?? resource.GetValueOrDefault("deployment.environment");
+            var resource = OtlpValues.ToDictionary(resourceLogs.Resource?.Attributes);
+            var service = resource.GetValueOrDefault("service.name") is { Length: > 0 } name
+                ? name
+                : OtlpValues.UnknownService;
+            var environment = OtlpValues.Environment(resource);
 
             foreach (var scopeLogs in resourceLogs.ScopeLogs)
             {
@@ -44,8 +38,8 @@ internal static class OtlpLogMapper
 
                 foreach (var log in scopeLogs.LogRecords)
                 {
-                    var observed = FromUnixNanos(log.ObservedTimeUnixNano) ?? receivedAt;
-                    var attributes = ToDictionary(log.Attributes);
+                    var observed = OtlpValues.FromUnixNanos(log.ObservedTimeUnixNano) ?? receivedAt;
+                    var attributes = OtlpValues.ToDictionary(log.Attributes);
 
                     if (!string.IsNullOrEmpty(scopeName))
                     {
@@ -53,11 +47,11 @@ internal static class OtlpLogMapper
                     }
 
                     records.Add(new LogRecord(
-                        Timestamp: FromUnixNanos(log.TimeUnixNano) ?? observed,
+                        Timestamp: OtlpValues.FromUnixNanos(log.TimeUnixNano) ?? observed,
                         ObservedTimestamp: observed,
                         Severity: LogSeverityExtensions.FromOtlpSeverityNumber((int)log.SeverityNumber),
                         SeverityText: string.IsNullOrEmpty(log.SeverityText) ? null : log.SeverityText,
-                        Body: ToText(log.Body),
+                        Body: OtlpValues.ToText(log.Body),
                         ServiceName: service,
                         Environment: environment,
                         TraceId: ToHexId(log.TraceId),
@@ -70,48 +64,6 @@ internal static class OtlpLogMapper
 
         return records;
     }
-
-    private static Dictionary<string, string> ToDictionary(IEnumerable<KeyValue>? attributes)
-    {
-        var result = new Dictionary<string, string>(StringComparer.Ordinal);
-
-        foreach (var attribute in attributes ?? [])
-        {
-            // Duplicate keys are invalid OTLP; the last one wins, as in most SDKs.
-            result[attribute.Key] = ToText(attribute.Value);
-        }
-
-        return result;
-    }
-
-    private static string ToText(AnyValue? value) => value?.ValueCase switch
-    {
-        AnyValue.ValueOneofCase.StringValue => value.StringValue,
-        AnyValue.ValueOneofCase.BoolValue => value.BoolValue ? "true" : "false",
-        AnyValue.ValueOneofCase.IntValue => value.IntValue.ToString(CultureInfo.InvariantCulture),
-        AnyValue.ValueOneofCase.DoubleValue => value.DoubleValue.ToString("R", CultureInfo.InvariantCulture),
-        AnyValue.ValueOneofCase.BytesValue => value.BytesValue.ToBase64(),
-        AnyValue.ValueOneofCase.ArrayValue or AnyValue.ValueOneofCase.KvlistValue =>
-            JsonSerializer.Serialize(ToJson(value)),
-        _ => string.Empty,
-    };
-
-    // Arrays and maps keep their structure as JSON, with numbers and booleans as JSON values, not strings.
-    private static object? ToJson(AnyValue? value) => value?.ValueCase switch
-    {
-        AnyValue.ValueOneofCase.StringValue => value.StringValue,
-        AnyValue.ValueOneofCase.BoolValue => value.BoolValue,
-        AnyValue.ValueOneofCase.IntValue => value.IntValue,
-        AnyValue.ValueOneofCase.DoubleValue => value.DoubleValue,
-        AnyValue.ValueOneofCase.BytesValue => value.BytesValue.ToBase64(),
-        AnyValue.ValueOneofCase.ArrayValue => value.ArrayValue.Values.Select(ToJson).ToList(),
-        AnyValue.ValueOneofCase.KvlistValue =>
-            value.KvlistValue.Values.ToDictionary(pair => pair.Key, pair => ToJson(pair.Value)),
-        _ => null,
-    };
-
-    private static DateTimeOffset? FromUnixNanos(ulong nanos) =>
-        nanos == 0 ? null : DateTimeOffset.UnixEpoch.AddTicks((long)(nanos / 100));
 
     private static string? ToHexId(ByteString id) =>
         id.IsEmpty || id.Span.IndexOfAnyExcept((byte)0) < 0 ? null : Convert.ToHexStringLower(id.Span);

@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router";
 
 import type { LogEntry } from "../api/types";
+import { useShell } from "../app/shellContext";
 import { FilterPanel } from "./FilterPanel";
 import { formatCount } from "./format";
 import { Histogram } from "./Histogram";
@@ -22,7 +23,8 @@ export function LogExplorer() {
   const [following, setFollowing] = useState(false);
   const [selected, setSelected] = useState<LogEntry | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const search = useLogSearch(filters, following && !filters.around);
+  const { status } = useShell();
+  const search = useLogSearch(filters, following && !filters.around, status.environment);
   const total = search.summary?.buckets.reduce((sum, bucket) => sum + bucket.total, 0) ?? null;
 
   function applyFilters(next: LogFilters) {

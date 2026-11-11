@@ -9,13 +9,15 @@ interface AuthLayoutProps {
   title: string;
   /** The form. */
   children: ReactNode;
+  /** A wider card, for setting up a second factor next to its QR code. */
+  wide?: boolean;
 }
 
 /** The centred card that the sign-in and setup screens share. */
-export function AuthLayout({ title, children }: AuthLayoutProps) {
+export function AuthLayout({ title, children, wide = false }: AuthLayoutProps) {
   return (
     <main className="auth">
-      <div className="auth-card">
+      <div className={wide ? "auth-card wide" : "auth-card"}>
         <div className="auth-brand">
           <Logo />
           <span>veyra</span>

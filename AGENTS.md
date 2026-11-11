@@ -26,6 +26,10 @@ Do not re-open these without a new ADR (see section 7).
 | Instrumentation | Applications use the standard OpenTelemetry SDKs. There is no Veyra-specific SDK | `README.md` |
 | Home dashboards | Shared block and group model; Forecast (default) and City homes | `docs/adr/0007` |
 | Security | Ingestion keys for senders; local or OIDC sign-in with cookies; Viewer, Editor, Admin | `docs/adr/0008` |
+| Notifications | Channels in the database, a delivery outbox, encrypted webhook URLs, one webhook document | `docs/adr/0009` |
+| Metrics | Series and daily-partitioned points in PostgreSQL; rates and percentiles computed when read | `docs/adr/0010` |
+| Sign-in | Authenticator-app second factor, recovery codes, session rows, 90 days of sign-in history | `docs/adr/0011` |
+| Alert rules | Built-in error-rate, latency, disk-space, disk-filling rules; alerts on services and hosts; 90 days | `docs/adr/0012` |
 | Monitoring scope | Targets, supported versions, and retention | `docs/architecture/monitoring-scope.md` |
 | Tech stack | Libraries and tools beyond the ADRs | `docs/architecture/tech-stack.md` |
 

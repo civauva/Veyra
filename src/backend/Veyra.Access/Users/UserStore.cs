@@ -9,9 +9,16 @@ namespace Veyra.Access.Users;
 /// <param name="dataSource">The PostgreSQL connection pool.</param>
 internal sealed class UserStore(NpgsqlDataSource dataSource)
 {
-    private const string _columns =
-        "id, email, display_name, role, disabled, password_hash, failed_sign_ins, locked_until, created_at, "
-        + "last_sign_in_at";
+    /// <summary>
+    /// The columns <see cref="ReadUser"/> reads, in order, so other stores can join users without a second query.
+    /// The table must be aliased <c>u</c>.
+    /// </summary>
+    internal const string Columns =
+        "u.id, u.email, u.display_name, u.role, u.disabled, u.password_hash, u.failed_sign_ins, u.locked_until, "
+        + "u.created_at, u.last_sign_in_at, u.team";
+
+    /// <summary>How many columns <see cref="Columns"/> has.</summary>
+    internal const int ColumnCount = 11;
 
     // Serialises first-run setup, so two people using the setup link at the same moment cannot both become admin.
     private const long _setupLockKey = 0x5665797261_01;
@@ -48,7 +55,7 @@ internal sealed class UserStore(NpgsqlDataSource dataSource)
     public async Task<AccessUser?> FindByEmailAsync(string email, CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(
-            $"SELECT {_columns} FROM access.user_account WHERE email_normalized = $1");
+            $"SELECT {Columns} FROM access.user_account u WHERE u.email_normalized = $1");
         command.Parameters.AddWithValue(AccessUser.Normalize(email));
 
         return await ReadSingleAsync(command, cancellationToken);
@@ -61,7 +68,7 @@ internal sealed class UserStore(NpgsqlDataSource dataSource)
     public async Task<AccessUser?> FindByIdAsync(Guid id, CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(
-            $"SELECT {_columns} FROM access.user_account WHERE id = $1");
+            $"SELECT {Columns} FROM access.user_account u WHERE u.id = $1");
         command.Parameters.AddWithValue(id);
 
         return await ReadSingleAsync(command, cancellationToken);
@@ -73,7 +80,7 @@ internal sealed class UserStore(NpgsqlDataSource dataSource)
     public async Task<IReadOnlyList<AccessUser>> ListAsync(CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(
-            $"SELECT {_columns} FROM access.user_account ORDER BY email_normalized");
+            $"SELECT {Columns} FROM access.user_account u ORDER BY u.email_normalized");
 
         return await ReadAllAsync(command, cancellationToken);
     }
@@ -122,24 +129,32 @@ internal sealed class UserStore(NpgsqlDataSource dataSource)
         return true;
     }
 
-    /// <summary>Changes a user's role, disabled flag, or both.</summary>
+    /// <summary>Changes a user's role, disabled flag, team, or several.</summary>
     /// <param name="id">The user's ID.</param>
     /// <param name="role">The new role, or <see langword="null"/> to keep it.</param>
     /// <param name="disabled">The new disabled flag, or <see langword="null"/> to keep it.</param>
+    /// <param name="team">The new team, an empty string to remove it, or <see langword="null"/> to keep it.</param>
     /// <param name="cancellationToken">Cancels the update.</param>
     /// <returns><see langword="true"/> when the user exists.</returns>
-    public async Task<bool> UpdateAsync(Guid id, VeyraRole? role, bool? disabled, CancellationToken cancellationToken)
+    public async Task<bool> UpdateAsync(
+        Guid id,
+        VeyraRole? role,
+        bool? disabled,
+        string? team,
+        CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(
             """
             UPDATE access.user_account
             SET role = coalesce($2, role),
-                disabled = coalesce($3, disabled)
+                disabled = coalesce($3, disabled),
+                team = CASE WHEN $4::text IS NULL THEN team ELSE nullif($4::text, '') END
             WHERE id = $1
             """);
         command.Parameters.AddWithValue(id);
         command.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Smallint, role is null ? DBNull.Value : (short)role);
         command.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Boolean, disabled is null ? DBNull.Value : disabled);
+        command.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Text, (object?)team ?? DBNull.Value);
 
         return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
     }
@@ -195,7 +210,9 @@ internal sealed class UserStore(NpgsqlDataSource dataSource)
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    /// <summary>Replaces a user's password hash.</summary>
+    /// <summary>
+    /// Replaces a user's password hash and lifts a lockout, since the wrong attempts were against the old password.
+    /// </summary>
     /// <param name="id">The user's ID.</param>
     /// <param name="passwordHash">The new hash.</param>
     /// <param name="cancellationToken">Cancels the update.</param>
@@ -203,7 +220,13 @@ internal sealed class UserStore(NpgsqlDataSource dataSource)
     public async Task SetPasswordHashAsync(Guid id, string passwordHash, CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(
-            "UPDATE access.user_account SET password_hash = $2 WHERE id = $1");
+            """
+            UPDATE access.user_account
+            SET password_hash = $2,
+                failed_sign_ins = 0,
+                locked_until = NULL
+            WHERE id = $1
+            """);
         command.Parameters.AddWithValue(id);
         command.Parameters.AddWithValue(passwordHash);
 
@@ -218,8 +241,8 @@ internal sealed class UserStore(NpgsqlDataSource dataSource)
         await using var command = new NpgsqlCommand(
             """
             INSERT INTO access.user_account
-                (id, email, email_normalized, display_name, password_hash, role, disabled, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                (id, email, email_normalized, display_name, password_hash, role, disabled, created_at, team)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             """,
             connection);
 
@@ -231,6 +254,7 @@ internal sealed class UserStore(NpgsqlDataSource dataSource)
         command.Parameters.AddWithValue((short)user.Role);
         command.Parameters.AddWithValue(user.Disabled);
         command.Parameters.AddWithValue(user.CreatedAt);
+        command.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Text, (object?)user.Team ?? DBNull.Value);
 
         try
         {
@@ -259,19 +283,26 @@ internal sealed class UserStore(NpgsqlDataSource dataSource)
 
         while (await reader.ReadAsync(cancellationToken))
         {
-            users.Add(new AccessUser(
-                Id: reader.GetGuid(0),
-                Email: reader.GetString(1),
-                DisplayName: reader.GetString(2),
-                Role: (VeyraRole)reader.GetInt16(3),
-                Disabled: reader.GetBoolean(4),
-                PasswordHash: reader.IsDBNull(5) ? null : reader.GetString(5),
-                FailedSignIns: reader.GetInt32(6),
-                LockedUntil: reader.IsDBNull(7) ? null : reader.GetFieldValue<DateTimeOffset>(7),
-                CreatedAt: reader.GetFieldValue<DateTimeOffset>(8),
-                LastSignInAt: reader.IsDBNull(9) ? null : reader.GetFieldValue<DateTimeOffset>(9)));
+            users.Add(ReadUser(reader, 0));
         }
 
         return users;
     }
+
+    /// <summary>Reads a user from the <see cref="Columns"/> of a row, starting at a column.</summary>
+    /// <param name="reader">The reader, on a row.</param>
+    /// <param name="first">The column of <c>u.id</c>.</param>
+    /// <returns>The user.</returns>
+    internal static AccessUser ReadUser(NpgsqlDataReader reader, int first) => new(
+        Id: reader.GetGuid(first),
+        Email: reader.GetString(first + 1),
+        DisplayName: reader.GetString(first + 2),
+        Role: (VeyraRole)reader.GetInt16(first + 3),
+        Disabled: reader.GetBoolean(first + 4),
+        PasswordHash: reader.IsDBNull(first + 5) ? null : reader.GetString(first + 5),
+        FailedSignIns: reader.GetInt32(first + 6),
+        LockedUntil: reader.IsDBNull(first + 7) ? null : reader.GetFieldValue<DateTimeOffset>(first + 7),
+        CreatedAt: reader.GetFieldValue<DateTimeOffset>(first + 8),
+        LastSignInAt: reader.IsDBNull(first + 9) ? null : reader.GetFieldValue<DateTimeOffset>(first + 9),
+        Team: reader.IsDBNull(first + 10) ? null : reader.GetString(first + 10));
 }

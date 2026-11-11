@@ -1,0 +1,785 @@
+/*
+ * The home dashboards' shared parts: the weather scenes behind the shell, the environment pills and master lights in
+ * the bar, the layout, and the Needs you pane. Built on the approved VEY-1 and VEY-17 mockups.
+ *
+ * Every scene has a light and a dark version, chosen the same way as the theme in tokens.css. Red is warning and
+ * amber is caution on every screen (ADR 0007).
+ */
+
+/* ---- Scene colours, light theme ---- */
+
+.shell.scene {
+  --fc-red: #e5372b;
+  --fc-red-strong: #c62a1f;
+  --fc-amber: #e69a00;
+  --fc-green: #1f9d63;
+  --scene-fg: #0e2440;
+  --scene-line: rgba(14, 36, 64, 0.12);
+  --scene-chip: rgba(14, 36, 64, 0.07);
+  --scene-bar: rgba(255, 255, 255, 0.55);
+  --scene-nav-on-bg: #0e2440;
+  --scene-nav-on-fg: #ffffff;
+  --glass-bg: rgba(255, 255, 255, 0.62);
+  --glass-line: rgba(14, 36, 64, 0.1);
+  --glass-shadow: 0 8px 30px rgba(14, 36, 64, 0.06);
+  --rain: rgba(14, 36, 64, 0.07);
+  --weather-ink: 14, 36, 64;
+  --now-bg: rgba(47, 111, 214, 0.12);
+  --now-line: rgba(47, 111, 214, 0.45);
+  --dot: rgba(14, 36, 64, 0.16);
+  --marker: #0e2440;
+  --marker-ring: rgba(255, 255, 255, 0.9);
+  --step-primary-bg: #0e2440;
+  --step-primary-fg: #ffffff;
+}
+
+.shell.scene-clear {
+  --scene-bg:
+    radial-gradient(900px 600px at 78% -10%, #fff4cf 0%, rgba(255, 244, 207, 0) 60%),
+    radial-gradient(800px 640px at 10% 10%, #cfe6ff 0%, rgba(207, 230, 255, 0) 62%),
+    linear-gradient(180deg, #a9d3ff 0%, #e8f3ff 55%, #f6faff 100%);
+}
+
+.shell.scene-showers {
+  --scene-bg:
+    radial-gradient(900px 620px at 72% -14%, #ffe2a6 0%, rgba(255, 226, 166, 0) 58%),
+    radial-gradient(800px 600px at 12% 8%, #c9d6ea 0%, rgba(201, 214, 234, 0) 64%),
+    linear-gradient(180deg, #b7c6dc 0%, #dfe6f0 55%, #f1f4f9 100%);
+  --now-bg: rgba(230, 154, 0, 0.14);
+  --now-line: rgba(230, 154, 0, 0.55);
+}
+
+.shell.scene-storm {
+  --scene-fg: #1b1530;
+  --scene-bg:
+    radial-gradient(900px 620px at 30% -12%, #e6b3c4 0%, rgba(230, 179, 196, 0) 62%),
+    radial-gradient(760px 600px at 70% 18%, #c2bfe6 0%, rgba(194, 191, 230, 0) 64%),
+    linear-gradient(180deg, #b6b0d0 0%, #d9d6e8 55%, #ecebf4 100%);
+  --scene-nav-on-bg: #1b1530;
+  --now-bg: rgba(229, 55, 43, 0.14);
+  --now-line: rgba(229, 55, 43, 0.5);
+  --step-primary-bg: #1b1530;
+}
+
+/* ---- Scene colours, dark theme: when the system prefers it and light was not picked, or when dark was picked ---- */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .shell.scene {
+    --fc-red: #ff4b3e;
+    --fc-red-strong: #ff4b3e;
+    --fc-amber: #ffb627;
+    --fc-green: #7ce3b1;
+    --scene-fg: #ffffff;
+    --scene-line: rgba(255, 255, 255, 0.1);
+    --scene-chip: rgba(255, 255, 255, 0.09);
+    --scene-bar: rgba(6, 8, 18, 0.55);
+    --scene-nav-on-bg: #ffffff;
+    --scene-nav-on-fg: #121428;
+    --glass-bg: rgba(255, 255, 255, 0.075);
+    --glass-line: rgba(255, 255, 255, 0.14);
+    --glass-shadow: none;
+    --rain: rgba(255, 255, 255, 0.06);
+    --weather-ink: 255, 255, 255;
+    --now-bg: rgba(127, 178, 255, 0.16);
+    --now-line: rgba(127, 178, 255, 0.5);
+    --dot: rgba(255, 255, 255, 0.16);
+    --marker: #ffffff;
+    --marker-ring: rgba(20, 16, 40, 0.6);
+    --step-primary-bg: #ffffff;
+    --step-primary-fg: #22142e;
+  }
+
+  :root:not([data-theme="light"]) .shell.scene-clear {
+    --scene-bg:
+      radial-gradient(900px 600px at 78% -10%, #1f4e8c 0%, rgba(31, 78, 140, 0) 60%),
+      radial-gradient(800px 640px at 10% 10%, #14325e 0%, rgba(20, 50, 94, 0) 62%),
+      linear-gradient(180deg, #0c1c3c 0%, #0b1022 100%);
+  }
+
+  :root:not([data-theme="light"]) .shell.scene-showers {
+    --scene-bg:
+      radial-gradient(900px 620px at 72% -14%, #5a4520 0%, rgba(90, 69, 32, 0) 60%),
+      radial-gradient(760px 600px at 20% 12%, #263a63 0%, rgba(38, 58, 99, 0) 64%),
+      linear-gradient(180deg, #17213b 0%, #0f1628 100%);
+    --now-bg: rgba(255, 182, 39, 0.2);
+    --now-line: rgba(255, 182, 39, 0.55);
+  }
+
+  :root:not([data-theme="light"]) .shell.scene-storm {
+    --scene-bg:
+      radial-gradient(900px 620px at 30% -12%, #6a2548 0%, rgba(106, 37, 72, 0) 62%),
+      radial-gradient(760px 600px at 70% 18%, #2d2c66 0%, rgba(45, 44, 102, 0) 64%),
+      linear-gradient(180deg, #1d1636 0%, #111a2e 100%);
+    --now-bg: rgba(255, 75, 62, 0.24);
+    --now-line: rgba(255, 75, 62, 0.55);
+  }
+}
+
+:root[data-theme="dark"] .shell.scene {
+  --fc-red: #ff4b3e;
+  --fc-red-strong: #ff4b3e;
+  --fc-amber: #ffb627;
+  --fc-green: #7ce3b1;
+  --scene-fg: #ffffff;
+  --scene-line: rgba(255, 255, 255, 0.1);
+  --scene-chip: rgba(255, 255, 255, 0.09);
+  --scene-bar: rgba(6, 8, 18, 0.55);
+  --scene-nav-on-bg: #ffffff;
+  --scene-nav-on-fg: #121428;
+  --glass-bg: rgba(255, 255, 255, 0.075);
+  --glass-line: rgba(255, 255, 255, 0.14);
+  --glass-shadow: none;
+  --rain: rgba(255, 255, 255, 0.06);
+  --weather-ink: 255, 255, 255;
+  --now-bg: rgba(127, 178, 255, 0.16);
+  --now-line: rgba(127, 178, 255, 0.5);
+  --dot: rgba(255, 255, 255, 0.16);
+  --marker: #ffffff;
+  --marker-ring: rgba(20, 16, 40, 0.6);
+  --step-primary-bg: #ffffff;
+  --step-primary-fg: #22142e;
+}
+
+:root[data-theme="dark"] .shell.scene-clear {
+  --scene-bg:
+    radial-gradient(900px 600px at 78% -10%, #1f4e8c 0%, rgba(31, 78, 140, 0) 60%),
+    radial-gradient(800px 640px at 10% 10%, #14325e 0%, rgba(20, 50, 94, 0) 62%),
+    linear-gradient(180deg, #0c1c3c 0%, #0b1022 100%);
+}
+
+:root[data-theme="dark"] .shell.scene-showers {
+  --scene-bg:
+    radial-gradient(900px 620px at 72% -14%, #5a4520 0%, rgba(90, 69, 32, 0) 60%),
+    radial-gradient(760px 600px at 20% 12%, #263a63 0%, rgba(38, 58, 99, 0) 64%),
+    linear-gradient(180deg, #17213b 0%, #0f1628 100%);
+  --now-bg: rgba(255, 182, 39, 0.2);
+  --now-line: rgba(255, 182, 39, 0.55);
+}
+
+:root[data-theme="dark"] .shell.scene-storm {
+  --scene-bg:
+    radial-gradient(900px 620px at 30% -12%, #6a2548 0%, rgba(106, 37, 72, 0) 62%),
+    radial-gradient(760px 600px at 70% 18%, #2d2c66 0%, rgba(45, 44, 102, 0) 64%),
+    linear-gradient(180deg, #1d1636 0%, #111a2e 100%);
+  --now-bg: rgba(255, 75, 62, 0.24);
+  --now-line: rgba(255, 75, 62, 0.55);
+}
+
+/* ---- Layout ---- */
+
+.home {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.home-body {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 440px;
+  gap: 24px;
+  padding: 22px 28px 28px;
+  align-items: start;
+}
+
+.home-message {
+  padding: 24px 28px;
+  margin: 0;
+  color: var(--muted);
+}
+
+.home-stale {
+  position: relative;
+  margin: 12px 28px 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--warning-bg);
+  color: var(--scene-fg);
+  font-size: 13px;
+}
+
+.glass {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-line);
+  border-radius: 18px;
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(22px);
+}
+
+.cap {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
+/* ---- Bar: environment pills, picker, master lights, clock ---- */
+
+.env-pills {
+  display: flex;
+  gap: 6px;
+}
+
+.env-pill {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 13px 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--scene-line);
+  background: transparent;
+  color: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.env-pill b {
+  font-weight: 600;
+}
+
+.env-pill span {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+.env-pill.current {
+  background: var(--scene-chip);
+  border-color: currentColor;
+}
+
+.env-pill.env-storm.current {
+  background: color-mix(in srgb, var(--fc-red) 22%, transparent);
+  border-color: color-mix(in srgb, var(--fc-red) 60%, transparent);
+}
+
+.env-pill.env-showers.current {
+  background: color-mix(in srgb, var(--fc-amber) 22%, transparent);
+  border-color: color-mix(in srgb, var(--fc-amber) 60%, transparent);
+}
+
+.env-picker {
+  display: none;
+}
+
+.env-picker select {
+  height: 36px;
+  max-width: 190px;
+  border-radius: 999px;
+  border-color: var(--scene-line);
+  background: var(--scene-chip);
+  color: inherit;
+  font-weight: 600;
+}
+
+.env-picker option {
+  color: var(--fg);
+  background: var(--panel);
+}
+
+.master-light {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 15px;
+  border-radius: 999px;
+  border: 1px solid var(--scene-line);
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+.master-light em {
+  font-style: normal;
+}
+
+.master-light i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.4;
+}
+
+.master-light.lit {
+  opacity: 1;
+}
+
+.master-light.warning.lit {
+  background: color-mix(in srgb, var(--fc-red) 30%, transparent);
+  border-color: color-mix(in srgb, var(--fc-red) 75%, transparent);
+  box-shadow: 0 0 24px color-mix(in srgb, var(--fc-red) 45%, transparent);
+}
+
+.master-light.warning.lit i {
+  background: var(--fc-red);
+  opacity: 1;
+  box-shadow: 0 0 10px var(--fc-red);
+  animation: master-pulse 1.8s ease-in-out infinite;
+}
+
+.master-light.caution.lit {
+  background: color-mix(in srgb, var(--fc-amber) 24%, transparent);
+  border-color: color-mix(in srgb, var(--fc-amber) 70%, transparent);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--fc-amber) 35%, transparent);
+}
+
+.master-light.caution.lit i {
+  background: var(--fc-amber);
+  opacity: 1;
+}
+
+@keyframes master-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .master-light.warning.lit i {
+    animation: none;
+  }
+}
+
+.home-clock {
+  font-size: 21px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  margin-left: 4px;
+}
+
+.home-clock small {
+  margin-left: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.6;
+}
+
+/* ---- Needs you ---- */
+
+.needs-you {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 18px 16px;
+  min-width: 0;
+  position: sticky;
+  top: 22px;
+}
+
+.needs-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.needs-head h2 {
+  margin-right: auto;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.chip.warning {
+  background: color-mix(in srgb, var(--fc-red) 22%, transparent);
+}
+
+.chip.caution {
+  background: color-mix(in srgb, var(--fc-amber) 24%, transparent);
+}
+
+.needs-none {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 14px;
+  border-radius: 14px;
+  background: var(--scene-chip);
+}
+
+.needs-none-mark {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid var(--fc-green);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--fc-green) 45%, transparent);
+}
+
+.needs-none b {
+  display: block;
+  font-size: 21px;
+  font-weight: 500;
+}
+
+.needs-none span {
+  display: block;
+  font-size: 13px;
+  opacity: 0.75;
+  margin-top: 3px;
+}
+
+.alert-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.alert-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 52px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.alert-row:hover {
+  background: var(--scene-chip);
+}
+
+.alert-row.open.warning {
+  background: color-mix(in srgb, var(--fc-red) 16%, transparent);
+}
+
+.alert-row.open.caution {
+  background: color-mix(in srgb, var(--fc-amber) 16%, transparent);
+}
+
+.badge {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.badge.warning {
+  background: var(--fc-red-strong);
+  color: #ffffff;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--fc-red) 70%, transparent);
+}
+
+.badge.caution {
+  background: #ffb627;
+  color: #2a1a00;
+  box-shadow: 0 0 10px rgba(255, 182, 39, 0.5);
+}
+
+.alert-what,
+.alert-value {
+  min-width: 0;
+}
+
+.alert-what b,
+.alert-value b {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.alert-what small,
+.alert-value small {
+  display: block;
+  font-size: 12.5px;
+  opacity: 0.72;
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.alert-value {
+  text-align: right;
+}
+
+.alert-value b {
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+
+.alert-more {
+  padding: 6px 10px;
+  font-size: 13px;
+  opacity: 0.75;
+}
+
+.alert-steps {
+  margin: 2px 0 8px 48px;
+  padding: 4px 0 8px 12px;
+  border-left: 2px solid color-mix(in srgb, var(--fc-red) 55%, transparent);
+}
+
+.alert-steps.caution {
+  border-left-color: color-mix(in srgb, var(--fc-amber) 60%, transparent);
+}
+
+.alert-steps ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.alert-steps li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  font-size: 14px;
+}
+
+.alert-steps p {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  opacity: 0.75;
+}
+
+/* What an alert is about, before its name: SERVICE or HOST (ADR 0012). */
+.kind-tag {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--scene-chip);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  vertical-align: 1px;
+}
+
+.step-button {
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.step-button.primary {
+  background: var(--step-primary-bg);
+  border-color: var(--step-primary-bg);
+  color: var(--step-primary-fg);
+}
+
+.resolved .cap {
+  margin: 0 10px 4px;
+  font-size: 11px;
+}
+
+.resolved ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.resolved li {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 10px;
+  font-size: 13.5px;
+  opacity: 0.8;
+}
+
+.resolved-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.resolved-link:hover,
+.resolved-link:focus-visible {
+  text-decoration: underline;
+}
+
+.resolved i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-left: 8px;
+  background: var(--fc-green);
+}
+
+.resolved small {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+/* On desktop the pane fills the window beside the forecast, with the service dots at its foot, as in the mockups. */
+@media (min-width: 1200px) {
+  .needs-you {
+    min-height: calc(100dvh - 56px - 50px);
+  }
+}
+
+.needs-foot {
+  margin-top: auto;
+  border-top: 1px solid var(--scene-line);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.service-row {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) 44px;
+  gap: 10px;
+  align-items: center;
+  font-size: 12.5px;
+}
+
+.dots {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dot {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--dot);
+}
+
+.dot.warning {
+  background: var(--fc-red);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--fc-red) 90%, transparent);
+}
+
+.dot.caution {
+  background: var(--fc-amber);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--fc-amber) 80%, transparent);
+}
+
+.dry {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.fine {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.72;
+}
+
+/* ---- Tablet: one column, the pane below; pills fold into the picker ---- */
+
+@media (max-width: 1199px) {
+  .home-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .needs-you {
+    position: static;
+  }
+
+  .env-pills,
+  .home-clock {
+    display: none;
+  }
+
+  .env-picker {
+    display: block;
+  }
+}
+
+/* ---- Phone: Needs you first, then the forecast in one column ---- */
+
+@media (max-width: 767px) {
+  /* Stretch, not start: in a column, start would size each part to its content, and the hours are wider. */
+  .home-body {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+    padding: 14px 12px 24px;
+  }
+
+  .needs-you {
+    order: -1;
+  }
+
+  .needs-foot {
+    display: none;
+  }
+
+  .master-light {
+    padding: 0 11px;
+  }
+
+  .master-light em {
+    display: none;
+  }
+
+  .env-picker select {
+    max-width: 130px;
+  }
+
+  .alert-steps {
+    margin-left: 20px;
+  }
+
+  .alert-steps li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .step-button {
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  .home-stale {
+    margin: 10px 12px 0;
+  }
+}
+
+@media (pointer: coarse) {
+  .env-pill,
+  .master-light,
+  .env-picker select {
+    min-height: 44px;
+  }
+}

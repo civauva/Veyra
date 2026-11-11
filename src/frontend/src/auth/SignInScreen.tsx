@@ -1,7 +1,10 @@
 import { useState, type FormEvent } from "react";
 
+import type { SignInNext } from "../api/types";
 import { useSession } from "../session/useSession";
 import { AuthLayout } from "./AuthLayout";
+import { CodeStep } from "./CodeStep";
+import { RequiredSetup } from "./RequiredSetup";
 
 /** Props for {@link SignInScreen}. */
 interface SignInScreenProps {
@@ -10,15 +13,17 @@ interface SignInScreenProps {
 }
 
 /**
- * Signs a person in with a local account. A failure shows the API's message, which never reveals whether the email
- * exists (ADR 0008).
+ * Signs a person in with a local account: the password, then a code when the account has a second factor, or the
+ * setup of one when an Admin requires it (ADR 0011). A failure shows the API's message, which never reveals whether
+ * the email exists (ADR 0008).
  */
 export function SignInScreen({ notice }: SignInScreenProps) {
-  const { signIn } = useSession();
+  const { signIn, completeSignIn } = useSession();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [next, setNext] = useState<SignInNext | null>(null);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -26,11 +31,38 @@ export function SignInScreen({ notice }: SignInScreenProps) {
     setError(null);
 
     try {
-      await signIn(email, password);
+      const step = await signIn(email, password);
+
+      if (step) {
+        setNext(step);
+        setPassword("");
+        setBusy(false);
+      }
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
       setBusy(false);
     }
+  }
+
+  function restart() {
+    setNext(null);
+    setPassword("");
+  }
+
+  if (next === "code") {
+    return (
+      <AuthLayout title="Enter your code">
+        <CodeStep email={email} onSignedIn={completeSignIn} onRestart={restart} />
+      </AuthLayout>
+    );
+  }
+
+  if (next === "setup") {
+    return (
+      <AuthLayout title="One more step" wide>
+        <RequiredSetup email={email} onSignedIn={completeSignIn} onRestart={restart} />
+      </AuthLayout>
+    );
   }
 
   return (
@@ -40,7 +72,7 @@ export function SignInScreen({ notice }: SignInScreenProps) {
           {notice}
         </p>
       )}
-      <form className="auth-form" onSubmit={submit}>
+      <form className="auth-form" onSubmit={(event) => void submit(event)}>
         <label>
           Email
           <input

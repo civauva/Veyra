@@ -178,6 +178,80 @@ public class LogStoreTests(PostgresFixture postgres)
         Assert.Equal("storage.log_record_default", await PartitionOfAsync(database, "future"));
     }
 
+    [Fact]
+    public async Task GetServiceRatesAsync_CountsRecordsAndErrorsPerEnvironmentAndService()
+    {
+        await using var database = await CreateAsync();
+        var store = new LogStore(database);
+        await store.WriteAsync(
+            [
+                Record(_noon.AddMinutes(-4), "ok"),
+                Record(_noon.AddMinutes(-3), "ok"),
+                Record(_noon.AddMinutes(-2), "failed") with { Severity = LogSeverity.Error },
+                Record(_noon.AddMinutes(-1), "crashed") with { Severity = LogSeverity.Fatal },
+                Record(_noon.AddMinutes(-1), "staging") with { Environment = "staging" },
+                Record(_noon.AddMinutes(-1), "no environment") with { ServiceName = "orders", Environment = null },
+                Record(_noon.AddMinutes(-6), "before the window") with { Severity = LogSeverity.Error },
+                Record(_noon, "at the end, excluded") with { Severity = LogSeverity.Error },
+            ],
+            CancellationToken.None);
+
+        var rates = await store.GetServiceRatesAsync(_noon.AddMinutes(-5), _noon, CancellationToken.None);
+
+        Assert.Equal(
+            [
+                new ServiceLogRate(null, "orders", 1, 0),
+                new ServiceLogRate("production", "payments", 4, 2),
+                new ServiceLogRate("staging", "payments", 1, 0),
+            ],
+            rates.OrderBy(rate => rate.Environment).ThenBy(rate => rate.ServiceName));
+    }
+
+    [Fact]
+    public async Task GroupMessagesAsync_CountsEqualMessagesMostFirstWithFirstAndLastTime()
+    {
+        await using var database = await CreateAsync();
+        var store = new LogStore(database);
+        await store.WriteAsync(
+            [
+                Record(_noon.AddMinutes(-3), "timeout") with { Severity = LogSeverity.Error },
+                Record(_noon.AddMinutes(-1), "timeout") with { Severity = LogSeverity.Fatal },
+                Record(_noon.AddMinutes(-2), "declined") with { Severity = LogSeverity.Error },
+                Record(_noon.AddMinutes(-2), "slow") with { Severity = LogSeverity.Warning },
+                Record(_noon.AddMinutes(-2), "other service") with
+                {
+                    ServiceName = "orders",
+                    Severity = LogSeverity.Error,
+                },
+            ],
+            CancellationToken.None);
+        var query = Window() with { MinimumSeverity = LogSeverity.Error, Services = ["payments"] };
+
+        var groups = await store.GroupMessagesAsync(query, 5, CancellationToken.None);
+
+        Assert.Equal(
+            [
+                new LogMessageGroup("timeout", 2, _noon.AddMinutes(-3), _noon.AddMinutes(-1)),
+                new LogMessageGroup("declined", 1, _noon.AddMinutes(-2), _noon.AddMinutes(-2)),
+            ],
+            groups);
+    }
+
+    [Fact]
+    public async Task GroupMessagesAsync_Limit_KeepsTheMostFrequent()
+    {
+        await using var database = await CreateAsync();
+        var store = new LogStore(database);
+        await store.WriteAsync(
+            [Record(_noon, "a"), Record(_noon, "b"), Record(_noon, "b"), Record(_noon, "c"), Record(_noon, "c")],
+            CancellationToken.None);
+
+        var groups = await store.GroupMessagesAsync(Window(), 2, CancellationToken.None);
+
+        // Equal counts are ordered by message, so the result is stable.
+        Assert.Equal(["b", "c"], groups.Select(group => group.Message));
+    }
+
     private Task<NpgsqlDataSource> CreateAsync() => postgres.CreateMigratedDatabaseAsync(new StorageMigrations());
 
     private static Dictionary<string, string> Route(string route) => new() { ["http.route"] = route };

@@ -14,7 +14,9 @@ namespace Veyra.Ingestion;
 /// </summary>
 public static class IngestionServiceCollectionExtensions
 {
-    /// <summary>Registers the Ingestion module: OTLP receivers, normalization, and buffering.</summary>
+    /// <summary>
+    /// Registers the Ingestion module: OTLP receivers for logs and metrics, normalization, and buffering.
+    /// </summary>
     /// <param name="services">The service collection to add the module to.</param>
     /// <param name="configuration">
     /// The application configuration. The module reads its <c>Veyra:Ingestion</c> section.
@@ -31,6 +33,9 @@ public static class IngestionServiceCollectionExtensions
         services.AddOptions<IngestionOptions>()
             .Bind(configuration.GetSection(VeyraOptionNames.Ingestion))
             .Validate(o => o.MaxQueueLength > 0, "Veyra:Ingestion:MaxQueueLength must be greater than zero.")
+            .Validate(
+                o => o.MaxMetricQueueLength > 0,
+                "Veyra:Ingestion:MaxMetricQueueLength must be greater than zero.")
             .ValidateOnStart();
 
         services.TryAddSingleton(TimeProvider.System);
@@ -38,6 +43,9 @@ public static class IngestionServiceCollectionExtensions
         services.AddSingleton<LogQueue>();
         services.AddSingleton<LogPipeline>();
         services.AddHostedService<LogWriterService>();
+        services.AddSingleton<MetricQueue>();
+        services.AddSingleton<MetricPipeline>();
+        services.AddHostedService<MetricWriterService>();
 
         // Only the OTLP services are offered. Unknown gRPC services get the standard UNIMPLEMENTED answer.
         services.AddGrpc(options => options.IgnoreUnknownServices = true);
@@ -57,6 +65,7 @@ public static class IngestionServiceCollectionExtensions
 
         OtlpHttpEndpoint.Map(endpoints);
         endpoints.MapGrpcService<OtlpGrpcLogsService>().AllowAnonymous();
+        endpoints.MapGrpcService<OtlpGrpcMetricsService>().AllowAnonymous();
 
         return endpoints;
     }
