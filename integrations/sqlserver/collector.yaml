@@ -615,18 +615,20 @@ receivers:
             value_type: double
             data_type: gauge
       # Backups beyond the full one, the log chain, the last good CHECKDB, and damaged pages. A database in full or
-      # bulk-logged recovery that never had a log backup counts from its creation; one in simple recovery is -1.
+      # bulk-logged recovery that never had a log backup counts from its creation; one in simple recovery is -1. So
+      # does a database never checked. master and model carry a creation date of 2003 on every server, so creation is
+      # never earlier than msdb's, which is when SQL Server was installed.
       - sql: >-
           /* veyra-agent: recovery */
           SELECT d.name AS database_name,
                  CASE WHEN d.recovery_model = 3 THEN -1
                       ELSE DATEDIFF_BIG(SECOND, ISNULL((SELECT MAX(b.backup_finish_date) FROM msdb.dbo.backupset AS b
-                        WHERE b.database_name = d.name AND b.type = 'L'), d.create_date), GETDATE()) END AS log_age,
+                        WHERE b.database_name = d.name AND b.type = 'L'), c.created), GETDATE()) END AS log_age,
                  ISNULL(DATEDIFF_BIG(SECOND, (SELECT MAX(b.backup_finish_date) FROM msdb.dbo.backupset AS b
                    WHERE b.database_name = d.name AND b.type = 'I'), GETDATE()), -1) AS diff_age,
                  DATEDIFF_BIG(SECOND, CASE WHEN CONVERT(datetime, DATABASEPROPERTYEX(d.name, 'LastGoodCheckDbTime'))
                    > '2000-01-01' THEN CONVERT(datetime, DATABASEPROPERTYEX(d.name, 'LastGoodCheckDbTime'))
-                   ELSE d.create_date END, GETDATE()) AS checkdb_age,
+                   ELSE c.created END, GETDATE()) AS checkdb_age,
                  (SELECT COUNT(*) FROM msdb.dbo.suspect_pages AS sp
                    WHERE sp.database_id = d.database_id AND sp.event_type IN (1, 2, 3)) AS damaged,
                  CASE WHEN EXISTS (
@@ -647,6 +649,9 @@ receivers:
                    JOIN msdb.dbo.backupmediafamily AS m ON m.media_set_id = b.media_set_id
                    WHERE b.database_name = d.name AND b.type = 'D' ORDER BY b.backup_finish_date DESC), '') AS destination
           FROM sys.databases AS d
+          CROSS APPLY (
+            SELECT CASE WHEN d.create_date > i.create_date THEN d.create_date ELSE i.create_date END AS created
+            FROM sys.databases AS i WHERE i.database_id = 4) AS c
           WHERE d.database_id <> 2 AND d.state = 0
         metrics:
           - metric_name: sqlserver.database.log_backup.age

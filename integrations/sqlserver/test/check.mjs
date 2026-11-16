@@ -127,6 +127,12 @@ expect(value("sqlserver.agent.job.failed", "Purge sessions") === 0, "the succeed
 expect(value("sqlserver.database.backup.age", "shop") >= 0, "shop has no backup age");
 expect(value("sqlserver.database.backup.age", "reporting") === undefined, "reporting was never backed up");
 expect(value("sqlserver.database.size", "shop,data") > 0, "shop has no data size");
+// master and model are dated 2003 on every server; a database never checked counts from the installation instead.
+for (const [key, age] of latest) {
+  if (key.startsWith("sqlserver.database.checkdb.age|") || key.startsWith("sqlserver.database.log_backup.age|")) {
+    expect(age < 10 * 365 * 86400, `${key} counts from before the installation: ${age} s`);
+  }
+}
 expect((highest.get("sqlserver.query.duration.max|shop") ?? 0) >= 20, "the blocked update is not the longest query");
 expect(Math.max(...[...highest].filter(([key]) => key.startsWith("sqlserver.processes.blocked|")).map(([, v]) => v)) >= 1,
   "no session counted as blocked");
