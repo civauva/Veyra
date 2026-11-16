@@ -34,7 +34,7 @@ internal sealed partial class SignInService(
     SignInEventStore signIns,
     SecondFactorService secondFactor,
     IPasswordHasher<AccessUser> hasher,
-    IOptions<AccessOptions> options,
+    IOptionsMonitor<AccessOptions> options,
     TimeProvider clock,
     ILogger<SignInService> logger)
 {
@@ -59,7 +59,7 @@ internal sealed partial class SignInService(
     {
         ArgumentNullException.ThrowIfNull(client);
 
-        var settings = options.Value;
+        var settings = options.CurrentValue;
 
         if (!settings.LocalSignInEnabled)
         {
@@ -227,7 +227,7 @@ internal sealed partial class SignInService(
         SignInClient client,
         CancellationToken cancellationToken)
     {
-        var settings = options.Value;
+        var settings = options.CurrentValue;
         var failures = user.FailedSignIns + 1;
 
         await signIns.RecordAsync(user.Id, now, outcome, client.Address, client.UserAgent, cancellationToken);

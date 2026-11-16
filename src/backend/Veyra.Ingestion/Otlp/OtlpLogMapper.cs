@@ -9,8 +9,10 @@ namespace Veyra.Ingestion.Otlp;
 /// </summary>
 /// <remarks>
 /// Follows the OpenTelemetry logs data model: the record's time falls back to its observed time, then to the time
-/// Veyra received it; a resource without <c>service.name</c> is <c>unknown_service</c>; IDs that are all zero mean
-/// "none". Values that are not strings are kept as text, with arrays and maps as JSON.
+/// Veyra received it; a resource that names no block is <c>unknown_service</c>; IDs that are all zero mean
+/// "none". Values that are not strings are kept as text, with arrays and maps as JSON. The record is filed under the
+/// block its resource names (ADR 0018), and an event keeps its name as the <c>event.name</c> attribute, which tells a
+/// database's query samples from its top queries.
 /// </remarks>
 internal static class OtlpLogMapper
 {
@@ -27,14 +29,17 @@ internal static class OtlpLogMapper
         foreach (var resourceLogs in request.ResourceLogs)
         {
             var resource = OtlpValues.ToDictionary(resourceLogs.Resource?.Attributes);
-            var service = resource.GetValueOrDefault("service.name") is { Length: > 0 } name
-                ? name
-                : OtlpValues.UnknownService;
+            var block = TelemetryBlock.Of(resource);
+            var host = resource.GetValueOrDefault("host.name") is { Length: > 0 } name ? name : null;
             var environment = OtlpValues.Environment(resource);
 
             foreach (var scopeLogs in resourceLogs.ScopeLogs)
             {
                 var scopeName = scopeLogs.Scope?.Name;
+
+                // A Collector's own logs name the component that failed only here, which Veyra's agents rely on
+                // (ADR 0019). The record's own attributes win over its scope's.
+                var scopeAttributes = OtlpValues.ToDictionary(scopeLogs.Scope?.Attributes);
 
                 foreach (var log in scopeLogs.LogRecords)
                 {
@@ -46,18 +51,30 @@ internal static class OtlpLogMapper
                         attributes.TryAdd("otel.scope.name", scopeName);
                     }
 
+                    foreach (var (key, value) in scopeAttributes)
+                    {
+                        attributes.TryAdd(key, value);
+                    }
+
+                    if (!string.IsNullOrEmpty(log.EventName))
+                    {
+                        attributes.TryAdd("event.name", log.EventName);
+                    }
+
                     records.Add(new LogRecord(
                         Timestamp: OtlpValues.FromUnixNanos(log.TimeUnixNano) ?? observed,
                         ObservedTimestamp: observed,
                         Severity: LogSeverityExtensions.FromOtlpSeverityNumber((int)log.SeverityNumber),
                         SeverityText: string.IsNullOrEmpty(log.SeverityText) ? null : log.SeverityText,
                         Body: OtlpValues.ToText(log.Body),
-                        ServiceName: service,
+                        ServiceName: block.Name,
                         Environment: environment,
                         TraceId: ToHexId(log.TraceId),
                         SpanId: ToHexId(log.SpanId),
                         Attributes: attributes,
-                        ResourceAttributes: resource));
+                        ResourceAttributes: resource,
+                        BlockKind: block.Kind,
+                        HostName: host));
                 }
             }
         }

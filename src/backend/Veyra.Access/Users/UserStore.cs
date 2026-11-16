@@ -15,10 +15,10 @@ internal sealed class UserStore(NpgsqlDataSource dataSource)
     /// </summary>
     internal const string Columns =
         "u.id, u.email, u.display_name, u.role, u.disabled, u.password_hash, u.failed_sign_ins, u.locked_until, "
-        + "u.created_at, u.last_sign_in_at, u.team";
+        + "u.created_at, u.last_sign_in_at, u.team, u.time_zone";
 
     /// <summary>How many columns <see cref="Columns"/> has.</summary>
-    internal const int ColumnCount = 11;
+    internal const int ColumnCount = 12;
 
     // Serialises first-run setup, so two people using the setup link at the same moment cannot both become admin.
     private const long _setupLockKey = 0x5665797261_01;
@@ -157,6 +157,21 @@ internal sealed class UserStore(NpgsqlDataSource dataSource)
         command.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Text, (object?)team ?? DBNull.Value);
 
         return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+    }
+
+    /// <summary>Sets the time zone a person sees times in, or clears it so the browser's is used.</summary>
+    /// <param name="id">The user's ID.</param>
+    /// <param name="timeZone">An IANA zone name, already checked, or <see langword="null"/>.</param>
+    /// <param name="cancellationToken">Cancels the update.</param>
+    /// <returns>Whether the user exists.</returns>
+    public async Task<bool> SetTimeZoneAsync(Guid id, string? timeZone, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(
+            "UPDATE access.user_account SET time_zone = $2 WHERE id = $1");
+        command.Parameters.AddWithValue(id);
+        command.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Text, (object?)timeZone ?? DBNull.Value);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 
     /// <summary>Records a failed sign-in, and a lockout when the threshold is reached.</summary>
@@ -304,5 +319,6 @@ internal sealed class UserStore(NpgsqlDataSource dataSource)
         LockedUntil: reader.IsDBNull(first + 7) ? null : reader.GetFieldValue<DateTimeOffset>(first + 7),
         CreatedAt: reader.GetFieldValue<DateTimeOffset>(first + 8),
         LastSignInAt: reader.IsDBNull(first + 9) ? null : reader.GetFieldValue<DateTimeOffset>(first + 9),
-        Team: reader.IsDBNull(first + 10) ? null : reader.GetString(first + 10));
+        Team: reader.IsDBNull(first + 10) ? null : reader.GetString(first + 10),
+        TimeZone: reader.IsDBNull(first + 11) ? null : reader.GetString(first + 11));
 }

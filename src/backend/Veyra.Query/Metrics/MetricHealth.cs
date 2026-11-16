@@ -1,5 +1,9 @@
+using System.Collections.Concurrent;
+using Veyra.Core.Activity;
+using Veyra.Core.Alerts;
 using Veyra.Core.Metrics;
 using Veyra.Core.Metrics.Health;
+using Veyra.Query.Live;
 
 namespace Veyra.Query.Metrics;
 
@@ -8,10 +12,27 @@ namespace Veyra.Query.Metrics;
 /// screens and the home, so an alert and the screen it links to always agree.
 /// </summary>
 /// <param name="search">The stored metrics.</param>
-internal sealed class MetricHealth(IMetricSearch search) : IMetricHealth
+/// <param name="activity">
+/// The reads of database servers' live views (ADR 0020), or <see langword="null"/> where only metrics are judged.
+/// </param>
+internal sealed class MetricHealth(IMetricSearch search, IDatabaseActivitySearch? activity = null) : IMetricHealth
 {
     // Only senders that are still sending count, as on the overview.
     private static readonly TimeSpan _activeWithin = TimeSpan.FromMinutes(15);
+
+    // The deadlock rule counts over 15 minutes and clears after 30 without one (ADR 0018).
+    private static readonly TimeSpan _deadlocksWindow = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan _deadlocksClearAfter = TimeSpan.FromMinutes(30);
+
+    // What the database rules judge.
+    private static readonly string[] _databaseRules =
+    [
+        SqlServerNames.Blocked,
+        SqlServerNames.DeadlockRate,
+        SqlServerNames.LongestQuery,
+        SqlServerNames.BackupAge,
+        SqlServerNames.JobFailed,
+    ];
 
     // An alert's chart has no more points than this.
     private const int _maxPoints = 240;
@@ -52,6 +73,201 @@ internal sealed class MetricHealth(IMetricSearch search) : IMetricHealth
                         disk.TotalBytes,
                         disk.Ratio,
                         disk.DaysUntilFull));
+            })
+            .ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<DatabaseMeasure>> ListDatabaseMeasuresAsync(
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var reads = activity is null
+            ? []
+            : await activity.ListLatestSessionsAsync(now, LiveViewBuilder.MaxAge, cancellationToken);
+        var measures = reads.SelectMany(LiveMeasures.Of).ToList();
+
+        var series = (await search.FindSeriesAsync(
+                new MetricSeriesQuery(now - _activeWithin, Names: MetricMeasures.Names, Limit: 20_000),
+                cancellationToken))
+            .Where(one => one.Block?.Kind == AlertBlockKind.Database)
+            .ToList();
+
+        if (series.Count > 0)
+        {
+            var recent = await _reader.ReadAsync(
+                series,
+                MetricWindow.Covering(now.AddMinutes(-15), now, 15),
+                cancellationToken);
+
+            foreach (var server in series.GroupBy(one => one.Block!))
+            {
+                measures.AddRange(MetricMeasures.Of(
+                    recent.Where(one => one.Block == server.Key),
+                    server.Key,
+                    server.Select(one => one.Environment).FirstOrDefault(value => value is not null)));
+            }
+        }
+
+        foreach (var read in reads)
+        {
+            var events = (await activity!.ListRecordsAsync(
+                    read.Block,
+                    Server.EventsViewBuilder.EventKind,
+                    now.AddMinutes(-15),
+                    now,
+                    null,
+                    1_000,
+                    cancellationToken))
+                .GroupBy(record => record.Key)
+                .Select(group => Server.EventsViewBuilder.Event(group.First()))
+                .ToList();
+            var server = new Core.Telemetry.TelemetryBlock(AlertBlockKind.Database, read.Block);
+
+            measures.Add(new DatabaseMeasure(
+                server,
+                read.Environment,
+                "severe-errors",
+                null,
+                events.Count(one => one.Name == "error_reported" && (one.ErrorSeverity >= 20
+                    || Server.EventsViewBuilder.DamageErrors.Contains(one.Error)))));
+            measures.Add(new DatabaseMeasure(
+                server,
+                read.Environment,
+                "memory-errors",
+                null,
+                events.Count(one => Server.EventsViewBuilder.MemoryErrors.Contains(one.Error))));
+            measures.Add(new DatabaseMeasure(
+                server,
+                read.Environment,
+                "login-failures",
+                null,
+                events.Count(one => one.Name == "security_error_ring_buffer_recorded")));
+
+            measures.Add(new DatabaseMeasure(
+                new Core.Telemetry.TelemetryBlock(AlertBlockKind.Database, read.Block),
+                read.Environment,
+                RegressionMeasure,
+                null,
+                await RegressionAsync(read.Block, now, cancellationToken)));
+        }
+
+        return measures;
+    }
+
+    /// <summary>The measure of the plan-regression rule (ADR 0020).</summary>
+    public const string RegressionMeasure = "plan-regression-factor";
+
+    // Reading every statement series is too much for every evaluation; a server's factor is kept for five minutes. Two
+    // evaluations at once may both compute it, which is harmless.
+    private readonly ConcurrentDictionary<string, (DateTimeOffset At, double Factor)> _regressions =
+        new(StringComparer.Ordinal);
+
+    private async Task<double> RegressionAsync(string block, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        {
+            if (_regressions.TryGetValue(block, out var kept) && now - kept.At < TimeSpan.FromMinutes(5))
+            {
+                return kept.Factor;
+            }
+
+            var server = new Core.Telemetry.TelemetryBlock(AlertBlockKind.Database, block);
+            var series = await search.FindSeriesAsync(
+                new MetricSeriesQuery(now.AddHours(-1), Names: SqlServerNames.Statements, Limit: 8_000, Block: server),
+                cancellationToken);
+            var totals = series.Count == 0
+                ? []
+                : (await search.ReadBucketsAsync(
+                        series.Select(one => one.Id).ToList(),
+                        now.AddHours(-1),
+                        now,
+                        TimeSpan.FromHours(1),
+                        cancellationToken))
+                    .GroupBy(bucket => bucket.SeriesId)
+                    .ToDictionary(group => group.Key, group => group.Sum(bucket => bucket.Total ?? 0));
+            var factor = Queries.QueriesViewBuilder.Statements(series, totals)
+                .Where(statement => !statement.Agent)
+                .Select(statement => Queries.QueriesViewBuilder.RegressionFactor(statement))
+                .DefaultIfEmpty(0)
+                .Max();
+
+            _regressions[block] = (now, factor);
+
+            return factor;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<DatabaseHealth>> ListDatabasesAsync(
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var series = (await search.FindSeriesAsync(
+                new MetricSeriesQuery(now - _activeWithin, Names: _databaseRules),
+                cancellationToken))
+            .Where(one => one.Block?.Kind == AlertBlockKind.Database)
+            .ToList();
+
+        if (series.Count == 0)
+        {
+            return [];
+        }
+
+        var recent = await _reader.ReadAsync(series, MetricWindow.Recent(now), cancellationToken);
+        var halfHour = await _reader.ReadAsync(
+            series.Where(one => one.Name == SqlServerNames.DeadlockRate).ToList(),
+            MetricWindow.Covering(now - _deadlocksClearAfter, now, 30),
+            cancellationToken);
+
+        return series
+            .GroupBy(one => one.Block!)
+            .Select(server =>
+            {
+                var ofServer = recent.Where(one => one.Block == server.Key);
+                var deadlocks = DatabaseView.Deadlocks(halfHour.Where(one => one.Block == server.Key));
+                var blocked = ofServer.Levels(ofServer.Named(SqlServerNames.Blocked));
+
+                // Blocked throughout means in every minute of the five: a server that started sending a minute ago
+                // has not shown that yet.
+                var throughout = ofServer.Window.Starts.All(blocked.ContainsKey);
+                var minutes = blocked
+                    .Where(pair => pair.Key >= ofServer.Window.Start)
+                    .Select(pair => pair.Value)
+                    .ToList();
+                var hasDeadlocks = ofServer.Named(SqlServerNames.DeadlockRate).Any();
+                var longest = DatabaseView.LatestBy(
+                    ofServer,
+                    SqlServerNames.LongestQuery,
+                    SqlServerNames.DatabaseAttribute);
+                var backups = DatabaseView.LatestBy(
+                    ofServer,
+                    SqlServerNames.BackupAge,
+                    SqlServerNames.DatabaseAttribute);
+                var jobs = DatabaseView.LatestBy(ofServer, SqlServerNames.JobFailed, SqlServerNames.JobAttribute);
+
+                return new DatabaseHealth(
+                    server.Key,
+                    server.Select(one => one.Environment).FirstOrDefault(value => value is not null),
+                    minutes.Count == 0 ? null : throughout ? minutes.Min() : 0,
+                    minutes.Count == 0 ? null : minutes.Max(),
+                    hasDeadlocks
+                        ? Math.Round(deadlocks
+                            .Where(pair => pair.Key >= now - _deadlocksWindow)
+                            .Sum(pair => pair.Value))
+                        : null,
+                    hasDeadlocks ? Math.Round(deadlocks.Values.Sum()) : null,
+                    longest.Keys
+                        .Union(backups.Keys, StringComparer.Ordinal)
+                        .Order(StringComparer.Ordinal)
+                        .Select(database => new DatabasePartHealth(
+                            database,
+                            longest.TryGetValue(database, out var seconds) ? seconds : null,
+                            RecentMax(ofServer, database),
+                            backups.TryGetValue(database, out var age) ? age : null))
+                        .ToList(),
+                    jobs.OrderBy(job => job.Key, StringComparer.Ordinal)
+                        .Select(job => new AgentJobHealth(job.Key, job.Value >= 1))
+                        .ToList());
             })
             .ToList();
     }
@@ -142,5 +358,13 @@ internal sealed class MetricHealth(IMetricSearch search) : IMetricHealth
             .ToList();
 
         return new LatencyHistory(window.Bucket, points, routes);
+    }
+
+    private static double? RecentMax(SeriesData data, string database)
+    {
+        var levels = data.Levels(data.Named(SqlServerNames.LongestQuery)
+            .Where(one => MetricNames.Attribute(one, SqlServerNames.DatabaseAttribute) == database));
+
+        return levels.Count > 0 ? levels.Values.Max() : null;
     }
 }

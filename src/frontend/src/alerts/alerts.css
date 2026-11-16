@@ -529,3 +529,13 @@
     min-height: 44px;
   }
 }
+
+/* ---- Simple and Advanced (VEY-37) ---- */
+
+.alerts-split.alone {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.alerts-view {
+  margin-left: auto;
+}

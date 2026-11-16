@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using OpenTelemetry.Proto.Common.V1;
+using Veyra.Core.Telemetry;
 
 namespace Veyra.Ingestion.Otlp;
 
@@ -10,7 +11,7 @@ namespace Veyra.Ingestion.Otlp;
 internal static class OtlpValues
 {
     /// <summary>The name the OpenTelemetry specification gives a service that set no <c>service.name</c>.</summary>
-    public const string UnknownService = "unknown_service";
+    public const string UnknownService = TelemetryBlock.UnknownService;
 
     /// <summary>Turns attributes into text values. Duplicate keys are invalid OTLP; the last one wins.</summary>
     /// <param name="attributes">The attributes, or null for none.</param>

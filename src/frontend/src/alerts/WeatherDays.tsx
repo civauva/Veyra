@@ -4,7 +4,7 @@ import "./weatherDays.css";
 
 /** Props for {@link WeatherDays}. */
 interface WeatherDaysProps {
-  /** One entry per UTC day, oldest first, as the alert summary gives them; the last is today. */
+  /** One entry per day in the person's zone, oldest first, as the alert summary gives them; the last is today. */
   days: AlertSummary["days"];
   /** An extra class for the list, to change how many cells a row holds. */
   className?: string;
@@ -20,6 +20,7 @@ export function WeatherDays({ days, className }: WeatherDaysProps) {
   return (
     <ol className={className ? `log-days ${className}` : "log-days"}>
       {days.map((day, index) => {
+        // A calendar day of the person's zone, as the summary gives it; read as UTC only to take its parts apart.
         const date = new Date(`${day.date}T00:00:00Z`);
         const label =
           index === last

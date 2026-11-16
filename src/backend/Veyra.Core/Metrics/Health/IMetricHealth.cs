@@ -25,6 +25,26 @@ public interface IMetricHealth
     /// <returns>One entry per service and environment, in no particular order.</returns>
     Task<IReadOnlyList<ServiceLatency>> ListLatenciesAsync(DateTimeOffset now, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Lists every database server that sent metrics within the last 15 minutes, with what the database rules judge
+    /// (ADR 0018).
+    /// </summary>
+    /// <param name="now">The current time.</param>
+    /// <param name="cancellationToken">Cancels the reads.</param>
+    /// <returns>The servers.</returns>
+    Task<IReadOnlyList<DatabaseHealth>> ListDatabasesAsync(DateTimeOffset now, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Measures every database server that sent a read of its live view within the last two minutes, with the figures
+    /// the catalog rules judge (ADR 0020).
+    /// </summary>
+    /// <param name="now">The current time.</param>
+    /// <param name="cancellationToken">Cancels the reads.</param>
+    /// <returns>The figures, in no particular order.</returns>
+    Task<IReadOnlyList<DatabaseMeasure>> ListDatabaseMeasuresAsync(
+        DateTimeOffset now,
+        CancellationToken cancellationToken);
+
     /// <summary>Reads the share of one disk in use over a period.</summary>
     /// <param name="host">The host.</param>
     /// <param name="mountpoint">The disk's mount point.</param>

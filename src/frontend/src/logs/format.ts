@@ -1,7 +1,9 @@
+import { zoneLabel, zoneParts } from "../time/zone";
+
 /*
- * Formatting shared by the Log Explorer. Times are shown in UTC everywhere, so a time in the list, the histogram, and
- * a copied record always agree, whatever the browser's time zone. Numbers follow English conventions, like the rest
- * of the interface.
+ * Formatting shared by every screen. Times are shown in the person's time zone (VEY-22, see time/zone.ts), so a time
+ * in the list, the histogram, and the alerts always agree; copied records and exports keep full UTC instants.
+ * Numbers follow English conventions, like the rest of the interface.
  */
 
 const counts = new Intl.NumberFormat("en-US");
@@ -17,32 +19,49 @@ export function formatCount(value: number): string {
 }
 
 /**
- * The time of day of an instant in UTC with milliseconds, for example `07:34:12.418`.
+ * The time of day of an instant in the display zone with milliseconds, for example `08:34:12.418`.
  *
  * @param instant - An ISO 8601 instant, as the API sends it.
  * @returns The time of day.
  */
 export function formatTime(instant: string): string {
-  return new Date(instant).toISOString().slice(11, 23);
+  const parts = zoneParts(instant);
+
+  return `${clock(parts.hour, parts.minute)}:${pad(parts.second)}.${pad(parts.millisecond, 3)}`;
 }
 
 /**
- * Hours and minutes of an instant in UTC, for example `07:34`.
+ * Hours and minutes of an instant in the display zone, for example `08:34`.
  *
  * @param instant - The instant.
  * @returns The hours and minutes.
  */
 export function formatClock(instant: Date | string): string {
-  return new Date(instant).toISOString().slice(11, 16);
+  const parts = zoneParts(instant);
+
+  return clock(parts.hour, parts.minute);
 }
 
 /**
- * The full instant in UTC, for example `2026-11-09 07:34:12.418 UTC`.
+ * The full instant in the display zone with the zone's name, for example `2026-11-09 08:34:12.418 CET`.
  *
  * @param instant - An ISO 8601 instant.
  * @returns The date and time with the zone.
  */
 export function formatInstant(instant: string): string {
+  const parts = zoneParts(instant);
+
+  return `${parts.year}-${pad(parts.month)}-${pad(parts.day)} ${formatTime(instant)} ${zoneLabel(new Date(instant))}`;
+}
+
+/**
+ * The full instant in UTC, for example `2026-11-09 07:34:12.418 UTC`: what hovering a time shows, for comparing
+ * with logs elsewhere.
+ *
+ * @param instant - An ISO 8601 instant.
+ * @returns The date and time in UTC.
+ */
+export function formatUtc(instant: Date | string): string {
   return `${new Date(instant).toISOString().slice(0, 23).replace("T", " ")} UTC`;
 }
 
@@ -66,4 +85,12 @@ export function formatBucket(seconds: number): string {
   }
 
   return `${seconds} s`;
+}
+
+function clock(hour: number, minute: number): string {
+  return `${pad(hour)}:${pad(minute)}`;
+}
+
+function pad(value: number, width = 2): string {
+  return String(value).padStart(width, "0");
 }

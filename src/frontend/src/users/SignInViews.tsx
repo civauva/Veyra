@@ -1,5 +1,6 @@
 import type { SessionInfo, SignInAttempt } from "../api/types";
 import { formatSince, formatWhen, outcomeText } from "./userFormat";
+import { localDay, shiftDay } from "../time/zone";
 
 /** Props for {@link SignInDays}. */
 interface SignInDaysProps {
@@ -14,14 +15,11 @@ interface SignInDaysProps {
  * below it, so a burst of wrong passwords stands out at once.
  */
 export function SignInDays({ signIns, now }: SignInDaysProps) {
-  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  // Days on the person's calendar (VEY-22), so a sign-in after their midnight counts on the new day.
+  const today = localDay(now);
   const days = Array.from({ length: 14 }, (_, index) => {
-    const start = today - (13 - index) * 86_400_000;
-    const inDay = signIns.filter((one) => {
-      const at = new Date(one.at).getTime();
-
-      return at >= start && at < start + 86_400_000;
-    });
+    const day = shiftDay(today, index - 13);
+    const inDay = signIns.filter((one) => localDay(one.at) === day);
 
     return {
       good: inDay.filter((one) => outcomeText(one.outcome).tone !== "bad").length,
@@ -130,7 +128,7 @@ export function SessionList({ sessions, now, onEnd }: SessionListProps) {
                 {[session.address, `since ${formatSince(session.startedAt, now)}`].filter(Boolean).join(" · ")}
                 {session.method === "RecoveryCode" ? ", with a recovery code" : ""}
               </small>
-              <span className={recent ? "live" : "live idle"}>
+              <span className={recent ? "session-live" : "session-live idle"}>
                 {session.current ? "Active now" : `Active ${inSentence(formatWhen(session.lastActiveAt, now))}`}
               </span>
             </div>

@@ -2,6 +2,7 @@ import type { AlertDelivery, AlertDetails, AlertEvent, AlertRule } from "../api/
 import { formatClock, formatCount } from "../logs/format";
 import { deliveryNote, deliveryTag, eventTitle } from "./alertFormat";
 import { formatMeasure, notFillingDays } from "./ruleWords";
+import { isCatalogRule } from "./ruleCatalog";
 
 /** Props for {@link AlertTimeline}. */
 interface AlertTimelineProps {
@@ -80,6 +81,10 @@ function DeliveryRow({ at, delivery }: { at: string; delivery: AlertDelivery }) 
 
 /** What the rule measured at a change, in its own words: `6.2% errors`, `p95 3.1 s`, `91% in use`, `full in 13 days`. */
 function eventMeasure(rule: AlertRule, value: number): string {
+  if (isCatalogRule(rule)) {
+    return formatMeasure(rule, value);
+  }
+
   switch (rule) {
     case "latency-p95":
       return `p95 ${formatMeasure(rule, value)}`;
@@ -89,5 +94,15 @@ function eventMeasure(rule: AlertRule, value: number): string {
       return value >= notFillingDays ? "not filling" : `full in ${formatMeasure(rule, value)}`;
     case "error-rate":
       return `${formatMeasure(rule, value)} errors`;
+    case "db-blocking":
+      return `${formatMeasure(rule, value)} blocked`;
+    case "db-deadlocks":
+      return `${formatMeasure(rule, value)} in 15 min`;
+    case "db-long-query":
+      return `running for ${formatMeasure(rule, value)}`;
+    case "db-backup-age":
+      return `no backup for ${formatMeasure(rule, value)}`;
+    case "db-agent-job":
+      return `last run ${formatMeasure(rule, value)}`;
   }
 }

@@ -26,7 +26,13 @@ vi.mock("../../api/client", async (importOriginal) => {
   };
 });
 
-const viewer = { id: "1", email: "viewer@example.com", displayName: "Dana Kim", role: "Viewer" as const };
+const viewer = {
+  id: "1",
+  email: "viewer@example.com",
+  displayName: "Dana Kim",
+  role: "Viewer" as const,
+  timeZone: null,
+};
 
 /** Makes every `min-width` and `min-height` media query answer as this screen would; other queries do not match. */
 function screenSize(width: number, height: number) {
@@ -79,18 +85,19 @@ afterEach(() => {
 });
 
 describe("Home on large screens", () => {
-  it("keeps the standard layout below 1800 px and asks for no alerts", async () => {
+  it("keeps the estate in the forecast below 1800 px and asks for no alerts", async () => {
     screenSize(1440, 900);
 
     renderHome();
 
     expect(await screen.findByRole("region", { name: "Needs you" })).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "Services and hosts" })).not.toBeInTheDocument();
+    const forecast = document.querySelector(".forecast") as HTMLElement;
+    expect(within(forecast).getByRole("region", { name: "Services and hosts" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Disks" })).not.toBeInTheDocument();
     expect(api.alerts).not.toHaveBeenCalled();
   });
 
-  it("lists every service, host, and disk beside the forecast from 1800 px", async () => {
+  it("moves the estate into its own column from 1800 px", async () => {
     screenSize(1920, 1080);
 
     renderHome();
@@ -112,10 +119,10 @@ describe("Home on large screens", () => {
         .map((link) => link.getAttribute("href")),
     ).toEqual(["/metrics/hosts/db-01", "/metrics/hosts/web-01"]);
 
-    const disks = screen.getByRole("region", { name: "Disks" });
-    const rows = within(disks).getAllByRole("listitem");
-    expect(rows[0]).toHaveTextContent("/web-0181%full in 23 days");
-    expect(rows[1]).toHaveTextContent("/datadb-0158%steady");
+    // Disks are drawn on their hosts, so there is no separate list of them.
+    expect(screen.queryByRole("region", { name: "Disks" })).not.toBeInTheDocument();
+    const forecast = document.querySelector(".forecast") as HTMLElement;
+    expect(within(forecast).queryByRole("region", { name: "Services and hosts" })).not.toBeInTheDocument();
 
     expect(screen.getByRole("list", { name: "Hours" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Last 24 hours" })).not.toBeInTheDocument();
@@ -145,7 +152,7 @@ describe("Home on large screens", () => {
     expect(within(latest).getByRole("link", { name: "All alerts" })).toHaveAttribute("href", "/alerts");
 
     expect(screen.getByRole("region", { name: "Services and hosts" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Disks" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Disks" })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Outlook" })).toBeInTheDocument();
     // The chart shows the hours, so the strip is not repeated.
     expect(screen.queryByRole("list", { name: "Hours" })).not.toBeInTheDocument();

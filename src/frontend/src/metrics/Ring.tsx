@@ -22,7 +22,7 @@ export function Ring({ share, label, detail }: RingProps) {
 
   return (
     <div className="ring-box">
-      <span className={`ring ${shareTone(share)}`}>
+      <span className={`usage-ring ${shareTone(share)}`}>
         <svg width="74" height="74" viewBox="0 0 74 74" aria-hidden="true">
           <circle className="ring-track" cx="37" cy="37" r={radius} />
           <circle
@@ -36,7 +36,7 @@ export function Ring({ share, label, detail }: RingProps) {
         </svg>
         <b>{formatShare(share)}</b>
       </span>
-      <span className="ring-label">{label}</span>
+      <span className="usage-ring-label">{label}</span>
       <em>{detail}</em>
     </div>
   );

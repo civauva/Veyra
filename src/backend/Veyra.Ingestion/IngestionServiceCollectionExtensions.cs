@@ -3,9 +3,12 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using Veyra.Core;
+using Veyra.Core.Settings;
 using Veyra.Ingestion.Otlp;
 using Veyra.Ingestion.Pipeline;
+using Veyra.Ingestion.Settings;
 
 namespace Veyra.Ingestion;
 
@@ -32,20 +35,23 @@ public static class IngestionServiceCollectionExtensions
 
         services.AddOptions<IngestionOptions>()
             .Bind(configuration.GetSection(VeyraOptionNames.Ingestion))
-            .Validate(o => o.MaxQueueLength > 0, "Veyra:Ingestion:MaxQueueLength must be greater than zero.")
-            .Validate(
-                o => o.MaxMetricQueueLength > 0,
-                "Veyra:Ingestion:MaxMetricQueueLength must be greater than zero.")
             .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<IngestionOptions>, IngestionOptionsRules>();
+        services.AddSingleton<IModuleSettings, IngestionSettings>();
 
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<FailedKeyThrottle>();
         services.AddSingleton<LogQueue>();
+        services.AddSingleton<ActivityQueue>();
+        services.AddHostedService<ActivityWriterService>();
         services.AddSingleton<LogPipeline>();
         services.AddHostedService<LogWriterService>();
         services.AddSingleton<MetricQueue>();
         services.AddSingleton<MetricPipeline>();
         services.AddHostedService<MetricWriterService>();
+        services.AddSingleton<SpanQueue>();
+        services.AddSingleton<SpanPipeline>();
+        services.AddHostedService<SpanWriterService>();
 
         // Only the OTLP services are offered. Unknown gRPC services get the standard UNIMPLEMENTED answer.
         services.AddGrpc(options => options.IgnoreUnknownServices = true);
@@ -66,6 +72,7 @@ public static class IngestionServiceCollectionExtensions
         OtlpHttpEndpoint.Map(endpoints);
         endpoints.MapGrpcService<OtlpGrpcLogsService>().AllowAnonymous();
         endpoints.MapGrpcService<OtlpGrpcMetricsService>().AllowAnonymous();
+        endpoints.MapGrpcService<OtlpGrpcTraceService>().AllowAnonymous();
 
         return endpoints;
     }

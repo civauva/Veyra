@@ -1,7 +1,7 @@
 import type { AlertSeverity, ConditionKind } from "../api/types";
 
 /*
- * Words and numbers of the home dashboards. Times are UTC, like everywhere in Veyra, so the home and the Log
+ * Words and numbers of the home dashboards. Times are in the person's zone, like everywhere in Veyra, so the home and the Log
  * Explorer always show the same clock. Severities use the shared words: warning (red) and caution (amber).
  */
 

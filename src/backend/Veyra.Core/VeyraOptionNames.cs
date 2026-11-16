@@ -26,4 +26,7 @@ public static class VeyraOptionNames
 
     /// <summary>Settings of the Access module: sessions, passwords, lockout, and ingestion keys.</summary>
     public const string Access = Root + ":Access";
+
+    /// <summary>Settings of the Agents module: where the built-in agent is (ADR 0019).</summary>
+    public const string Agents = Root + ":Agents";
 }

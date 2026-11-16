@@ -22,6 +22,8 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
+    // The browser's zone is the default time zone of every screen (VEY-22); tests run in UTC wherever they run.
+    env: { TZ: "UTC" },
     css: false,
     // Playwright runs the end-to-end tests in e2e/; Vitest runs only the unit and component tests.
     include: ["src/**/*.test.{ts,tsx}"],

@@ -263,12 +263,6 @@
   font-size: 13px;
 }
 
-.button.quiet {
-  border-color: transparent;
-  background: transparent;
-  color: var(--muted);
-}
-
 @media (max-width: 560px) {
   .setup-pair {
     grid-template-columns: 1fr;

@@ -30,7 +30,7 @@ vi.mock("../api/client", async (importOriginal) => {
   };
 });
 
-const admin = { id: "1", email: "root@example.com", displayName: "Root", role: "Admin" as const };
+const admin = { id: "1", email: "root@example.com", displayName: "Root", role: "Admin" as const, timeZone: null };
 
 function renderAt(path: string) {
   return render(
@@ -117,7 +117,7 @@ describe("App", () => {
     renderAt("/keys");
 
     expect(await screen.findByRole("heading", { name: "Clear skies" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Keys" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Ingestion keys" })).not.toBeInTheDocument();
   });
 
   it("opens ingestion keys for an administrator", async () => {

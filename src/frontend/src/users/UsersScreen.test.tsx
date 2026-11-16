@@ -51,6 +51,7 @@ beforeEach(() => {
     email: dana.email,
     displayName: dana.displayName,
     role: "Admin",
+    timeZone: null,
   });
   vi.mocked(api.listUsers).mockResolvedValue(people);
   vi.mocked(api.user).mockResolvedValue(tomDetail);

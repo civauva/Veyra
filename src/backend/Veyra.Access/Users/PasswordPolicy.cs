@@ -10,7 +10,7 @@ namespace Veyra.Access.Users;
 /// without making them much harder to guess, so Veyra asks for long passwords instead.
 /// </remarks>
 /// <param name="options">The Access settings, for the minimum length.</param>
-internal sealed class PasswordPolicy(IOptions<AccessOptions> options)
+internal sealed class PasswordPolicy(IOptionsMonitor<AccessOptions> options)
 {
     // Hashing is deliberately slow, so very long inputs are refused before they reach the hasher.
     private const int _maximumLength = 1024;
@@ -22,7 +22,7 @@ internal sealed class PasswordPolicy(IOptions<AccessOptions> options)
     /// <returns><see langword="null"/> when the password is acceptable; otherwise what is wrong with it.</returns>
     public string? Check(string password)
     {
-        var minimum = options.Value.MinimumPasswordLength;
+        var minimum = options.CurrentValue.MinimumPasswordLength;
 
         if (password.Length < minimum)
         {

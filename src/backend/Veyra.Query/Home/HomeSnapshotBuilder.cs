@@ -38,6 +38,12 @@ internal sealed class HomeSnapshotBuilder(
     /// <summary>The group every host is in until groupings exist.</summary>
     public const string HostsGroup = "Hosts";
 
+    /// <summary>The group of database servers' alerts (ADR 0018).</summary>
+    public const string DatabasesGroup = "Databases";
+
+    /// <summary>The group of containers' alerts (ADR 0018).</summary>
+    public const string ContainersGroup = "Containers";
+
     // The same window the built-in error-rate rule uses by default, so the numbers match the alerts.
     private static readonly TimeSpan _window = TimeSpan.FromMinutes(5);
 
@@ -233,7 +239,13 @@ internal sealed class HomeSnapshotBuilder(
         };
     }
 
-    private static string GroupOf(HomeAlertResponse alert) => alert.Kind == "host" ? HostsGroup : ServicesGroup;
+    private static string GroupOf(HomeAlertResponse alert) => alert.Kind switch
+    {
+        "host" => HostsGroup,
+        "database" => DatabasesGroup,
+        "container" => ContainersGroup,
+        _ => ServicesGroup,
+    };
 
     private static HomeAlertResponse ToResponse(AlertState alert, int? number) => new(
         number,

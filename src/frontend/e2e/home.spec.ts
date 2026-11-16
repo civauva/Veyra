@@ -26,7 +26,9 @@ test.describe("Forecast home", () => {
     const pane = page.getByRole("region", { name: "Needs you" });
     await expect(title).toBeVisible();
     await expect(pane).toBeVisible();
-    await expect(page.getByRole("status", { name: "Master warning" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Alerts", exact: true })).toHaveAccessibleDescription(
+      "1 warning, 1 caution",
+    );
     expect(await scrollsSideways(page)).toBe(false);
 
     const titleBox = await title.boundingBox();
@@ -35,15 +37,34 @@ test.describe("Forecast home", () => {
     if (testInfo.project.name === "desktop") {
       // Side by side: the pane to the right of the forecast.
       expect(paneBox?.x ?? 0).toBeGreaterThan((titleBox?.x ?? 0) + (titleBox?.width ?? 0));
-      await expect(page.getByRole("button", { name: /production/, pressed: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: /^Environment: production/ })).toBeVisible();
     } else if (testInfo.project.name === "tablet") {
-      // One column: the pane below the forecast, the pills folded into a picker.
+      // One column: the pane below the forecast, beside the sidebar's icons.
       expect(paneBox?.y ?? 0).toBeGreaterThan(titleBox?.y ?? 0);
-      await expect(page.getByRole("combobox", { name: "Environment" })).toBeVisible();
+      await expect(page.getByRole("button", { name: /^Environment: production/ })).toBeVisible();
     } else {
       // Phones: Needs you first.
       expect(paneBox?.y ?? 0).toBeLessThan(titleBox?.y ?? 0);
     }
+  });
+
+  test("numbers each alert in Needs you on a round badge", async ({ page }) => {
+    await answerApi(page);
+    await page.goto("/");
+    const pane = page.getByRole("region", { name: "Needs you" });
+    await expect(pane).toBeVisible();
+
+    // Styles of other screens share the page: the Users screen's person badge once stretched these into pills.
+    const badges = await pane.locator(".alert-row > span:first-child").evaluateAll((spans) =>
+      spans.map((badge) => {
+        const box = badge.getBoundingClientRect();
+
+        return { width: box.width, height: box.height };
+      }),
+    );
+
+    expect(badges.length).toBeGreaterThan(0);
+    expect(badges.filter((badge) => badge.width !== 26 || badge.height !== 26)).toEqual([]);
   });
 
   test("opens the logs of an alert from Needs you", async ({ page }) => {

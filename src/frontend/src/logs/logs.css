@@ -20,21 +20,6 @@
   color: var(--muted);
 }
 
-.link-button {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.link-button:disabled {
-  color: var(--faint);
-  cursor: default;
-}
-
 /* ---- Filters ---- */
 
 .filters {
@@ -73,24 +58,6 @@
   flex: 1;
   min-width: 0;
   padding: 0 4px;
-}
-
-.chip-button {
-  min-height: 30px;
-  padding: 0 12px;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  background: var(--chip);
-  color: var(--muted);
-  font: inherit;
-  cursor: pointer;
-}
-
-.chip-button[aria-pressed="true"] {
-  border-color: var(--accent);
-  background: var(--selected);
-  color: var(--fg);
-  font-weight: 600;
 }
 
 .segmented .chip-button[aria-pressed="true"] {

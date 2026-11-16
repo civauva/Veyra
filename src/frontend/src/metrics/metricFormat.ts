@@ -1,4 +1,5 @@
 import { formatBytes } from "../home/homeFormat";
+import { localDay, localDayName, zoneParts } from "../time/zone";
 
 /*
  * Numbers of the metrics screens and the home's metric tiles. Shares are percentages without decimals above 10 %,
@@ -11,6 +12,33 @@ import { formatBytes } from "../home/homeFormat";
  * @param seconds - The duration in seconds, or null when unknown.
  * @returns For example `340 ms`, `1.2 s`, or `—`.
  */
+/**
+ * A length of time the way the alerts say it: `42 s`, `14 min`, `1 h 36 min`, or `2 d 3 h`.
+ *
+ * @param seconds - The length in seconds.
+ * @returns The words.
+ */
+export function formatSpan(seconds: number): string {
+  if (seconds < 60) {
+    return `${Math.max(0, Math.round(seconds))} s`;
+  }
+
+  const minutes = Math.round(seconds / 60);
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  const rest = minutes % 60;
+
+  if (days >= 1) {
+    return hours === 0 ? `${days} d` : `${days} d ${hours} h`;
+  }
+
+  if (minutes >= 60) {
+    return rest === 0 ? `${hours} h` : `${hours} h ${rest} min`;
+  }
+
+  return `${minutes} min`;
+}
+
 export function formatSeconds(seconds: number | null): string {
   if (seconds === null) {
     return "—";
@@ -128,4 +156,18 @@ export function formatFull(days: number | null): string {
   }
 
   return `full in about ${Math.round(days)} ${Math.round(days) === 1 ? "day" : "days"}`;
+}
+
+/**
+ * When something happened, by its day and clock time in the display zone: `Today 01:00`, `Yesterday 02:00`, or
+ * `Nov 8 02:00`.
+ *
+ * @param instant - The instant.
+ * @param now - The current time, for today and yesterday.
+ * @returns The words.
+ */
+export function formatClockTime(instant: string, now: Date = new Date()): string {
+  const { hour, minute } = zoneParts(instant);
+
+  return `${localDayName(localDay(instant), now)} ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }

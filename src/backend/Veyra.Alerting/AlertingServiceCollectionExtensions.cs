@@ -7,9 +7,11 @@ using Veyra.Alerting.Api;
 using Veyra.Alerting.ErrorRates;
 using Veyra.Alerting.MetricRules;
 using Veyra.Alerting.Notifications;
+using Veyra.Alerting.Settings;
 using Veyra.Core;
 using Veyra.Core.Alerts;
 using Veyra.Core.Schema;
+using Veyra.Core.Settings;
 
 namespace Veyra.Alerting;
 
@@ -41,55 +43,9 @@ public static class AlertingServiceCollectionExtensions
 
         services.AddOptions<AlertingOptions>()
             .Bind(configuration.GetSection(VeyraOptionNames.Alerting))
-            .Validate(o => o.EvaluationInterval > TimeSpan.Zero, "Veyra:Alerting:EvaluationInterval must be positive.")
-            .Validate(o => o.ErrorRate.Window > TimeSpan.Zero, "Veyra:Alerting:ErrorRate:Window must be positive.")
-            .Validate(
-                o => o.ErrorRate.MinimumRecords >= 1,
-                "Veyra:Alerting:ErrorRate:MinimumRecords must be at least 1.")
-            .Validate(
-                o => o.ErrorRate.CautionRatio > 0
-                    && o.ErrorRate.CautionRatio <= o.ErrorRate.WarningRatio
-                    && o.ErrorRate.WarningRatio <= 1,
-                "Veyra:Alerting:ErrorRate needs 0 < CautionRatio <= WarningRatio <= 1.")
-            .Validate(o => o.HistoryDays >= 1, "Veyra:Alerting:HistoryDays must be at least 1.")
-            .Validate(
-                o => o.DiskSpace.CautionRatio > 0
-                    && o.DiskSpace.CautionRatio <= o.DiskSpace.WarningRatio
-                    && o.DiskSpace.WarningRatio <= 1
-                    && o.DiskSpace.ClearMargin >= 0
-                    && o.DiskSpace.ClearMargin < o.DiskSpace.CautionRatio,
-                "Veyra:Alerting:DiskSpace needs 0 < CautionRatio <= WarningRatio <= 1 "
-                + "and 0 <= ClearMargin < CautionRatio.")
-            .Validate(
-                o => o.DiskFilling.WarningDays > 0
-                    && o.DiskFilling.WarningDays <= o.DiskFilling.CautionDays
-                    && o.DiskFilling.ClearFactor >= 1,
-                "Veyra:Alerting:DiskFilling needs 0 < WarningDays <= CautionDays and a ClearFactor of 1 or more.")
-            .Validate(
-                o => o.Latency.CautionSeconds > 0
-                    && o.Latency.CautionSeconds <= o.Latency.WarningSeconds
-                    && o.Latency.ClearFactor is > 0 and <= 1
-                    && o.Latency.MinimumRequests >= 1,
-                "Veyra:Alerting:Latency needs 0 < CautionSeconds <= WarningSeconds, 0 < ClearFactor <= 1, "
-                + "and a MinimumRequests of 1+.")
-            .Validate(
-                o => string.IsNullOrWhiteSpace(o.PublicUrl)
-                    || (Uri.TryCreate(o.PublicUrl, UriKind.Absolute, out var url)
-                        && (url.Scheme == Uri.UriSchemeHttps || url.Scheme == Uri.UriSchemeHttp)),
-                "Veyra:Alerting:PublicUrl must be a full http or https address, for example https://veyra.example.com.")
-            .Validate(
-                o => o.Notifications.DispatchInterval > TimeSpan.Zero
-                    && o.Notifications.SendTimeout > TimeSpan.Zero
-                    && o.Notifications.BatchSize >= 1,
-                "Veyra:Alerting:Notifications needs a positive DispatchInterval and SendTimeout and a BatchSize of 1+.")
-            .Validate(
-                o => o.Notifications.Smtp.Port is >= 1 and <= 65535,
-                "Veyra:Alerting:Notifications:Smtp:Port must be between 1 and 65535.")
-            .Validate(
-                o => !o.Notifications.Smtp.IsConfigured
-                    || MimeKit.MailboxAddress.TryParse(o.Notifications.Smtp.From, out _),
-                "Set Veyra:Alerting:Notifications:Smtp:From (VEYRA_SMTP_FROM) to the sender's email address.")
             .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<AlertingOptions>, AlertingOptionsRules>();
+        services.AddSingleton<IModuleSettings, AlertingSettings>();
 
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<ISchemaMigrationSource, AlertingMigrations>();
@@ -142,10 +98,10 @@ public static class AlertingServiceCollectionExtensions
         services.AddTransient(provider => new AlertsController(
             provider.GetRequiredService<AlertDetailsBuilder>(),
             provider.GetRequiredService<AlertStore>(),
-            provider.GetRequiredService<IOptions<AlertingOptions>>(),
+            provider.GetRequiredService<IOptionsMonitor<AlertingOptions>>(),
             provider.GetRequiredService<TimeProvider>()));
         services.AddTransient(provider => new NotificationChannelsController(
             provider.GetRequiredService<ChannelService>(),
-            provider.GetRequiredService<IOptions<AlertingOptions>>()));
+            provider.GetRequiredService<IOptionsMonitor<AlertingOptions>>()));
     }
 }

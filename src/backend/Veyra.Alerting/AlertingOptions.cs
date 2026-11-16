@@ -1,3 +1,4 @@
+using Veyra.Alerting.Catalog;
 using Veyra.Alerting.ErrorRates;
 using Veyra.Alerting.MetricRules;
 using Veyra.Alerting.Notifications;
@@ -35,6 +36,27 @@ public sealed class AlertingOptions
 
     /// <summary>The built-in latency rule, bound from <c>Veyra:Alerting:Latency</c>.</summary>
     public LatencyOptions Latency { get; set; } = new();
+
+    /// <summary>The blocking rule for database servers (ADR 0018).</summary>
+    public DatabaseBlockingOptions DatabaseBlocking { get; set; } = new();
+
+    /// <summary>The deadlock rule for database servers (ADR 0018).</summary>
+    public DatabaseDeadlocksOptions DatabaseDeadlocks { get; set; } = new();
+
+    /// <summary>The long-query rule for databases (ADR 0018).</summary>
+    public DatabaseLongQueryOptions DatabaseLongQuery { get; set; } = new();
+
+    /// <summary>The backup-age rule for databases (ADR 0018).</summary>
+    public DatabaseBackupAgeOptions DatabaseBackupAge { get; set; } = new();
+
+    /// <summary>The SQL Agent job rule (ADR 0018).</summary>
+    public DatabaseAgentJobOptions DatabaseAgentJob { get; set; } = new();
+
+    /// <summary>
+    /// The catalog rules' settings, by each rule's section, such as <c>HeadBlocker</c> (ADR 0020). A rule left out
+    /// runs with the catalog's defaults.
+    /// </summary>
+    public Dictionary<string, CatalogRuleOptions> Catalog { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Alert notifications, bound from <c>Veyra:Alerting:Notifications</c>.</summary>
     public NotificationOptions Notifications { get; set; } = new();

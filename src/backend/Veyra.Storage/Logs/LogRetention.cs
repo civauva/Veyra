@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using Veyra.Core.Telemetry;
+using Veyra.Storage.Schema;
 
 namespace Veyra.Storage.Logs;
 
@@ -11,8 +12,9 @@ namespace Veyra.Storage.Logs;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Whole daily partitions are dropped, which is instant and frees disk at once, unlike deleting rows. Only the default
-/// partition, which catches records with unusual timestamps, has its old rows deleted one by one.
+/// Whole daily partitions are dropped, which is instant and frees disk at once, unlike deleting rows. A day's records
+/// and its counts (ADR 0015) are dropped together. Only the default partitions, which catch records with unusual
+/// timestamps, have their old rows deleted one by one.
 /// </para>
 /// <para>
 /// The size budget is Veyra's disk guard. Veyra cannot see free space on the database host, so it keeps log storage
@@ -26,11 +28,12 @@ namespace Veyra.Storage.Logs;
 /// <param name="logger">Receives what was removed.</param>
 internal sealed partial class LogRetention(
     NpgsqlDataSource dataSource,
-    IOptions<StorageOptions> options,
+    IOptionsMonitor<StorageOptions> options,
     TimeProvider clock,
     ILogger<LogRetention> logger) : ILogStorageUsage
 {
-    private const string _partitionPrefix = "log_record_";
+    // The tables whose daily partitions make up a day of logs: the records, then their counts.
+    private static readonly string[] _tables = ["log_record", "log_count_minute", "log_count_hour"];
 
     private const double _bytesPerGigabyte = 1024d * 1024 * 1024;
 
@@ -46,7 +49,7 @@ internal sealed partial class LogRetention(
     /// <returns>What was removed.</returns>
     public async Task<RetentionResult> ApplyAsync(DateTimeOffset now, CancellationToken cancellationToken)
     {
-        var settings = options.Value;
+        var settings = options.CurrentValue;
         var today = DateOnly.FromDateTime(now.UtcDateTime);
         var firstDayKept = today.AddDays(-settings.LogRetentionDays);
         var dropped = new List<string>();
@@ -56,7 +59,7 @@ internal sealed partial class LogRetention(
 
         foreach (var partition in partitions.Where(p => p.Day < firstDayKept))
         {
-            await DropAsync(partition.Name, cancellationToken);
+            await DropAsync(partition, cancellationToken);
             dropped.Add(partition.Name);
             LogDroppedForAge(partition.Name, settings.LogRetentionDays);
         }
@@ -77,7 +80,7 @@ internal sealed partial class LogRetention(
                     break;
                 }
 
-                await DropAsync(partition.Name, cancellationToken);
+                await DropAsync(partition, cancellationToken);
                 dropped.Add(partition.Name);
                 total -= partition.Bytes;
                 LogDroppedForSize(partition.Name, budgetGigabytes);
@@ -102,7 +105,7 @@ internal sealed partial class LogRetention(
     /// <returns>The size, the budget, and the recent daily growth.</returns>
     public async Task<LogStorageUsage> GetUsageAsync(DateTimeOffset now, CancellationToken cancellationToken)
     {
-        var settings = options.Value;
+        var settings = options.CurrentValue;
         var today = DateOnly.FromDateTime(now.UtcDateTime);
         var partitions = await ListPartitionsAsync(cancellationToken);
         var used = partitions.Sum(p => p.Bytes) + await DefaultPartitionBytesAsync(cancellationToken);
@@ -128,62 +131,91 @@ internal sealed partial class LogRetention(
         return (bool)(await command.ExecuteScalarAsync(cancellationToken))!;
     }
 
+    /// <summary>Lists the days of logs with their records' partition and the size of the records and counts.</summary>
     private async Task<List<Partition>> ListPartitionsAsync(CancellationToken cancellationToken)
     {
-        await using var command = dataSource.CreateCommand(
-            """
-            SELECT child.relname, pg_total_relation_size(child.oid)
-            FROM pg_inherits
-            JOIN pg_class AS child ON child.oid = pg_inherits.inhrelid
-            JOIN pg_class AS parent ON parent.oid = pg_inherits.inhparent
-            JOIN pg_namespace ON pg_namespace.oid = parent.relnamespace
-            WHERE pg_namespace.nspname = 'storage' AND parent.relname = 'log_record'
-            """);
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var days = new Dictionary<DateOnly, (string? Name, long Bytes)>();
 
-        var partitions = new List<Partition>();
-
-        while (await reader.ReadAsync(cancellationToken))
+        foreach (var table in _tables)
         {
-            var name = reader.GetString(0);
-
-            // Only daily partitions have a date in their name; the default partition is handled separately.
-            if (name.StartsWith(_partitionPrefix, StringComparison.Ordinal)
-                && DateOnly.TryParseExact(
-                    name[_partitionPrefix.Length..],
-                    "yyyyMMdd",
-                    CultureInfo.InvariantCulture,
-                    DateTimeStyles.None,
-                    out var day))
+            foreach (var (name, day, bytes) in await DailyPartitions.ListAsync(dataSource, table, cancellationToken))
             {
-                partitions.Add(new Partition(name, day, reader.GetInt64(1)));
+                var (recordsName, sum) = days.GetValueOrDefault(day);
+                days[day] = (table == _tables[0] ? name : recordsName, sum + bytes);
             }
         }
 
-        return partitions.OrderBy(p => p.Day).ToList();
+        // Records and counts get their partitions together, so a day always has a records partition.
+        return days
+            .Where(day => day.Value.Name is not null)
+            .Select(day => new Partition(day.Value.Name!, day.Key, day.Value.Bytes))
+            .OrderBy(partition => partition.Day)
+            .ToList();
     }
 
-    private async Task DropAsync(string partition, CancellationToken cancellationToken)
+    /// <summary>Drops a day: its records, its counts, and its places in the backfills.</summary>
+    private async Task DropAsync(Partition partition, CancellationToken cancellationToken)
     {
-        // The name comes from pg_class and was checked to be log_record_ followed by a date, so it is safe to inline.
-        await using var command = dataSource.CreateCommand($"DROP TABLE IF EXISTS storage.{partition}");
+        var day = partition.Day.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
 
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        // The names are built from a date this method formatted itself, so they are safe to inline.
+        var tables = $"storage.log_record_{day}, storage.log_count_minute_{day}, storage.log_count_hour_{day}";
+
+        await ExecuteAsync(
+            cancellationToken,
+            ($"DROP TABLE IF EXISTS {tables}", []),
+            ("DELETE FROM storage.log_count_backfill WHERE day = $1", [partition.Day]),
+            ("DELETE FROM storage.log_terms_backfill WHERE day = $1", [partition.Day]));
     }
 
     private async Task<long> DeleteOldDefaultRowsAsync(DateOnly firstDayKept, CancellationToken cancellationToken)
     {
+        var before = new DateTimeOffset(firstDayKept.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
+
+        await ExecuteAsync(
+            cancellationToken,
+            ("DELETE FROM storage.log_count_minute_default WHERE minute < $1", [before]),
+            ("DELETE FROM storage.log_count_hour_default WHERE hour < $1", [before]),
+            ("DELETE FROM storage.log_count_backfill WHERE day < $1", [firstDayKept]),
+            ("DELETE FROM storage.log_terms_backfill WHERE day < $1", [firstDayKept]));
+
         await using var command = dataSource.CreateCommand(
             "DELETE FROM storage.log_record_default WHERE timestamp < $1");
-        command.Parameters.AddWithValue(new DateTimeOffset(firstDayKept.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero));
+        command.Parameters.AddWithValue(before);
 
         return await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>Runs several statements in one round trip.</summary>
+    private async Task ExecuteAsync(
+        CancellationToken cancellationToken,
+        params (string Sql, object[] Values)[] statements)
+    {
+        await using var batch = dataSource.CreateBatch();
+
+        foreach (var (sql, values) in statements)
+        {
+            var command = new NpgsqlBatchCommand(sql);
+
+            foreach (var value in values)
+            {
+                command.Parameters.Add(new NpgsqlParameter { Value = value });
+            }
+
+            batch.BatchCommands.Add(command);
+        }
+
+        await batch.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private async Task<long> DefaultPartitionBytesAsync(CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(
-            "SELECT pg_total_relation_size('storage.log_record_default')");
+            """
+            SELECT pg_total_relation_size('storage.log_record_default')
+                + pg_total_relation_size('storage.log_count_minute_default')
+                + pg_total_relation_size('storage.log_count_hour_default')
+            """);
 
         return (long)(await command.ExecuteScalarAsync(cancellationToken))!;
     }

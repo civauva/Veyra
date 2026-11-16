@@ -11,6 +11,8 @@ export default defineConfig({
   reporter: "list",
   use: {
     baseURL: `http://localhost:${port}`,
+    // The browser's zone is the default time zone of every screen (VEY-22); the suite runs in UTC unless a test asks.
+    timezoneId: "UTC",
     trace: "retain-on-failure",
   },
   projects: [

@@ -198,7 +198,7 @@
   margin-bottom: 6px;
 }
 
-.chart-legend {
+.alert-legend {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 16px;
@@ -209,7 +209,7 @@
   opacity: 0.8;
 }
 
-.chart-legend li::before {
+.alert-legend li::before {
   content: "";
   display: inline-block;
   width: 14px;
@@ -658,21 +658,21 @@
   opacity: 0.8;
 }
 
-.disk-bar {
+.alert-disk-bar {
   height: 8px;
   overflow: hidden;
   border-radius: 4px;
   background: var(--dot);
 }
 
-.disk-bar i {
+.alert-disk-bar i {
   display: block;
   height: 100%;
   border-radius: 4px;
   background: var(--fc-green);
 }
 
-.disk-bar i.hot {
+.alert-disk-bar i.hot {
   background: var(--fc-amber);
 }
 
@@ -776,7 +776,7 @@
     grid-column: 1 / -1;
   }
 
-  .chart-legend {
+  .alert-legend {
     display: none;
   }
 
@@ -796,4 +796,18 @@
   .top-errors .step-button {
     min-height: 44px;
   }
+}
+
+/* ---- Simple and Advanced (VEY-37) ---- */
+
+.alert-view-toggle {
+  align-self: flex-end;
+}
+
+.alert-advanced-note {
+  margin: 0;
+  padding: 12px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  text-align: center;
 }

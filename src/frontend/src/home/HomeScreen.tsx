@@ -3,10 +3,11 @@ import { useState } from "react";
 import { useShell } from "../app/shellContext";
 import { ForecastVisual } from "./forecast/ForecastVisual";
 import { BlocksPanel } from "./large/BlocksPanel";
-import { DisksPanel } from "./large/DisksPanel";
 import { HomeWall } from "./large/HomeWall";
 import { NeedsYou } from "./NeedsYou";
 import { useHomeLayout } from "./useHomeLayout";
+import { formatClock } from "../logs/format";
+import { zoneLabel } from "../time/zone";
 import "./home.css";
 import "./large/large.css";
 
@@ -15,8 +16,9 @@ import "./large/large.css";
  * The shell owns the snapshot, the environment pills, the master lights, and the weather behind the frame
  * (VEY-23), so they look the same on every screen.
  *
- * Large screens get more to see, not bigger type (VEY-24): from 1800 px a column lists every service, host, and disk;
- * from 2400 by 1200 px the wall adds the last 24 hours, the last 30 days, and the latest alerts.
+ * Large screens get more to see, not bigger type (VEY-24): from 1800 px the estate of every service and host gets a
+ * column of its own; from 2400 by 1200 px the wall adds the last 24 hours, the last 30 days, and the latest alerts.
+ * Every question has one place on every layout (VEY-26).
  */
 export function HomeScreen() {
   const { status } = useShell();
@@ -42,15 +44,19 @@ export function HomeScreen() {
     <main className="home">
       {error && (
         <p className="home-stale" role="alert">
-          Could not refresh: {error}. Showing the picture from {new Date(snapshot.at).toISOString().slice(11, 16)} UTC.
+          Could not refresh: {error}. Showing the picture from {formatClock(snapshot.at)}{" "}
+          {zoneLabel(new Date(snapshot.at))}.
         </p>
       )}
-      <div className={`home-body ${layout}`}>
-        {layout === "wall" ? <HomeWall snapshot={snapshot} /> : <ForecastVisual snapshot={snapshot} />}
+      <div className="home-body" data-layout={layout}>
+        {layout === "wall" ? (
+          <HomeWall snapshot={snapshot} />
+        ) : (
+          <ForecastVisual snapshot={snapshot} estate={layout === "standard"} />
+        )}
         {layout === "wide" && (
           <div className="home-side">
             <BlocksPanel snapshot={snapshot} />
-            <DisksPanel snapshot={snapshot} />
           </div>
         )}
         <NeedsYou snapshot={snapshot} selectedId={selectedId} onSelect={setSelectedId} now={new Date(snapshot.at)} />

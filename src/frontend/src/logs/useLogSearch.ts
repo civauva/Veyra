@@ -17,18 +17,29 @@ interface SearchResult {
   items: LogEntry[];
   /** The cursor of the next page; null on the last page. */
   nextCursor: string | null;
-  /** The counts for the histogram and the service filter; null when they could not be loaded. */
-  summary: LogSummary | null;
   /** Why the search failed; null when it did not. */
   error: string | null;
+}
+
+/** The counts of one search, which arrive on their own so the list never waits for them. */
+interface SummaryResult {
+  /** The filters and refresh count the counts belong to. */
+  requestKey: string;
+  /** The counts for the histogram and the service filter; null when they could not be loaded. */
+  summary: LogSummary | null;
 }
 
 /** What {@link useLogSearch} gives the Log Explorer. */
 export interface LogSearch {
   /** The records loaded so far, newest first. Stays filled while a newer search runs, so the list does not flicker. */
   items: LogEntry[];
-  /** The histogram and service counts, or null before they arrive or when they failed. */
+  /**
+   * The histogram and service counts, or null before they arrive or when they failed. While a newer search counts,
+   * the previous counts stay, so the histogram does not flicker.
+   */
   summary: LogSummary | null;
+  /** Whether the counts for the current filters are still on their way. */
+  counting: boolean;
   /** Whether a search for the current filters is still running. */
   loading: boolean;
   /** Whether the next page is being loaded. */
@@ -66,6 +77,7 @@ export function useLogSearch(filters: LogFilters, follow: boolean, environment: 
   const [refreshes, setRefreshes] = useState(0);
   const requestKey = `${filtersKey}#${environmentKey}#${refreshes}`;
   const [result, setResult] = useState<SearchResult | null>(null);
+  const [summaryResult, setSummaryResult] = useState<SummaryResult | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const loadingMoreRef = useRef(false);
   // Labels the window before the first answer arrives; later, the answer carries the end it searched up to.
@@ -81,23 +93,32 @@ export function useLogSearch(filters: LogFilters, follow: boolean, environment: 
     const summaryParams = new URLSearchParams(params);
     summaryParams.delete("limit");
 
-    void Promise.allSettled([
-      api.searchLogs(params, controller.signal),
-      api.summarizeLogs(summaryParams, controller.signal),
-    ]).then(([page, summary]) => {
-      if (controller.signal.aborted) {
-        return;
-      }
-
-      setResult({
-        requestKey,
-        now,
-        items: page.status === "fulfilled" ? page.value.items : [],
-        nextCursor: page.status === "fulfilled" ? page.value.nextCursor : null,
-        summary: summary.status === "fulfilled" ? summary.value : null,
-        error: page.status === "rejected" ? messageOf(page.reason) : null,
-      });
-    });
+    // The page and the counts are asked for together but shown as each arrives: counting a word search can take
+    // longer than finding its newest records (ADR 0015), and the list must not wait for it.
+    api.searchLogs(params, controller.signal).then(
+      (page) => {
+        if (!controller.signal.aborted) {
+          setResult({ requestKey, now, items: page.items, nextCursor: page.nextCursor, error: null });
+        }
+      },
+      (failure: unknown) => {
+        if (!controller.signal.aborted) {
+          setResult({ requestKey, now, items: [], nextCursor: null, error: messageOf(failure) });
+        }
+      },
+    );
+    api.summarizeLogs(summaryParams, controller.signal).then(
+      (summary) => {
+        if (!controller.signal.aborted) {
+          setSummaryResult({ requestKey, summary });
+        }
+      },
+      () => {
+        if (!controller.signal.aborted) {
+          setSummaryResult({ requestKey, summary: null });
+        }
+      },
+    );
 
     return () => controller.abort();
   }, [filtersKey, environmentKey, requestKey]);
@@ -145,7 +166,8 @@ export function useLogSearch(filters: LogFilters, follow: boolean, environment: 
 
   return {
     items: result?.items ?? [],
-    summary: result?.summary ?? null,
+    summary: summaryResult?.summary ?? null,
+    counting: summaryResult?.requestKey !== requestKey,
     loading: result?.requestKey !== requestKey,
     loadingMore,
     hasMore: result?.nextCursor != null,

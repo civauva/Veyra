@@ -12,12 +12,14 @@ import { LogList } from "./LogList";
 import { severityLabels } from "./SeverityBadge";
 import { useLogSearch } from "./useLogSearch";
 import "./logs.css";
+import { useViewMode, ViewToggle } from "../app/ViewToggle";
 
 /**
  * The Log Explorer (VEY-14 mockups): filters on the left, search, histogram, and results in the middle, the selected
  * record on the right. The filters live in the URL, so a link or a reload shows the same view.
  */
 export function LogExplorer() {
+  const [mode] = useViewMode();
   const [searchParams, setSearchParams] = useSearchParams();
   const filters = filtersFromUrl(searchParams);
   const [following, setFollowing] = useState(false);
@@ -93,20 +95,23 @@ export function LogExplorer() {
             <span className="follow-dot" aria-hidden="true" />
             Follow new
           </button>
-          <button
-            type="button"
-            className="button toolbar-export"
-            title="Download the loaded records as JSON"
-            disabled={search.items.length === 0}
-            onClick={() => exportRecords(search.items)}
-          >
-            Export
-          </button>
+          {mode === "advanced" && (
+            <button
+              type="button"
+              className="button toolbar-export"
+              title="Download the loaded records as JSON"
+              disabled={search.items.length === 0}
+              onClick={() => exportRecords(search.items)}
+            >
+              Export
+            </button>
+          )}
+          <ViewToggle className="toolbar-view" />
         </div>
 
         <FilterSummary filters={filters} />
 
-        <Histogram summary={search.summary} from={search.from} to={search.to} />
+        <Histogram summary={search.summary} counting={search.counting} from={search.from} to={search.to} />
 
         {search.error && (
           <p className="explorer-error" role="alert">

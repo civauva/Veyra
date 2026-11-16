@@ -165,6 +165,7 @@ export const lenaAccount: Account = {
   hasPassword: true,
   secondFactor: { since: "2026-10-12T09:00:00Z", recoveryCodesLeft: 9 },
   secondFactorRequired: false,
+  timeZone: null,
   sessions: [
     {
       id: "here",

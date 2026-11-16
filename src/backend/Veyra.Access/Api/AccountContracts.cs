@@ -125,6 +125,7 @@ public sealed record UserDetailResponse(
 /// <param name="SecondFactorRequired">Whether an Admin requires one of this person.</param>
 /// <param name="Sessions">Active sessions, the current one marked.</param>
 /// <param name="SignIns">The latest sign-in attempts, newest first.</param>
+/// <param name="TimeZone">The IANA time zone the person picked, or <see langword="null"/> for the browser's.</param>
 public sealed record AccountResponse(
     Guid Id,
     string Email,
@@ -137,4 +138,9 @@ public sealed record AccountResponse(
     SecondFactorInfoResponse? SecondFactor,
     bool SecondFactorRequired,
     IReadOnlyList<SessionInfoResponse> Sessions,
-    IReadOnlyList<SignInAttemptResponse> SignIns);
+    IReadOnlyList<SignInAttemptResponse> SignIns,
+    string? TimeZone);
+
+/// <summary>The time zone a person picks on the Account page (VEY-22).</summary>
+/// <param name="TimeZone">An IANA zone name, such as <c>Europe/Berlin</c>, or <see langword="null"/> for the browser's.</param>
+public sealed record TimeZoneRequest([StringLength(64)] string? TimeZone);

@@ -2,6 +2,7 @@ using OpenTelemetry.Proto.Collector.Metrics.V1;
 using OpenTelemetry.Proto.Common.V1;
 using OpenTelemetry.Proto.Metrics.V1;
 using Veyra.Core.Metrics;
+using Veyra.Core.Telemetry;
 
 namespace Veyra.Ingestion.Otlp;
 
@@ -37,6 +38,7 @@ internal static class OtlpMetricMapper
                 resource.GetValueOrDefault("service.name") is { Length: > 0 } service ? service : null,
                 OtlpValues.Environment(resource),
                 resource.GetValueOrDefault("host.name") is { Length: > 0 } host ? host : null,
+                TelemetryBlock.Of(resource),
                 receivedAt);
 
             foreach (var metric in resourceMetrics.ScopeMetrics.SelectMany(scope => scope.Metrics))
@@ -167,6 +169,7 @@ internal static class OtlpMetricMapper
         string? Service,
         string? Environment,
         string? Host,
+        TelemetryBlock Block,
         DateTimeOffset ReceivedAt)
     {
         public MetricPoint Point(
@@ -193,6 +196,7 @@ internal static class OtlpMetricMapper
                 Timestamp: OtlpValues.FromUnixNanos(time) ?? ReceivedAt,
                 StartTimestamp: OtlpValues.FromUnixNanos(start),
                 Value: value,
-                Histogram: histogram);
+                Histogram: histogram,
+                Block: Block);
     }
 }

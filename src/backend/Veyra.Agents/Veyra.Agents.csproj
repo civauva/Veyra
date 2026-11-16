@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!-- The OpAMP endpoint and the REST controllers are ASP.NET Core endpoints; Data Protection encrypts passwords. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Veyra.Core\Veyra.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="Grpc.Tools" PrivateAssets="all" />
+    <PackageReference Include="Npgsql" />
+    <PackageReference Include="YamlDotNet" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The official OpAMP definitions from github.com/open-telemetry/opamp-spec, protocol v1, unchanged. Generated
+         types are internal: they are wire formats, not Veyra API. -->
+    <Protobuf Include="OpAmp/Protos/**/*.proto" ProtoRoot="OpAmp/Protos" Access="Internal" GrpcServices="None" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Forward-only schema scripts for the agents schema, applied by the Storage module at startup. -->
+    <EmbeddedResource Include="Migrations\*.sql" />
+    <!-- The installers for agents in other networks, served with Veyra's address filled in (VEY-40). -->
+    <EmbeddedResource Include="Install\install.ps1" LogicalName="Veyra.Agents.Install.install.ps1" />
+    <EmbeddedResource Include="Install\install.sh" LogicalName="Veyra.Agents.Install.install.sh" />
+    <!-- The tested Collector configuration each agent's configuration is built from: one file, one contract. -->
+    <EmbeddedResource Include="..\..\..\integrations\sqlserver\collector.yaml" LogicalName="Veyra.Agents.Templates.sqlserver.yaml" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Veyra.Agents.Tests" />
+    <InternalsVisibleTo Include="Veyra.Api.Tests" />
+  </ItemGroup>
+
+</Project>

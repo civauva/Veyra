@@ -49,8 +49,9 @@ test.describe("Metrics", () => {
     expect(await scrollsSideways(page)).toBe(false);
 
     // Each chart fills its panel.
-    const chart = await page.locator(".metric-panel .line-chart svg").first().boundingBox();
-    const panel = await page.locator(".metric-panel").first().boundingBox();
+    const holder = page.locator(".metric-panel", { has: page.locator(".line-chart") }).first();
+    const chart = await holder.locator(".line-chart svg").first().boundingBox();
+    const panel = await holder.boundingBox();
     expect(chart?.width ?? 0).toBeGreaterThan((panel?.width ?? 0) - 40);
   });
 
@@ -85,7 +86,9 @@ test.describe("Metrics", () => {
     await expect(card).toBeVisible();
 
     const background = await card.evaluate((element) => getComputedStyle(element).backgroundColor);
-    const ring = await card.locator(".ring.warn .ring-fill").evaluate((element) => getComputedStyle(element).stroke);
+    const ring = await card
+      .locator(".usage-ring.warn .ring-fill")
+      .evaluate((element) => getComputedStyle(element).stroke);
 
     // The dark panel, a little translucent so the weather band shows through on work screens (VEY-23).
     expect(background).toBe("rgba(16, 24, 51, 0.78)");

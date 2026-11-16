@@ -2,13 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import {
   alertTitle,
+  databasePath,
   formatDays,
-  formatMeasure,
   formatDiskShare,
+  formatMeasure,
   formatThreshold,
   ruleName,
   ruleSentence,
   ruleSummary,
+  serverName,
   subjectLabel,
 } from "./ruleWords";
 
@@ -84,5 +86,30 @@ describe("rule lines", () => {
     expect(subjectLabel(service)).toBe("checkout-web");
     expect(formatThreshold("disk-filling", 3)).toBe("within 3 days");
     expect(formatThreshold("latency-p95", 1)).toBe("1 s");
+  });
+});
+
+describe("database rules", () => {
+  const backup = { kind: "database" as const, name: "microsoft.sql_server sql-prod-01", part: "shop" };
+  const server = { kind: "database" as const, name: "microsoft.sql_server sql-prod-01", part: null };
+
+  it("names the server and its part in words", () => {
+    expect(alertTitle("db-backup-age", backup, 31 * 3600, false)).toBe(
+      "SQL Server sql-prod-01: shop has no full backup for 1 d 7 h",
+    );
+    expect(alertTitle("db-long-query", backup, 840, false)).toBe(
+      "SQL Server sql-prod-01: a query in shop has run for 14 min",
+    );
+    expect(alertTitle("db-blocking", server, 3, false)).toBe("SQL Server sql-prod-01: 3 sessions are blocked");
+    expect(alertTitle("db-deadlocks", server, 1, true)).toBe("SQL Server sql-prod-01: 1 deadlock in 15 min");
+    expect(subjectLabel(backup)).toBe("SQL Server sql-prod-01 · shop");
+  });
+
+  it("measures and links each rule", () => {
+    expect(formatMeasure("db-agent-job", 1)).toBe("failed");
+    expect(formatMeasure("db-backup-age", 26 * 3600)).toBe("1 d 2 h");
+    expect(ruleSummary("db-deadlocks", 1, 900)).toBe("Deadlocks · 1 deadlock or more in 15 min");
+    expect(databasePath(server.name)).toBe("/metrics/databases/microsoft.sql_server/sql-prod-01");
+    expect(serverName("postgresql pg-main:5432")).toBe("PostgreSQL pg-main:5432");
   });
 });

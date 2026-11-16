@@ -1,3 +1,5 @@
+using Veyra.Core.Alerts;
+
 namespace Veyra.Core.Telemetry;
 
 /// <summary>
@@ -9,7 +11,10 @@ namespace Veyra.Core.Telemetry;
 /// <param name="Severity">The coarse severity, derived from the OTLP severity number.</param>
 /// <param name="SeverityText">The severity as the sender wrote it, for example <c>Warning</c> or <c>WARN</c>.</param>
 /// <param name="Body">The message. Structured bodies are stored as JSON text.</param>
-/// <param name="ServiceName">The <c>service.name</c> resource attribute, or <c>unknown_service</c>.</param>
+/// <param name="ServiceName">
+/// The name of the block the record belongs to (<see cref="TelemetryBlock"/>, ADR 0018): for a service, its
+/// <c>service.name</c>, or <c>unknown_service</c>.
+/// </param>
 /// <param name="Environment">
 /// The <c>deployment.environment.name</c> resource attribute (or the older <c>deployment.environment</c>).
 /// </param>
@@ -17,6 +22,8 @@ namespace Veyra.Core.Telemetry;
 /// <param name="SpanId">The span ID in lower-case hex, when the record belongs to a span.</param>
 /// <param name="Attributes">The record's own attributes. Non-string values are stored as JSON text.</param>
 /// <param name="ResourceAttributes">The attributes of the resource that produced the record.</param>
+/// <param name="BlockKind">The kind of block the record belongs to; a service unless its resource names another.</param>
+/// <param name="HostName">The <c>host.name</c> resource attribute, when the sender set one.</param>
 public sealed record LogRecord(
     DateTimeOffset Timestamp,
     DateTimeOffset ObservedTimestamp,
@@ -28,4 +35,6 @@ public sealed record LogRecord(
     string? TraceId,
     string? SpanId,
     IReadOnlyDictionary<string, string> Attributes,
-    IReadOnlyDictionary<string, string> ResourceAttributes);
+    IReadOnlyDictionary<string, string> ResourceAttributes,
+    AlertBlockKind BlockKind = AlertBlockKind.Service,
+    string? HostName = null);

@@ -18,7 +18,7 @@ namespace Veyra.Alerting.Notifications;
 /// <param name="logger">Receives failures of the run itself, which are retried on the next tick.</param>
 internal sealed partial class NotificationDispatch(
     IServiceProvider services,
-    IOptions<AlertingOptions> options,
+    IOptionsMonitor<AlertingOptions> options,
     TimeProvider clock,
     ILogger<NotificationDispatch> logger) : BackgroundService
 {
@@ -27,9 +27,7 @@ internal sealed partial class NotificationDispatch(
     /// <returns>A task that completes when Veyra stops.</returns>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var settings = options.Value.Notifications;
-
-        using var timer = new PeriodicTimer(settings.DispatchInterval, clock);
+        using var timer = new PeriodicTimer(options.CurrentValue.Notifications.DispatchInterval, clock);
 
         var failing = false;
 
@@ -44,7 +42,7 @@ internal sealed partial class NotificationDispatch(
                 {
                     tried = await dispatcher.DispatchAsync(stoppingToken);
                 }
-                while (tried >= settings.BatchSize);
+                while (tried >= options.CurrentValue.Notifications.BatchSize);
 
                 if (failing)
                 {
@@ -66,7 +64,16 @@ internal sealed partial class NotificationDispatch(
                 }
             }
         }
-        while (await timer.WaitForNextTickAsync(stoppingToken));
+        while (await NextAsync(timer, stoppingToken));
+    }
+
+    // The interval is read again before every wait, so a change on the Settings screen applies from the next round
+    // (ADR 0017).
+    private ValueTask<bool> NextAsync(PeriodicTimer timer, CancellationToken stoppingToken)
+    {
+        timer.Period = options.CurrentValue.Notifications.DispatchInterval;
+
+        return timer.WaitForNextTickAsync(stoppingToken);
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Sending notifications failed; retrying on the next run")]

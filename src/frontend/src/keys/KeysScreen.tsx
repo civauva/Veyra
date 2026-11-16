@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import { api } from "../api/client";
 import type { CreatedIngestionKey, IngestionKey } from "../api/types";
+import { endOfLocalDay, localDay } from "../time/zone";
 import "./keys.css";
 
 /** The message of anything thrown. */
@@ -9,9 +10,9 @@ function messageOf(failure: unknown): string {
   return failure instanceof Error ? failure.message : String(failure);
 }
 
-/** A date for the key table, for example `2026-11-09`. Dates are UTC, like times in the Log Explorer. */
+/** A date for the key table, for example `2026-11-09`, on the person's calendar (VEY-22). */
 function formatDate(instant: string | null, missing: string): string {
-  return instant ? instant.slice(0, 10) : missing;
+  return instant ? localDay(instant) : missing;
 }
 
 /** Whether a key still works, in the words the table shows. */
@@ -185,8 +186,8 @@ function CreateKeyForm({ onCreated }: CreateKeyFormProps) {
       const key = await api.createKey({
         name: name.trim(),
         environments: list.length > 0 ? list : null,
-        // A date means "works through that day", so the key expires at its last second in UTC.
-        expiresAt: expires ? new Date(`${expires}T23:59:59.000Z`).toISOString() : null,
+        // A date means "works through that day", so the key expires at its last second in the person's zone.
+        expiresAt: expires ? new Date(endOfLocalDay(expires)).toISOString() : null,
       });
       onCreated(key);
     } catch (failure) {

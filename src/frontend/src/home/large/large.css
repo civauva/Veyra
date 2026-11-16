@@ -1,18 +1,37 @@
 /*
- * The home on large screens (VEY-24), at natural size. From 1800 px a third column lists every service, host, and
- * disk; from 2400 by 1200 px bands fill the screen with the day, the month, and the latest alerts. Colours come from the scene
+ * The home on large screens (VEY-24), at natural size. From 1800 px the estate of every service and host gets a column
+ * of its own; from 2400 by 1200 px bands fill the screen with the day, the month, and the latest alerts. Colours come from the scene
  * variables in home.css, so every panel follows the weather and the theme.
  */
 
-/* ---- Wide: the Forecast, the blocks and disks, and Needs you side by side ---- */
+/*
+ * The layout is an attribute, not a class: a class named after a layout would also match the panels of that name, as
+ * `wall` once matched the bands and gave the page an empty row (VEY-25).
+ */
 
-.home-body.wide {
-  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) 440px;
+/* ---- Wide: the Forecast, the estate, and Needs you side by side ---- */
+
+/* The labelled sidebar takes 232 px of these screens (VEY-26), so the Needs you column gives up a little of its width. */
+.home-body[data-layout="wide"] {
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) 400px;
 }
 
-/* Six tiles in a row would be too narrow for their notes beside the third column; two rows of three read easily. */
-.home-body.wide .fc-metrics {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+/* A smaller hero and foot keep the column within a 1080p browser (VEY-25). */
+.home-body[data-layout="wide"] {
+  padding-bottom: 20px;
+}
+
+.home-body[data-layout="wide"] .fc-hero {
+  padding-top: 8px;
+}
+
+/* Not the words that stand in for the number when no records arrived, which keep their own size. */
+.home-body[data-layout="wide"] .fc-big:not(.fc-big-empty) {
+  font-size: 128px;
+}
+
+.home-body[data-layout="wide"] .fc-big span {
+  font-size: 54px;
 }
 
 .home-side {
@@ -24,12 +43,12 @@
 
 /* ---- Wall: bands that reach the foot of the screen, Needs you the full height beside them ---- */
 
-.home-body.wall {
+.home-body[data-layout="wall"] {
   grid-template-columns: minmax(0, 1fr) 480px;
   gap: 20px;
   align-items: stretch;
   box-sizing: border-box;
-  min-height: calc(100dvh - 56px);
+  min-height: 100dvh;
 }
 
 .wall {
@@ -47,7 +66,7 @@
 }
 
 .wall-top .fc-metrics {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .wall-mid {
@@ -70,7 +89,7 @@
   min-height: 0;
 }
 
-/* The latest alerts take what the disks and the outlook leave, and scroll when there are more. */
+/* The latest alerts take what the outlook leaves, and scroll when there are more. */
 .wall-stack .lg-latest {
   flex: 1 1 0;
   min-height: 220px;
@@ -118,7 +137,6 @@
 }
 
 .lg-tile:focus-visible,
-.lg-disk:focus-visible,
 .lg-alert:focus-visible,
 .lg-more:focus-visible {
   outline: 2px solid currentColor;
@@ -128,7 +146,6 @@
 /* ---- Services and hosts ---- */
 
 .lg-tiles,
-.lg-disk-rows,
 .lg-alerts {
   list-style: none;
   margin: 0;
@@ -208,40 +225,7 @@
   font-size: 10px;
 }
 
-/* ---- Disks ---- */
-
-.lg-disk {
-  display: grid;
-  grid-template-columns: minmax(110px, 170px) minmax(0, 1fr) 52px minmax(90px, 120px);
-  gap: 12px;
-  align-items: center;
-  padding: 8px 4px;
-  border-top: 1px solid var(--scene-line);
-  border-radius: 6px;
-  color: inherit;
-  font-size: 13.5px;
-  text-decoration: none;
-}
-
-.lg-disk-rows li:first-child .lg-disk {
-  border-top: 0;
-}
-
-.lg-disk:hover {
-  background: var(--scene-chip);
-}
-
-.lg-disk-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.lg-disk-name small {
-  margin-left: 6px;
-  opacity: 0.68;
-}
+/* ---- A host's disk, as a bar on its tile (VEY-26) ---- */
 
 .lg-disk-bar {
   height: 8px;
@@ -257,28 +241,18 @@
   background: var(--fc-green);
 }
 
-.lg-disk.c .lg-disk-bar i {
+.lg-tile-disk {
+  display: block;
+  height: 4px;
+  margin-top: 5px;
+}
+
+.lg-tile.c .lg-disk-bar i {
   background: var(--fc-amber);
 }
 
-.lg-disk.w .lg-disk-bar i {
+.lg-tile.w .lg-disk-bar i {
   background: var(--fc-red);
-}
-
-.lg-disk-value {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-.lg-disk-note {
-  text-align: right;
-  opacity: 0.7;
-}
-
-.lg-disk.c .lg-disk-note,
-.lg-disk.w .lg-disk-note {
-  font-weight: 600;
-  opacity: 1;
 }
 
 /* ---- The last 24 hours ---- */
@@ -437,7 +411,6 @@
 /* Touch screens get larger targets. */
 @media (pointer: coarse) {
   .lg-tile,
-  .lg-disk,
   .lg-alert {
     min-height: 44px;
   }

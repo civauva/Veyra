@@ -1,0 +1,39 @@
+# A throwaway SQL Server with SQL Agent, and the Collector with ../collector.yaml writing to a file instead of Veyra.
+# run.sh starts it, seeds it, and checks what the Collector sends. Passwords come from run.sh, never from this file.
+name: veyra-sqlserver-check
+
+services:
+  mssql:
+    image: mcr.microsoft.com/mssql/server:${MSSQL_IMAGE_TAG:-2022-CU14-ubuntu-22.04}
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${SA_PASSWORD:?run.sh sets it}
+      MSSQL_AGENT_ENABLED: "true"
+
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.140.0
+    # Root, so the file exporter can write to the mounted folder on any runner.
+    user: "0"
+    command:
+      - --config=/etc/check/collector.yaml
+      - --config=/etc/check/to-file.yaml
+    environment:
+      VEYRA_OTLP_ENDPOINT: http://unused:4318
+      VEYRA_INGESTION_KEY: unused
+      SQLSERVER_NAME: sql-check-01
+      SQLSERVER_HOST: mssql
+      SQLSERVER_PORT: "1433"
+      SQLSERVER_USER: veyra_monitor
+      SQLSERVER_PASSWORD: ${MONITOR_PASSWORD:?run.sh sets it}
+      SQLSERVER_ENCRYPT: "true"
+      # The container's own certificate is self-signed, with a serial number Go refuses unless told otherwise.
+      SQLSERVER_TRUST_CERT: "true"
+      GODEBUG: x509negativeserial=1
+    volumes:
+      - ../collector.yaml:/etc/check/collector.yaml:ro
+      - ./to-file.yaml:/etc/check/to-file.yaml:ro
+      - ./out:/out
+    depends_on:
+      - mssql
+    profiles:
+      - collector

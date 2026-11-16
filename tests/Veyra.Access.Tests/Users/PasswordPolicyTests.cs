@@ -1,11 +1,12 @@
 using Microsoft.Extensions.Options;
 using Veyra.Access.Users;
+using Veyra.Testing;
 
 namespace Veyra.Access.Tests.Users;
 
 public class PasswordPolicyTests
 {
-    private readonly PasswordPolicy _policy = new(Options.Create(new AccessOptions()));
+    private readonly PasswordPolicy _policy = new(new TestOptionsMonitor<AccessOptions>(new AccessOptions()));
 
     [Fact]
     public void Check_ElevenCharacters_ReturnsError()

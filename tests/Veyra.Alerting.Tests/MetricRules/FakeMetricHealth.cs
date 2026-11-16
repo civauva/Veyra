@@ -9,6 +9,10 @@ internal sealed class FakeMetricHealth : IMetricHealth
 
     public IReadOnlyList<ServiceLatency> Latencies { get; set; } = [];
 
+    public IReadOnlyList<DatabaseHealth> Databases { get; set; } = [];
+
+    public IReadOnlyList<DatabaseMeasure> Measures { get; set; } = [];
+
     public DiskHistory DiskHistory { get; set; } = new(TimeSpan.FromHours(1), []);
 
     public LatencyHistory LatencyHistory { get; set; } = new(TimeSpan.FromMinutes(1), [], []);
@@ -22,6 +26,20 @@ internal sealed class FakeMetricHealth : IMetricHealth
         ListCalls++;
 
         return Task.FromResult(Disks);
+    }
+
+    public Task<IReadOnlyList<DatabaseMeasure>> ListDatabaseMeasuresAsync(
+        DateTimeOffset now,
+        CancellationToken cancellationToken) =>
+        Task.FromResult(Measures);
+
+    public Task<IReadOnlyList<DatabaseHealth>> ListDatabasesAsync(
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        ListCalls++;
+
+        return Task.FromResult(Databases);
     }
 
     public Task<IReadOnlyList<ServiceLatency>> ListLatenciesAsync(

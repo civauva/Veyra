@@ -4,6 +4,7 @@ using OpenTelemetry.Proto.Logs.V1;
 using Veyra.Core.Security;
 using Veyra.Core.Telemetry;
 using Veyra.Ingestion.Pipeline;
+using Veyra.Testing;
 using static Veyra.Ingestion.Tests.Otlp.OtlpRequests;
 
 namespace Veyra.Ingestion.Tests.Pipeline;
@@ -16,7 +17,7 @@ public class LogPipelineTests
     public void Accept_KeyForAllEnvironments_QueuesEveryRecord()
     {
         var queue = Queue(capacity: 10);
-        var pipeline = new LogPipeline(queue, TimeProvider.System);
+        var pipeline = new LogPipeline(queue, Activity(10), TimeProvider.System);
 
         var result = pipeline.Accept(Single("payments", "production", Record("a"), Record("b")), _anyEnvironment);
 
@@ -28,7 +29,7 @@ public class LogPipelineTests
     public void Accept_KeyLimitedToOtherEnvironment_RejectsItsRecordsWithAReason()
     {
         var queue = Queue(capacity: 10);
-        var pipeline = new LogPipeline(queue, TimeProvider.System);
+        var pipeline = new LogPipeline(queue, Activity(10), TimeProvider.System);
         var stagingOnly = new IngestionKeyCheck(true, Guid.NewGuid(), ["staging"]);
         var request = Single("payments", "production", Record("a"));
         request.ResourceLogs.Add(Single("payments", "staging", Record("b")).ResourceLogs[0]);
@@ -44,7 +45,7 @@ public class LogPipelineTests
     public void Accept_QueueFull_RejectsTheWholeRequestSoTheSenderRetries()
     {
         var queue = Queue(capacity: 2);
-        var pipeline = new LogPipeline(queue, TimeProvider.System);
+        var pipeline = new LogPipeline(queue, Activity(10), TimeProvider.System);
         pipeline.Accept(Single("payments", null, Record("a"), Record("b")), _anyEnvironment);
 
         var result = pipeline.Accept(Single("payments", null, Record("c")), _anyEnvironment);
@@ -58,7 +59,7 @@ public class LogPipelineTests
     {
         var queue = Queue(capacity: 10);
         var writer = new RecordingWriter(failuresBeforeSuccess: 0);
-        new LogPipeline(queue, TimeProvider.System)
+        new LogPipeline(queue, Activity(10), TimeProvider.System)
             .Accept(Single("payments", null, Record("a"), Record("b")), _anyEnvironment);
         using var service =
             new LogWriterService(queue, writer, TimeProvider.System, NullLogger<LogWriterService>.Instance);
@@ -76,7 +77,9 @@ public class LogPipelineTests
     {
         var queue = Queue(capacity: 10);
         var writer = new RecordingWriter(failuresBeforeSuccess: 1);
-        new LogPipeline(queue, TimeProvider.System).Accept(Single("payments", null, Record("a")), _anyEnvironment);
+        new LogPipeline(queue, Activity(10), TimeProvider.System).Accept(
+            Single("payments", null, Record("a")),
+            _anyEnvironment);
         using var service =
             new LogWriterService(queue, writer, TimeProvider.System, NullLogger<LogWriterService>.Instance);
 
@@ -88,8 +91,28 @@ public class LogPipelineTests
         Assert.Equal(0, queue.QueuedRecords);
     }
 
+    [Fact]
+    public void Accept_RowsOfTheAgentsOwnQueries_GoToTheActivityQueueAndTheRestStaysLogs()
+    {
+        var queue = Queue(capacity: 10);
+        var activity = Activity(10);
+        var row = Record("SELECT 1");
+        row.Attributes.Add(Attribute("veyra_record", "sqlserver.session"));
+        row.Attributes.Add(Attribute("session_id", "57"));
+
+        var result = new LogPipeline(queue, activity, TimeProvider.System)
+            .Accept(Single("payments", null, row, Record("a")), _anyEnvironment);
+
+        Assert.Equal(2, result.Accepted);
+        Assert.Equal(1, queue.QueuedRecords);
+        Assert.Equal(1, activity.QueuedRecords);
+    }
+
+    private static ActivityQueue Activity(int capacity) =>
+        new(new TestOptionsMonitor<IngestionOptions>(new IngestionOptions { MaxQueueLength = capacity }));
+
     private static LogQueue Queue(int capacity) =>
-        new(Options.Create(new IngestionOptions { MaxQueueLength = capacity }));
+        new(new TestOptionsMonitor<IngestionOptions>(new IngestionOptions { MaxQueueLength = capacity }));
 
     private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan? timeout = null)
     {

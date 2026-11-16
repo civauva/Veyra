@@ -4,15 +4,18 @@ import { Link, useSearchParams } from "react-router";
 import type { AlertListItem, AlertQuery, AlertRule, AlertSummary } from "../api/types";
 import { type ShellScene, useShell } from "../app/shellContext";
 import { WeatherIcon } from "../home/WeatherIcon";
+import { useSession } from "../session/useSession";
 import { formatClock } from "../logs/format";
 import { formatDuration } from "./alertFormat";
 import { RuleIcon } from "./RuleIcon";
 import { alertTitle, formatMeasure, formatThreshold, ruleMeasures, ruleName, ruleOrder } from "./ruleWords";
 import { useAlertHistory } from "./useAlertHistory";
 import { WeatherDays } from "./WeatherDays";
+import { instantOfLocalDay, localDay, localDayName } from "../time/zone";
 import "../home/home.css";
 import "./alert.css";
 import "./alerts.css";
+import { useViewMode, ViewToggle } from "../app/ViewToggle";
 
 /** The periods the screen offers, in days; resolved alerts are kept 90 days by default. */
 const periods = [30, 90] as const;
@@ -24,6 +27,8 @@ const periods = [30, 90] as const;
  * environment is the one chosen in the top bar.
  */
 export function AlertsScreen() {
+  const [mode] = useViewMode();
+  const advanced = mode === "advanced";
   const [params, setParams] = useSearchParams();
   const { status } = useShell();
   // The environment comes from the top bar (VEY-23), the other filters from the address.
@@ -59,11 +64,11 @@ export function AlertsScreen() {
             Could not refresh: {history.error}
           </p>
         )}
-        {history.summary && (
+        {advanced && history.summary && (
           <WeatherLog summary={history.summary} days={query.days} onDays={(days) => change({ days })} />
         )}
 
-        <div className="alerts-split">
+        <div className={advanced ? "alerts-split" : "alerts-split alone"}>
           <section className="glass alerts-list" aria-label="Alert list">
             <div className="alerts-filters">
               <div className="seg" role="group" aria-label="State">
@@ -79,30 +84,35 @@ export function AlertsScreen() {
                   </button>
                 ))}
               </div>
-              <div className="rule-chips" role="group" aria-label="Rules">
-                {ruleOrder.map((rule) => (
-                  <button
-                    key={rule}
-                    type="button"
-                    className="rule-chip"
-                    aria-pressed={query.rules.includes(rule)}
-                    onClick={() => toggleRule(rule)}
-                  >
-                    <RuleIcon rule={rule} size={14} />
-                    {ruleName(rule)}
-                    {history.summary && <em>{history.summary.rules.find((one) => one.rule === rule)?.count ?? 0}</em>}
-                  </button>
-                ))}
-              </div>
-              <label className="alerts-find">
-                <span className="visually-hidden">Service, host, or disk</span>
-                <input
-                  type="search"
-                  placeholder="Service, host, or disk"
-                  value={text}
-                  onChange={(event) => setText(event.target.value)}
-                />
-              </label>
+              {(advanced || query.rules.length > 0) && (
+                <div className="rule-chips" role="group" aria-label="Rules">
+                  {ruleOrder.map((rule) => (
+                    <button
+                      key={rule}
+                      type="button"
+                      className="rule-chip"
+                      aria-pressed={query.rules.includes(rule)}
+                      onClick={() => toggleRule(rule)}
+                    >
+                      <RuleIcon rule={rule} size={14} />
+                      {ruleName(rule)}
+                      {history.summary && <em>{history.summary.rules.find((one) => one.rule === rule)?.count ?? 0}</em>}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {(advanced || text) && (
+                <label className="alerts-find">
+                  <span className="visually-hidden">Service, host, or disk</span>
+                  <input
+                    type="search"
+                    placeholder="Service, host, or disk"
+                    value={text}
+                    onChange={(event) => setText(event.target.value)}
+                  />
+                </label>
+              )}
+              <ViewToggle className="alerts-view" />
             </div>
 
             <AlertRows items={history.items} now={history.summary ? new Date(history.summary.to) : null} />
@@ -119,7 +129,7 @@ export function AlertsScreen() {
             )}
           </section>
 
-          {history.summary && <BuiltInRules summary={history.summary} />}
+          {advanced && history.summary && <BuiltInRules summary={history.summary} />}
         </div>
       </div>
     </main>
@@ -224,7 +234,7 @@ function AlertRows({ items, now }: { items: AlertListItem[] | null; now: Date | 
   const groups: { day: string; items: AlertListItem[] }[] = [];
 
   for (const item of items) {
-    const day = item.openedAt.slice(0, 10);
+    const day = localDay(item.openedAt);
     const group = groups.at(-1);
 
     if (group?.day === day) {
@@ -257,7 +267,7 @@ function AlertRow({ item, now }: { item: AlertListItem; now: Date | null }) {
   const open = item.resolvedAt === null;
   const tone = item.worst === "Warning" ? "w" : "c";
   const end = item.resolvedAt ?? now?.toISOString() ?? item.updatedAt;
-  const dayStart = Date.parse(`${item.openedAt.slice(0, 10)}T00:00:00Z`);
+  const dayStart = instantOfLocalDay(localDay(item.openedAt));
   const fromShare = Math.max(0, (Date.parse(item.openedAt) - dayStart) / 86_400_000);
   const toShare = Math.min(1, (Date.parse(end) - dayStart) / 86_400_000);
   const lasted = formatDuration(Date.parse(end) - Date.parse(item.openedAt));
@@ -311,6 +321,9 @@ function AlertRow({ item, now }: { item: AlertListItem; now: Date | null }) {
 
 /** Every built-in rule with its thresholds and how many alerts it raised in the period. */
 function BuiltInRules({ summary }: { summary: AlertSummary }) {
+  const { state } = useSession();
+  const admin = state.status === "signedIn" && state.session.role === "Admin";
+
   return (
     <aside className="glass built-in-rules" aria-labelledby="built-in-rules">
       <h2 id="built-in-rules" className="cap">
@@ -342,8 +355,8 @@ function BuiltInRules({ summary }: { summary: AlertSummary }) {
         ))}
       </ul>
       <p className="fine">
-        Thresholds are settings of the installation (<code>Veyra:Alerting</code>). Resolved alerts are kept 90 days by
-        default.
+        Thresholds and how long resolved alerts are kept are settings of the installation, which Admins change.{" "}
+        {admin && <Link to="/settings?section=Rules">Change them in Settings</Link>}
       </p>
     </aside>
   );
@@ -378,20 +391,9 @@ function stateCount(summary: AlertSummary, state: AlertQuery["state"]): number {
   return state === "open" ? summary.open : state === "resolved" ? summary.resolved : summary.total;
 }
 
-/** A day heading: `Today`, `Yesterday`, or `Nov 8`. */
+/** A day heading: `Today`, `Yesterday`, or `Nov 8`, on the person's calendar (VEY-22). */
 function dayName(day: string, now: Date | null): string {
-  const today = (now ?? new Date()).toISOString().slice(0, 10);
-  const yesterday = new Date(Date.parse(`${today}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
-
-  if (day === today) {
-    return "Today";
-  }
-
-  if (day === yesterday) {
-    return "Yesterday";
-  }
-
-  return new Date(`${day}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  return localDayName(day, now ?? new Date());
 }
 
 /** The filters from the address; anything unknown falls back to the default. */

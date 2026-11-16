@@ -13,12 +13,25 @@ import { DiskChart } from "./DiskChart";
 import { ErrorRateChart } from "./ErrorRateChart";
 import { HostDisks } from "./HostDisks";
 import { LatencyChart } from "./LatencyChart";
-import { formatDays, formatDiskShare, formatMeasure, formatThreshold } from "./ruleWords";
+import { databasePath, formatDays, formatDiskShare, formatMeasure, formatThreshold, serverName } from "./ruleWords";
 import { SlowRoutes } from "./SlowRoutes";
 import { TopErrors } from "./TopErrors";
 import { useAlertDetails } from "./useAlertDetails";
+import { localDay, shortDate, zoneLabel } from "../time/zone";
+import { defaultTraceFilters, filtersToSearch, type TraceShow } from "../traces/traceFilters";
 import "../home/home.css";
 import "./alert.css";
+import { useViewMode, ViewToggle } from "../app/ViewToggle";
+
+/** Where the rest of an alert is in the Simple view. */
+const advancedNote =
+  "Timeline, messages, and the most frequent errors are in the Advanced view, with the host's disks or the " +
+  "slowest routes where the rule has them.";
+
+/** Where the rest of a database server's alert is in the Simple view. */
+const databaseNote =
+  "The timeline and who was told are in the Advanced view; the server's queries, databases, and jobs are on its " +
+  "screen.";
 
 /**
  * One alert, reached from the Alerts screen, from Needs you on the home, and from the link in every notification:
@@ -27,6 +40,7 @@ import "./alert.css";
  * the alert's weather behind the shell, and clear skies once it resolved.
  */
 export function AlertScreen() {
+  const [mode] = useViewMode();
   const { id = "" } = useParams();
   const { setScene } = useShell();
   const { alert, notFound, error } = useAlertDetails(id);
@@ -67,20 +81,26 @@ export function AlertScreen() {
         <Link className="alert-back" to="/alerts">
           ← Alerts
         </Link>
+        <ViewToggle className="alert-view-toggle" />
         {error && (
           <p className="home-stale" role="alert">
-            Could not refresh: {error}. Showing the alert as of {formatClock(alert.updatedAt)} UTC.
+            Could not refresh: {error}. Showing the alert as of {formatClock(alert.updatedAt)}{" "}
+            {zoneLabel(new Date(alert.updatedAt))}.
           </p>
         )}
         <AlertHero alert={alert} />
         <AlertFacts alert={alert} />
         <AlertChart alert={alert} />
-        <div className="alert-lower">
-          <AlertTimeline alert={alert} />
-          {isErrorRate(alert) && <TopErrors alert={alert} />}
-          {alert.disk && <HostDisks alert={alert} disk={alert.disk} />}
-          {alert.latency && <SlowRoutes latency={alert.latency} />}
-        </div>
+        {mode === "advanced" ? (
+          <div className="alert-lower">
+            <AlertTimeline alert={alert} />
+            {isErrorRate(alert) && <TopErrors alert={alert} />}
+            {alert.disk && <HostDisks alert={alert} disk={alert.disk} />}
+            {alert.latency && <SlowRoutes latency={alert.latency} />}
+          </div>
+        ) : (
+          <p className="fine alert-advanced-note">{alert.block.kind === "database" ? databaseNote : advancedNote}</p>
+        )}
       </div>
     </main>
   );
@@ -111,9 +131,20 @@ function AlertHero({ alert }: { alert: AlertDetails }) {
   );
 }
 
-/** Where to look next: a service's error logs, a slow service's metrics, a host's disks. */
+/**
+ * Where to look next: a service's error logs and failed traces, a slow service's metrics and slow traces, a host's
+ * disks, a database server's queries, databases, and jobs.
+ */
 function Onward({ alert }: { alert: AlertDetails }) {
   const name = alert.block.name;
+
+  if (alert.block.kind === "database") {
+    return (
+      <Link className="step-button primary" to={databasePath(name)}>
+        Open {serverName(name)}
+      </Link>
+    );
+  }
 
   if (alert.block.kind === "host") {
     return (
@@ -133,6 +164,9 @@ function Onward({ alert }: { alert: AlertDetails }) {
         <Link className="step-button primary" to={`/metrics/services/${encodeURIComponent(name)}`}>
           Open {name}&apos;s metrics
         </Link>
+        <Link className="step-button" to={tracesOf(alert, "slow")}>
+          Its slow traces
+        </Link>
         <Link className="step-button" to={`/logs?${around}`}>
           Its logs ± 1 minute around {formatClock(alert.openedAt)}
         </Link>
@@ -147,11 +181,32 @@ function Onward({ alert }: { alert: AlertDetails }) {
       <Link className="step-button primary" to={`/logs?${logs}`}>
         Open its error logs
       </Link>
+      <Link className="step-button" to={tracesOf(alert, "failed")}>
+        Its failed traces
+      </Link>
       <Link className="step-button" to={`/logs?${around}`}>
         ± 1 minute around {formatClock(alert.openedAt)}
       </Link>
     </>
   );
+}
+
+/**
+ * The service's failed or slow traces over the alert's window, from ten minutes before it opened, so the start of
+ * the trouble is in view, to five minutes after its last check or its end (ADR 0014).
+ */
+function tracesOf(alert: AlertDetails, show: TraceShow): string {
+  const from = new Date(new Date(alert.openedAt).getTime() - 10 * 60_000);
+  const to = new Date(new Date(alert.resolvedAt ?? alert.updatedAt).getTime() + 5 * 60_000);
+  const search = filtersToSearch({
+    ...defaultTraceFilters,
+    show,
+    services: [alert.block.name],
+    from: from.toISOString(),
+    to: to.toISOString(),
+  });
+
+  return `/traces?${search}`;
 }
 
 /** Five numbers: now, the rule's own figure, the threshold, how long, and who was told. */
@@ -186,8 +241,8 @@ function AlertFacts({ alert }: { alert: AlertDetails }) {
         </dd>
         <dd className="fact-note">
           {alert.resolvedAt
-            ? `${formatClock(alert.openedAt)}–${formatClock(alert.resolvedAt)} UTC`
-            : `${new Date(alert.openedAt).toISOString().slice(0, 10)} · UTC`}
+            ? `${formatClock(alert.openedAt)}–${formatClock(alert.resolvedAt)} ${zoneLabel(new Date(alert.openedAt))}`
+            : `${localDay(alert.openedAt)} · ${zoneLabel(new Date(alert.openedAt))}`}
         </dd>
       </div>
       <div className="glass fact">
@@ -286,7 +341,7 @@ function AlertChart({ alert }: { alert: AlertDetails }) {
           <h2 id="alert-chart" className="cap">
             Disk {alert.disk.mountpoint} in use · the week before and the forecast
           </h2>
-          <ul className="chart-legend" aria-hidden="true">
+          <ul className="alert-legend" aria-hidden="true">
             <li className="legend-disk">in use</li>
             <li className="legend-forecast">forecast</li>
             <li className="legend-warning">full</li>
@@ -341,11 +396,7 @@ function AlertChart({ alert }: { alert: AlertDetails }) {
   );
 }
 
-/** The day a disk is full, counted from its last measurement: `Nov 19`. */
+/** The day a disk is full, counted from its last measurement, on the person's calendar: `Nov 19`. */
 function fullDay(measuredAt: string, days: number): string {
-  return new Date(new Date(measuredAt).getTime() + days * 86_400_000).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
+  return shortDate(new Date(measuredAt).getTime() + days * 86_400_000);
 }

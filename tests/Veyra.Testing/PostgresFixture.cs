@@ -12,8 +12,12 @@ namespace Veyra.Testing;
 /// </summary>
 public sealed class PostgresFixture : IAsyncLifetime
 {
-    // The same major version that deploy/docker-compose.yml runs in production.
-    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("postgres:18-alpine").Build();
+    // The same major version that deploy/docker-compose.yml runs in production. Every test has its own database, and
+    // Npgsql keeps an idle connection to each for five minutes after the test, so a long run of whole-app tests needs
+    // more than the default 100 connections.
+    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("postgres:18-alpine")
+        .WithCommand("-c", "max_connections=400")
+        .Build();
 
     private int _databaseCount;
 
@@ -45,6 +49,23 @@ public sealed class PostgresFixture : IAsyncLifetime
         await migrator.MigrateAsync(CancellationToken.None);
 
         return database;
+    }
+
+    /// <summary>
+    /// Creates a new database, applies the given modules' migrations, and returns its connection string, for code that
+    /// opens its own connections, such as a configuration source.
+    /// </summary>
+    /// <param name="sources">The migration sources of the modules under test.</param>
+    /// <returns>A connection string that points at the migrated database.</returns>
+    public async Task<string> CreateMigratedDatabaseConnectionStringAsync(params ISchemaMigrationSource[] sources)
+    {
+        var connectionString = await CreateDatabaseConnectionStringAsync();
+        await using var database = NpgsqlDataSource.Create(connectionString);
+        var migrator = new SchemaMigrator(database, sources, TimeProvider.System, NullLogger<SchemaMigrator>.Instance);
+
+        await migrator.MigrateAsync(CancellationToken.None);
+
+        return connectionString;
     }
 
     /// <summary>

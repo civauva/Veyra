@@ -22,6 +22,9 @@ COPY global.json Directory.Build.props Directory.Packages.props .editorconfig ./
 # Backend sources only. Tests, docs, and tooling stay out of the build context (see .dockerignore).
 COPY src/backend/ src/backend/
 
+# The tested Collector template the Agents module builds its agents' configuration from (ADR 0019).
+COPY integrations/sqlserver/collector.yaml integrations/sqlserver/collector.yaml
+
 RUN dotnet restore src/backend/Veyra.Api/Veyra.Api.csproj
 
 RUN dotnet publish src/backend/Veyra.Api/Veyra.Api.csproj \
@@ -50,6 +53,9 @@ EXPOSE 8080 4317 4318
 # ASP.NET Core encrypts session and antiforgery cookies with data protection keys kept here. The folder is created
 # for the unprivileged user, so the Compose volume mounted on it inherits that owner and the keys survive restarts.
 RUN mkdir -p /home/app/.aspnet/DataProtection-Keys && chown -R $APP_UID /home/app/.aspnet
+
+# Veyra writes its built-in agent's start-up file here, into a volume the agent's container shares (ADR 0019).
+RUN mkdir -p /var/lib/veyra/agent && chown -R $APP_UID /var/lib/veyra
 
 # APP_UID is defined by the .NET base images: an unprivileged user created for this purpose.
 USER $APP_UID

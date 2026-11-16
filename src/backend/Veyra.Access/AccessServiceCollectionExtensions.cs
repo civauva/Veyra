@@ -11,6 +11,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using Veyra.Access.Api;
 using Veyra.Access.History;
 using Veyra.Access.Keys;
@@ -22,6 +23,7 @@ using Veyra.Access.Users;
 using Veyra.Core;
 using Veyra.Core.Schema;
 using Veyra.Core.Security;
+using Veyra.Core.Settings;
 
 namespace Veyra.Access;
 
@@ -72,13 +74,9 @@ public static class AccessServiceCollectionExtensions
 
         services.AddOptions<AccessOptions>()
             .Bind(configuration.GetSection(VeyraOptionNames.Access))
-            .Validate(o => o.LockoutThreshold > 0, "Veyra:Access:LockoutThreshold must be greater than zero.")
-            .Validate(o => o.MinimumPasswordLength >= 12, "Veyra:Access:MinimumPasswordLength must be at least 12.")
-            .Validate(o => o.SessionIdleTimeout > TimeSpan.Zero, "Veyra:Access:SessionIdleTimeout must be positive.")
-            .Validate(
-                o => o.SignInHistoryDays is >= 1 and <= 3650,
-                "Veyra:Access:SignInHistoryDays must be between 1 and 3650.")
             .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<AccessOptions>, AccessOptionsRules>();
+        services.AddSingleton<IModuleSettings, AccessSettings>();
 
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<ISchemaMigrationSource, AccessMigrations>();
@@ -95,6 +93,10 @@ public static class AccessServiceCollectionExtensions
         services.AddSingleton<SecondFactorStore>();
         services.AddSingleton<SecondFactorService>();
         services.AddSingleton<AccessSettingStore>();
+        services.AddSingleton<SavedSettingsRuntime>();
+        services.AddSingleton<SettingStore>();
+        services.AddSingleton<SettingsService>();
+        services.AddHostedService<SavedSettingsRefreshService>();
         services.AddSingleton<UserDirectory>();
         services.AddSingleton<AccessCleanup>();
         services.AddHostedService<AccessCleanupService>();
@@ -103,6 +105,7 @@ public static class AccessServiceCollectionExtensions
         services.AddSingleton<IngestionKeyService>();
         services.AddSingleton<IngestionKeyValidator>();
         services.AddSingleton<IIngestionKeyValidator>(provider => provider.GetRequiredService<IngestionKeyValidator>());
+        services.AddSingleton<IIngestionKeyIssuer, IngestionKeyIssuer>();
 
         // A fixed application name keeps cookies readable when the image or its path changes between versions.
         services.AddDataProtection().SetApplicationName("Veyra");
@@ -140,13 +143,11 @@ public static class AccessServiceCollectionExtensions
             provider.GetRequiredService<SessionService>()));
         services.AddTransient(provider =>
             new IngestionKeysController(provider.GetRequiredService<IngestionKeyService>()));
+        services.AddTransient(provider => new SettingsController(provider.GetRequiredService<SettingsService>()));
     }
 
     private static void AddSessions(IServiceCollection services, IConfiguration configuration)
     {
-        var idleTimeout = configuration.GetSection(VeyraOptionNames.Access).GetValue<TimeSpan?>(
-            nameof(AccessOptions.SessionIdleTimeout)) ?? new AccessOptions().SessionIdleTimeout;
-
         services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
             .AddCookie(options =>
             {
@@ -155,7 +156,6 @@ public static class AccessServiceCollectionExtensions
 
                 // Lax, not Strict: a Strict cookie is not sent on the redirect back from single sign-on (ADR 0008).
                 options.Cookie.SameSite = SameSiteMode.Lax;
-                options.ExpireTimeSpan = idleTimeout;
                 options.SlidingExpiration = true;
 
                 // An API answers with status codes; redirects to a login page would confuse every client.
@@ -179,6 +179,20 @@ public static class AccessServiceCollectionExtensions
                 options.Events.OnRedirectToAccessDenied = context =>
                     WriteStatusAsync(context, StatusCodes.Status403Forbidden);
             });
+
+        // The session lasts as long as the idle timeout on the Settings screen. The cookie options are built again
+        // whenever the Access section reloads, so a saved change applies to the next request (ADR 0017). They read
+        // configuration itself, not IOptionsMonitor<AccessOptions>: a monitor rebuilds its options inside the reload
+        // callback, possibly before the Access options have dropped their old value.
+        var access = configuration.GetSection(VeyraOptionNames.Access);
+        services.AddOptions<CookieAuthenticationOptions>(CookieAuthenticationDefaults.AuthenticationScheme)
+            .Configure(options => options.ExpireTimeSpan =
+                access.GetValue<TimeSpan?>(nameof(AccessOptions.SessionIdleTimeout))
+                    ?? new AccessOptions().SessionIdleTimeout);
+        services.AddSingleton<IOptionsChangeTokenSource<CookieAuthenticationOptions>>(
+            new ConfigurationChangeTokenSource<CookieAuthenticationOptions>(
+                CookieAuthenticationDefaults.AuthenticationScheme,
+                access));
 
         // Secure cookies everywhere except local development over plain HTTP.
         services.AddOptions<CookieAuthenticationOptions>(CookieAuthenticationDefaults.AuthenticationScheme)

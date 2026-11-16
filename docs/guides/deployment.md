@@ -36,10 +36,12 @@ flowchart LR
 
    - `POSTGRES_PASSWORD`: generate one with `openssl rand -hex 32`.
    - `VEYRA_DOMAIN`: your host name, for example `veyra.example.com`.
+   - `POSTGRES_SHARED_BUFFERS`: about a quarter of the server's memory, for example `2GB` on an 8 GB server. The
+     default, `128MB`, suits a small server; a larger cache answers word and attribute counts about twice as fast.
 
    `deploy/.env` holds secrets. Git ignores it. Keep it readable only by you: `chmod 600 deploy/.env`.
 
-3. Build and start Veyra, PostgreSQL, and Caddy.
+3. Build and start Veyra, its built-in agent, PostgreSQL, and Caddy.
 
    ```bash
    docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.caddy.yml up -d --build
@@ -73,15 +75,45 @@ OpenTelemetry SDK or Collector at
 [`docs/api/otlp.md`](../api/otlp.md), for .NET [`docs/integrations/dotnet.md`](../integrations/dotnet.md), and for
 the host's own CPU, memory, and disks [`docs/integrations/linux.md`](../integrations/linux.md).
 
+SQL Servers need none of this: add them on **Settings → Database monitoring**. Veyra's built-in agent, the `agent`
+container beside Veyra, reads every server Veyra's host can reach. It sets itself up on Veyra's first start; its key
+and start-up file live in the `agent-config` volume, and **Settings → Agents** shows whether it runs. See
+[`docs/integrations/sqlserver.md`](../integrations/sqlserver.md#from-the-settings-screen).
+
+## Settings
+
+Admins change Veyra's settings on the **Settings** screen: retention and size budgets, the alert rules, the email
+server, sign-in and lockout, queue lengths, and a few advanced ones. A change applies at once, without a restart
+([ADR 0017](../adr/0017-settings-in-the-admin-ui.md)).
+
+- **Simple and Advanced.** The Simple view shows the basics: retention, each rule's switch and levels, the email
+  server, and sign-in. Advanced adds the rest, such as how rules measure and clear and the queue lengths. The search
+  finds every setting in either view. Metrics, Logs, Traces, and Alerts have the same toggle, and the choice holds
+  across them: Simple shows the fundamentals, Advanced everything.
+- **First values.** `deploy/.env` gives the first values. A value saved on the screen wins; **Reset** goes back to
+  the value from `deploy/.env`, or to Veyra's default when the file sets none. The screen says where each default
+  comes from.
+- **Review.** Saving shows what each change will do. A change that deletes data, such as a shorter retention, says how
+  much, and needs a confirmation.
+- **History.** Every change is kept for a year with who saved it, and can be reverted from the history.
+- **Export and import.** The saved values can be exported as a JSON file and imported on another installation, with
+  the same review. Secrets are never in the file.
+- **Secrets.** The SMTP password set on the screen is stored encrypted with the keys in the `veyra-keys` volume and
+  is never shown again. Back up that volume with the database (see [Backups](#backups)).
+- **Outside the screen.** The database connection, the ports, and `VEYRA_REMOVE_SECOND_FACTOR` stay in
+  `deploy/.env`, because they are needed before the database can be read or when nobody can sign in. The screen's
+  System section shows them read-only.
+
 ## Alert notifications
 
 Veyra raises an alert when a service logs too many errors and can tell people about it. Administrators add
 webhook and email channels on the **Notifications** page and send a test message from there.
 
-- Set `VEYRA_PUBLIC_URL` to the public address, for example `https://veyra.example.com`, so messages link to the
-  alert.
-- For email, set `VEYRA_SMTP_HOST`, `VEYRA_SMTP_FROM`, and if the server needs it `VEYRA_SMTP_USERNAME` and
-  `VEYRA_SMTP_PASSWORD`. The port defaults to 587 with STARTTLS. Webhooks need no settings.
+- Set Veyra's public address, for example `https://veyra.example.com`, so messages link to the alert: on the
+  Settings screen, or as `VEYRA_PUBLIC_URL`.
+- For email, set the server and the sender on the Settings screen, under Notifications and email, or as
+  `VEYRA_SMTP_HOST` and `VEYRA_SMTP_FROM` with `VEYRA_SMTP_USERNAME` and `VEYRA_SMTP_PASSWORD` if the server needs
+  them. The port defaults to 587 with STARTTLS. Webhooks need no settings.
 
 Stored webhook URLs are encrypted with the keys in the `veyra-keys` volume; see [Backups](#backups) and
 [ADR 0009](../adr/0009-alert-notifications.md). How
@@ -101,6 +133,28 @@ before upgrading.
 
 The upgrade that adds two-factor sign-in and session records (ADR 0011) signs everyone out once: sessions from before
 it carry no session ID and are refused, so people sign in again.
+
+### From your machine to a server with a shared proxy
+
+A server that runs other apps often has one proxy, such as Caddy, that owns ports 80 and 443 for all of them and
+reaches each app over a Docker network named `edge`. `scripts/deploy.sh` deploys there over SSH, without building
+on the server:
+
+```bash
+DEPLOY_HOST=my-server bash scripts/deploy.sh [branch-or-tag]
+```
+
+- `DEPLOY_HOST` is an SSH host or alias that signs in without a prompt, as a user in the server's `docker` group.
+- The script builds the Veyra and agent images from a clean checkout of the ref (`main` by default), copies them to
+  the server, and starts them with `deploy/docker-compose.edge.yml`. That file publishes no ports, puts the Veyra
+  container on `edge` as `veyra-web`, and limits every container's memory.
+- It writes the proxy's site file, `/opt/edge/sites/veyra.caddy` (`EDGE_SITES` changes the folder), validates the
+  proxy's configuration, reloads it, and waits until the site answers over HTTPS. Once, as root on the server:
+  `touch /opt/edge/sites/veyra.caddy`, then `chown <user> /opt/edge/sites/veyra.caddy`.
+- The server's `.env` lives in `/opt/veyra` (`DEPLOY_DIR`) and never leaves it. On the first run the script puts
+  `deploy/.env.example` there and stops; fill it in on the server and run the script again.
+
+On a small server keep `POSTGRES_SHARED_BUFFERS` low, such as `128MB`.
 
 ## Backups
 
@@ -149,27 +203,34 @@ the person see this. Telemetry can carry personal data too; what your applicatio
 
 ## Configuration reference
 
+The variables marked *first value* can be changed later on the Settings screen, where a saved value wins.
+
 | Variable | Used by | Meaning |
 | --- | --- | --- |
 | `POSTGRES_PASSWORD` | postgres, veyra | Password of the `veyra` database user. Letters and digits only. |
+| `POSTGRES_SHARED_BUFFERS` | postgres | PostgreSQL's page cache. Default `128MB`; a quarter of the memory is faster. |
 | `VEYRA_DOMAIN` | caddy | Public host name. Caddy obtains its certificate. |
 | `VEYRA_HTTP_PORT` | veyra | Port on `127.0.0.1` for local access without Caddy. Default `8080`. |
 | `VEYRA_OTLP_GRPC_PORT` | veyra | Port on `127.0.0.1` for OTLP/gRPC from this machine. Default `4317`. |
 | `VEYRA_OTLP_HTTP_PORT` | veyra | Port on `127.0.0.1` for OTLP/HTTP from this machine. Default `4318`. |
-| `VEYRA_LOG_RETENTION_DAYS` | veyra | Days of logs to keep. Default `14`. |
-| `VEYRA_MAX_LOG_STORAGE_GB` | veyra | Size budget for log storage; the oldest days go first. Empty: none. |
-| `VEYRA_METRIC_RETENTION_DAYS` | veyra | Days of metric points to keep. Default `30`. |
-| `VEYRA_SIGN_IN_HISTORY_DAYS` | veyra | Days of sign-in attempts and ended sessions to keep. Default `90`. |
+| `VEYRA_LOG_RETENTION_DAYS` | veyra | *First value.* Days of logs to keep. Default `14`. |
+| `VEYRA_MAX_LOG_STORAGE_GB` | veyra | *First value.* Size budget for log storage; the oldest days go first. |
+| `VEYRA_METRIC_RETENTION_DAYS` | veyra | *First value.* Days of metric points to keep. Default `30`. |
+| `VEYRA_TRACE_RETENTION_DAYS` | veyra | *First value.* Days of traces to keep. Default `7`. |
+| `VEYRA_MAX_TRACE_STORAGE_GB` | veyra | *First value.* Size budget for trace storage; the oldest days go first. |
+| `VEYRA_DATABASE_RECORD_RETENTION_DAYS` | veyra | *First value.* Days of database plans, deadlocks, events, and setting snapshots to keep. Default `90`. |
+| `VEYRA_DATABASE_SESSION_RETENTION_DAYS` | veyra | *First value.* Days of database servers' live sessions to keep. Default `7`. |
+| `VEYRA_SIGN_IN_HISTORY_DAYS` | veyra | *First value.* Days of sign-in attempts and ended sessions to keep. |
 | `VEYRA_REMOVE_SECOND_FACTOR` | veyra | Empty. Only for the lost-phone case above. |
-| `VEYRA_MAX_METRIC_SERIES` | veyra | Most metric series accepted; points of new series beyond it are dropped. Default `50000`. |
-| `VEYRA_PUBLIC_URL` | veyra | Public address, for links in alert notifications. Empty: messages carry no link. |
-| `VEYRA_SMTP_HOST` | veyra | SMTP server for email channels. Empty: email channels cannot send. |
-| `VEYRA_SMTP_PORT` | veyra | Its port. Default `587`. |
-| `VEYRA_SMTP_SECURITY` | veyra | `Auto` (default), `StartTls`, `SslOnConnect`, or `None`. |
-| `VEYRA_SMTP_USERNAME`, `VEYRA_SMTP_PASSWORD` | veyra | Sign-in for the SMTP server, if it needs one. The password is a secret. |
-| `VEYRA_SMTP_FROM` | veyra | Sender address, for example `Veyra <veyra@example.com>`. Required with a host. |
+| `VEYRA_MAX_METRIC_SERIES` | veyra | *First value.* Most metric series accepted. Default `50000`. |
+| `VEYRA_PUBLIC_URL` | veyra | *First value.* Public address, for links in alert notifications. |
+| `VEYRA_SMTP_HOST` | veyra | *First value.* SMTP server for email channels. Empty: email cannot send. |
+| `VEYRA_SMTP_PORT` | veyra | *First value.* Its port. Default `587`. |
+| `VEYRA_SMTP_SECURITY` | veyra | *First value.* `Auto` (default), `StartTls`, `SslOnConnect`, or `None`. |
+| `VEYRA_SMTP_USERNAME`, `VEYRA_SMTP_PASSWORD` | veyra | *First values.* Sign-in for the SMTP server. The password is a secret. |
+| `VEYRA_SMTP_FROM` | veyra | *First value.* Sender address, such as `Veyra <veyra@example.com>`. |
 | `Veyra__Storage__ConnectionString` | veyra | Set by the Compose file. Override it for another PostgreSQL server. |
 
-The built-in error-rate alert rule works without configuration: a caution from 1 % errors, a warning from 5 %, over
-five minutes per service. Its settings, and those of notifications, are in
-[`docs/architecture/alerting.md`](../architecture/alerting.md#configuration).
+The built-in alert rules work without configuration: the error-rate rule, for example, raises a caution from 1 %
+errors and a warning from 5 %, over five minutes per service. Change them on the Settings screen; what each setting
+means is in [`docs/architecture/alerting.md`](../architecture/alerting.md#configuration).

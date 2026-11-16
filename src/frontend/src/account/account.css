@@ -1,9 +1,11 @@
 /* The Account page (VEY-20): who you are, your password and second factor, sessions, and sign-ins. */
 
+/* Its own scroll area beside the sidebar, like every screen, with the content at most 1040 px wide in the middle. */
 .account {
-  max-width: 1040px;
-  margin: 0 auto;
-  padding: 28px 24px 40px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 28px max(24px, calc((100% - 1040px) / 2)) 40px;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -115,15 +117,15 @@
   text-anchor: middle;
 }
 
-.ring-label.viewer {
+.account-place .ring-label.viewer {
   fill: var(--metric-teal);
 }
 
-.ring-label.editor {
+.account-place .ring-label.editor {
   fill: var(--accent);
 }
 
-.ring-label.admin {
+.account-place .ring-label.admin {
   fill: var(--metric-violet);
 }
 

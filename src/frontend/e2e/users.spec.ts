@@ -77,17 +77,62 @@ test.describe("Account", () => {
     expect(await panel.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgba(16, 24, 51, 0.78)");
   });
 
-  test("is reached from the avatar in the top bar", async ({ page }, testInfo) => {
+  test("is reached from the person at the foot of the sidebar", async ({ page }, testInfo) => {
     await answerApi(page);
     await page.goto("/");
 
-    if (testInfo.project.name !== "desktop") {
+    if (testInfo.project.name === "phone") {
       await page.getByRole("button", { name: "Menu" }).click();
     }
 
-    await page.getByRole("link", { name: "Your account" }).click();
+    await page.getByRole("button", { name: /Ana/ }).click();
+    await page.getByRole("dialog", { name: "Account" }).getByRole("link", { name: "Your account" }).click();
 
     await expect(page.getByRole("heading", { level: 1, name: "Your account" })).toBeVisible();
+  });
+});
+
+test.describe("Times in the person's zone (VEY-22)", () => {
+  // A browser in Berlin, with no zone picked on the account yet.
+  test.use({ timezoneId: "Europe/Berlin" });
+
+  test("shows times in the browser's zone, with UTC one click away", async ({ page }, testInfo) => {
+    await answerApi(page);
+    await page.goto("/logs");
+    // Phones show records as cards without the column heads, so the zone is checked on the frame there.
+    const phone = testInfo.project.name === "phone";
+    await expect(page.locator(".shell")).toHaveAttribute("data-zone", "Europe/Berlin");
+
+    if (!phone) {
+      await expect(page.getByText("Time (CET)")).toBeVisible();
+    }
+
+    if (phone) {
+      await page.getByRole("button", { name: "Menu" }).click();
+    }
+
+    await page.getByRole("button", { name: /Ana/ }).click();
+    await page.getByRole("group", { name: "Times" }).getByRole("button", { name: "UTC" }).click();
+    await page.keyboard.press("Escape");
+
+    await expect(page.locator(".shell")).toHaveAttribute("data-zone", "UTC");
+
+    if (!phone) {
+      await expect(page.getByText("Time (UTC)")).toBeVisible();
+    }
+  });
+
+  test("picks a zone on the Account page without sideways scrolling", async ({ page }) => {
+    await answerApi(page);
+    await page.goto("/account");
+
+    const times = page.getByRole("region", { name: "Times" });
+    await expect(times).toContainText("Veyra uses your browser's zone, Europe/Berlin");
+    await times.getByRole("combobox", { name: "Time zone" }).fill("Asia/Tokyo");
+    await times.getByRole("button", { name: "Save" }).click();
+
+    await expect(times.getByRole("status")).toHaveText("Saved. Times show in Asia/Tokyo.");
+    expect(await scrollsSideways(page)).toBe(false);
   });
 });
 
@@ -104,9 +149,9 @@ test.describe("Signing in with a code", () => {
     await page.getByLabel("Code from the app").fill("482093");
     await page.getByRole("button", { name: "Sign in" }).click();
 
-    // Below desktop width the navigation waits in the closed menu.
+    // On phones the navigation waits in the closed drawer.
     await expect(
-      testInfo.project.name !== "desktop"
+      testInfo.project.name === "phone"
         ? page.getByRole("button", { name: "Menu" })
         : page.getByRole("navigation", { name: "Main" }),
     ).toBeVisible();

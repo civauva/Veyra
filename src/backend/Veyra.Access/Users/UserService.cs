@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Veyra.Access.History;
 using Veyra.Access.Sessions;
 using Veyra.Core.Security;
+using Veyra.Core.Time;
 
 namespace Veyra.Access.Users;
 
@@ -32,6 +33,21 @@ internal sealed partial class UserService(
     /// <returns>The users, ordered by email.</returns>
     public Task<IReadOnlyList<AccessUser>> ListAsync(CancellationToken cancellationToken) =>
         store.ListAsync(cancellationToken);
+
+    /// <summary>Sets the time zone a person sees times in (VEY-22).</summary>
+    /// <param name="id">The person's ID.</param>
+    /// <param name="timeZone">An IANA zone name, or <see langword="null"/> to use the browser's again.</param>
+    /// <param name="cancellationToken">Cancels the update.</param>
+    /// <returns>Whether the zone was known and kept.</returns>
+    public async Task<bool> SetTimeZoneAsync(Guid id, string? timeZone, CancellationToken cancellationToken)
+    {
+        if (timeZone is not null && !TimeZones.TryFind(timeZone, out _))
+        {
+            return false;
+        }
+
+        return await store.SetTimeZoneAsync(id, timeZone, cancellationToken);
+    }
 
     /// <summary>Creates a local user.</summary>
     /// <param name="email">The email address.</param>

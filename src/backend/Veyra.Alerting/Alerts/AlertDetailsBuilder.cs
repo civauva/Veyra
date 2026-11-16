@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using Veyra.Alerting.Api;
+using Veyra.Alerting.Catalog;
 using Veyra.Alerting.Notifications;
 using Veyra.Core.Alerts;
 using Veyra.Core.Metrics.Health;
@@ -23,7 +24,7 @@ internal sealed class AlertDetailsBuilder(
     DeliveryStore deliveries,
     ILogSearch logs,
     IMetricHealth metrics,
-    IOptions<AlertingOptions> options,
+    IOptionsMonitor<AlertingOptions> options,
     TimeProvider clock)
 {
     /// <summary>How many error messages the details show.</summary>
@@ -57,7 +58,7 @@ internal sealed class AlertDetailsBuilder(
         var events = await alerts.ListEventsAsync(id, cancellationToken);
         var sent = await deliveries.ListForAlertAsync(id, cancellationToken);
         var peakAt = await alerts.GetPeakAtAsync(id, cancellationToken);
-        var rules = RuleSettings.For(alert.Rule, options.Value);
+        var rules = RuleSettings.For(alert.Rule, options.CurrentValue);
         var worst = events.Select(e => e.Severity).Append(alert.Severity).Max();
 
         AlertSeriesResponse? series = null;
@@ -72,6 +73,16 @@ internal sealed class AlertDetailsBuilder(
                 break;
             case AlertRules.LatencyP95:
                 latency = await LatencyAsync(alert, now, cancellationToken);
+                break;
+            case AlertRules.DatabaseBlocking
+                or AlertRules.DatabaseDeadlocks
+                or AlertRules.DatabaseLongQuery
+                or AlertRules.DatabaseBackupAge
+                or AlertRules.DatabaseAgentJob:
+                // The server's own screen shows its metrics and queries; the details link to it.
+                break;
+            case var rule when RuleCatalog.Find(rule) is not null:
+                // Catalog rules judge database servers too; their screens show the figures (ADR 0020).
                 break;
             default:
                 series = await SeriesAsync(alert, now, cancellationToken);
@@ -102,8 +113,8 @@ internal sealed class AlertDetailsBuilder(
             ClearThreshold: rules.Clear,
             LowerIsWorse: AlertRules.LowerIsWorse(alert.Rule),
             WindowSeconds: (int)alert.Window.TotalSeconds,
-            MinimumRecords: alert.Rule == AlertRules.ErrorRate ? options.Value.ErrorRate.MinimumRecords : null,
-            MinimumRequests: alert.Rule == AlertRules.LatencyP95 ? options.Value.Latency.MinimumRequests : null,
+            MinimumRecords: alert.Rule == AlertRules.ErrorRate ? options.CurrentValue.ErrorRate.MinimumRecords : null,
+            MinimumRequests: alert.Rule == AlertRules.LatencyP95 ? options.CurrentValue.Latency.MinimumRequests : null,
             OpenedAt: alert.OpenedAt,
             UpdatedAt: alert.UpdatedAt,
             ResolvedAt: alert.ResolvedAt,

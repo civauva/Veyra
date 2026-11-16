@@ -1,5 +1,6 @@
 using OpenTelemetry.Proto.Common.V1;
 using OpenTelemetry.Proto.Logs.V1;
+using Veyra.Core.Alerts;
 using Veyra.Core.Telemetry;
 using Veyra.Ingestion.Otlp;
 using static Veyra.Ingestion.Tests.Otlp.OtlpRequests;
@@ -29,6 +30,22 @@ public class OtlpLogMapperTests
     }
 
     [Fact]
+    public void Map_ScopeAttributes_AreKeptWithTheRecordsOwnWinning()
+    {
+        // A Collector's own logs name the failing component only in scope attributes (ADR 0019).
+        var request = Single("otelcol-contrib", null, Record("Error scraping metrics"));
+        var scope = request.ResourceLogs[0].ScopeLogs[0].Scope;
+        scope.Attributes.Add(Attribute("otelcol.component.id", "sqlserver/a1"));
+        scope.Attributes.Add(Attribute("otelcol.component.kind", "receiver"));
+        request.ResourceLogs[0].ScopeLogs[0].LogRecords[0].Attributes.Add(Attribute("otelcol.component.kind", "own"));
+
+        var record = Assert.Single(OtlpLogMapper.Map(request, _receivedAt));
+
+        Assert.Equal("sqlserver/a1", record.Attributes["otelcol.component.id"]);
+        Assert.Equal("own", record.Attributes["otelcol.component.kind"]);
+    }
+
+    [Fact]
     public void Map_OlderEnvironmentAttribute_IsUsedWhenTheNewOneIsMissing()
     {
         var request = Single("payments", null, Record("x"));
@@ -45,6 +62,39 @@ public class OtlpLogMapperTests
 
         // The OpenTelemetry specification names services without a name "unknown_service".
         Assert.Equal("unknown_service", Assert.Single(OtlpLogMapper.Map(request, _receivedAt)).ServiceName);
+    }
+
+    [Fact]
+    public void Map_SqlServerEvent_IsFiledUnderTheDatabaseServerWithItsEventName()
+    {
+        var sample = Record("");
+        sample.EventName = "db.server.query_sample";
+        var request = Single("ignored", "production", sample);
+        var resource = request.ResourceLogs[0].Resource.Attributes;
+        resource.Clear();
+        resource.Add(Attribute("db.system.name", "microsoft.sql_server"));
+        resource.Add(Attribute("server.address", "sql-prod-01"));
+        resource.Add(Attribute("deployment.environment.name", "production"));
+        resource.Add(Attribute("host.name", "db-host-01"));
+
+        var record = Assert.Single(OtlpLogMapper.Map(request, _receivedAt));
+
+        Assert.Equal(AlertBlockKind.Database, record.BlockKind);
+        Assert.Equal("microsoft.sql_server sql-prod-01", record.ServiceName);
+        Assert.Equal("db-host-01", record.HostName);
+        Assert.Equal("db.server.query_sample", record.Attributes["event.name"]);
+    }
+
+    [Fact]
+    public void Map_ServiceRecord_IsAServiceBlockWithItsHost()
+    {
+        var request = Single("payments", "production", Record("x"));
+        request.ResourceLogs[0].Resource.Attributes.Add(Attribute("host.name", "web-01"));
+
+        var record = Assert.Single(OtlpLogMapper.Map(request, _receivedAt));
+
+        Assert.Equal((AlertBlockKind.Service, "payments", "web-01"), (record.BlockKind, record.ServiceName, record.HostName));
+        Assert.False(record.Attributes.ContainsKey("event.name"));
     }
 
     [Fact]

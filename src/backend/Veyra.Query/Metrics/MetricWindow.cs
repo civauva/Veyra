@@ -12,6 +12,9 @@ namespace Veyra.Query.Metrics;
 /// <param name="Bucket">The width of a bucket.</param>
 internal sealed record MetricWindow(string Range, DateTimeOffset Start, DateTimeOffset End, TimeSpan Bucket)
 {
+    /// <summary>The most points a line of an overview card has.</summary>
+    public const int CardPoints = 72;
+
     /// <summary>The ranges a screen can ask for, with their bucket widths.</summary>
     public static readonly IReadOnlyDictionary<string, (TimeSpan Length, TimeSpan Bucket)> Ranges =
         new Dictionary<string, (TimeSpan, TimeSpan)>(StringComparer.Ordinal)
@@ -62,6 +65,26 @@ internal sealed record MetricWindow(string Range, DateTimeOffset Start, DateTime
     {
         var name = range is not null && Ranges.ContainsKey(range) ? range : "6h";
         var (length, bucket) = Ranges[name];
+
+        return Ending(name, now, length, bucket);
+    }
+
+    /// <summary>
+    /// A named range ending now, for the small lines of overview cards: its buckets are the shortest of the chart
+    /// buckets that give the range no more than <see cref="CardPoints"/> points.
+    /// </summary>
+    /// <remarks>
+    /// A card line is 380 units wide and only decorates the numbers beside it, so more points draw nothing more. Fewer
+    /// buckets mean fewer histograms to read for every service, which keeps the overview within its budget (ADR 0015).
+    /// </remarks>
+    /// <param name="range">One of <see cref="Ranges"/>; anything else means <c>6h</c>.</param>
+    /// <param name="now">The current time.</param>
+    /// <returns>The window.</returns>
+    public static MetricWindow Card(string? range, DateTimeOffset now)
+    {
+        var name = range is not null && Ranges.ContainsKey(range) ? range : "6h";
+        var length = Ranges[name].Length;
+        var bucket = _chartBuckets.First(candidate => length / candidate <= CardPoints);
 
         return Ending(name, now, length, bucket);
     }

@@ -60,6 +60,26 @@ test.describe("Notifications", () => {
     }
   });
 
+  test("keeps each switch's knob inside its track", async ({ page }) => {
+    await answerApi(page);
+    await page.goto("/notifications");
+    await expect(page.getByRole("switch").first()).toBeVisible();
+
+    // Notifications and Users once each styled .switch; together they pushed a switched-on knob off the track.
+    const knobs = await page.getByRole("switch").evaluateAll((switches) =>
+      switches.map((control) => {
+        const knob = getComputedStyle(control, "::after");
+        const shift = new DOMMatrix(knob.transform === "none" ? undefined : knob.transform).m41;
+        const right = parseFloat(knob.left) + shift + parseFloat(knob.width);
+
+        return { on: control.getAttribute("aria-checked"), right, track: control.clientWidth };
+      }),
+    );
+
+    expect(knobs.some((knob) => knob.on === "true")).toBe(true);
+    expect(knobs.filter((knob) => knob.right > knob.track)).toEqual([]);
+  });
+
   test("keeps the channel cards readable in the dark theme", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "dark" });
     await answerApi(page);

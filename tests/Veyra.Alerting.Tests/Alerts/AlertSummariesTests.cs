@@ -1,4 +1,5 @@
 using Veyra.Alerting.Alerts;
+using Veyra.Alerting.Catalog;
 using Veyra.Core.Alerts;
 
 namespace Veyra.Alerting.Tests.Alerts;
@@ -29,7 +30,18 @@ public class AlertSummariesTests
         Assert.Equal(3, summary.Resolved);
         Assert.Equal(25 * 60, summary.MedianSeconds);
         Assert.Equal(
-            [(AlertRules.ErrorRate, 2), (AlertRules.LatencyP95, 1), (AlertRules.DiskSpace, 1), (AlertRules.DiskFilling, 1)],
+            [
+                (AlertRules.ErrorRate, 2),
+                (AlertRules.LatencyP95, 1),
+                (AlertRules.DiskSpace, 1),
+                (AlertRules.DiskFilling, 1),
+                (AlertRules.DatabaseBlocking, 0),
+                (AlertRules.DatabaseDeadlocks, 0),
+                (AlertRules.DatabaseLongQuery, 0),
+                (AlertRules.DatabaseBackupAge, 0),
+                (AlertRules.DatabaseAgentJob, 0),
+                .. RuleCatalog.All.Select(rule => (rule.Id, 0)),
+            ],
             summary.Rules.Select(rule => (rule.Rule, rule.Count)));
     }
 
@@ -44,8 +56,12 @@ public class AlertSummariesTests
 
         var latency = summary.Rules.Single(rule => rule.Rule == AlertRules.LatencyP95);
         var filling = summary.Rules.Single(rule => rule.Rule == AlertRules.DiskFilling);
-        Assert.Equal((false, 1.0, 3.0, 300), (latency.Enabled, latency.CautionThreshold, latency.WarningThreshold, latency.WindowSeconds));
-        Assert.Equal((true, 10.0, 3.0, 86400), (filling.Enabled, filling.CautionThreshold, filling.WarningThreshold, filling.WindowSeconds));
+        Assert.Equal(
+            (false, 1.0, 3.0, 300),
+            (latency.Enabled, latency.CautionThreshold, latency.WarningThreshold, latency.WindowSeconds));
+        Assert.Equal(
+            (true, 10.0, 3.0, 86400),
+            (filling.Enabled, filling.CautionThreshold, filling.WarningThreshold, filling.WindowSeconds));
     }
 
     [Fact]
@@ -81,6 +97,29 @@ public class AlertSummariesTests
 
         Assert.Equal(1, summary.Days[0].Count);
         Assert.Null(summary.MedianSeconds);
+    }
+
+    [Fact]
+    public void Summarise_TimeZone_CountsEachAlertOnItsLocalDay()
+    {
+        var berlin = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
+        var from = new DateTimeOffset(2026, 10, 31, 23, 0, 0, TimeSpan.Zero);
+        var spans = new[]
+        {
+            // 23:30 UTC on Nov 1 is 00:30 on Nov 2 in Berlin.
+            Span(
+                AlertRules.ErrorRate,
+                AlertSeverity.Caution,
+                AlertSeverity.Caution,
+                new(2026, 11, 1, 23, 30, 0, TimeSpan.Zero),
+                10),
+        };
+
+        var summary = AlertSummaries.Summarise(spans, from, _now, new AlertingOptions(), berlin);
+
+        Assert.Equal(
+            [(new DateOnly(2026, 11, 1), 0), (new DateOnly(2026, 11, 2), 1), (new DateOnly(2026, 11, 3), 0)],
+            summary.Days.Select(day => (day.Date, day.Count)));
     }
 
     private static AlertSpan Span(

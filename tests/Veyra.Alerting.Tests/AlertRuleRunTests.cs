@@ -85,7 +85,7 @@ public class AlertRuleRunTests(PostgresFixture postgres)
 
     private AlertRuleRun Run(NpgsqlDataSource database, AlertingOptions? options = null)
     {
-        var settings = Options.Create(options ?? new AlertingOptions());
+        var settings = new TestOptionsMonitor<AlertingOptions>(options ?? new AlertingOptions());
         var store = new AlertStore(database);
         var transitions = new AlertTransitions(store, NullLogger<AlertTransitions>.Instance);
 

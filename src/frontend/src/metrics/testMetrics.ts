@@ -1,5 +1,7 @@
 import type {
   ChartLine,
+  DatabaseCard,
+  DatabaseMetrics,
   HostCard,
   HostMetrics,
   MetricChart,
@@ -11,7 +13,8 @@ import type {
 
 /*
  * Metrics for tests and the e2e run, matching the VEY-19 mockups: three hosts, one with a filling disk, and three
- * services, one with server errors.
+ * services, one with server errors; and the SQL Server of the VEY-31 mockup, whose shop database has no backup for
+ * 31 hours and whose nightly backup job failed.
  */
 
 const at = "2026-11-10T11:00:20Z";
@@ -135,6 +138,129 @@ export const overview: MetricsOverview = {
   },
   hosts,
   services,
+  databases: [],
+};
+
+/** The SQL Server of the VEY-31 mockup. */
+export const sqlProd: DatabaseCard = {
+  engine: "microsoft.sql_server",
+  server: "sql-prod-01",
+  environment: "production",
+  lastSeen: "2026-11-10T11:00:12Z",
+  cpus: 8,
+  memoryBytes: 52 * 1024 ** 3,
+  uptimeSeconds: 41 * 86_400,
+  batchRequests: 1240,
+  connections: 182,
+  blocked: 0,
+  deadlocks: 2,
+  pageLifeSeconds: 3412,
+  longestQuerySeconds: 134,
+  databases: 5,
+  oldestBackupSeconds: 31 * 3600,
+  failedJobs: 1,
+  requests: line("batch requests", 1200, 140, 3),
+};
+
+/** The overview with the SQL Server among the hosts and services. */
+export const overviewWithDatabase: MetricsOverview = { ...overview, databases: [sqlProd] };
+
+/** The SQL Server in detail. */
+export const databaseMetrics: DatabaseMetrics = {
+  card: sqlProd,
+  range: "6h",
+  bucketSeconds: 300,
+  requests: sqlProd.requests,
+  connections: line("connections", 180, 12, 2),
+  blocked: line("blocked", 0, 0, 1),
+  deadlocks: line("deadlocks", 0.1, 0.1, 5),
+  pageLife: line("page life", 3400, 60, 4),
+  longestQuery: line("longest query", 40, 30, 6),
+  waits: [line("CPU", 0.41, 0.05, 1), line("Lock", 0.22, 0.08, 2), line("Disk I/O", 0.18, 0.03, 3)],
+  databases: [
+    {
+      name: "shop_archive",
+      sizeBytes: 1.21e12,
+      logBytes: 8e9,
+      growthBytesPerDay: 0.4e9,
+      backupAgeSeconds: 7 * 3600,
+      ioLatencySeconds: 0.0068,
+      longestQuerySeconds: 0,
+    },
+    {
+      name: "shop",
+      sizeBytes: 412e9,
+      logBytes: 12e9,
+      growthBytesPerDay: 3.1e9,
+      backupAgeSeconds: 31 * 3600,
+      ioLatencySeconds: 0.0042,
+      longestQuerySeconds: 134,
+    },
+    {
+      name: "reporting",
+      sizeBytes: 96e9,
+      logBytes: 2e9,
+      growthBytesPerDay: 1.2e9,
+      backupAgeSeconds: null,
+      ioLatencySeconds: 0.0055,
+      longestQuerySeconds: 41,
+    },
+    {
+      name: "tempdb",
+      sizeBytes: 24e9,
+      logBytes: 1e9,
+      growthBytesPerDay: null,
+      backupAgeSeconds: null,
+      ioLatencySeconds: 0.0008,
+      longestQuerySeconds: 0,
+    },
+  ],
+  jobs: [
+    { name: "Nightly full backup - shop", failed: true, lastRun: "2026-11-10T01:00:00Z", durationSeconds: 4324 },
+    { name: "Index maintenance", failed: false, lastRun: "2026-11-10T00:00:00Z", durationSeconds: 1341 },
+    { name: "Purge sessions", failed: false, lastRun: "2026-11-10T10:00:00Z", durationSeconds: 4 },
+  ],
+  running: [
+    {
+      session: "117",
+      database: "shop",
+      user: "app_shop",
+      elapsedSeconds: 134,
+      status: "suspended",
+      wait: "LCK_M_U",
+      blockedBy: "73",
+      text: "UPDATE dbo.Orders SET Status = @status WHERE CustomerId = @customerId AND Status = @old",
+    },
+    {
+      session: "203",
+      database: "reporting",
+      user: "bi_reader",
+      elapsedSeconds: 41,
+      status: "running",
+      wait: null,
+      blockedBy: null,
+      text: "SELECT c.Region, SUM(o.Total) FROM dbo.Orders o JOIN dbo.Customers c ON c.Id = o.CustomerId",
+    },
+  ],
+  topQueries: [
+    {
+      text: "EXEC dbo.MonthlyReport @month",
+      totalSeconds: 80,
+      executions: 12,
+      workerSeconds: 61,
+      logicalReads: 9_120_000,
+      database: "reporting",
+    },
+    {
+      text: "SELECT * FROM dbo.Orders WHERE CustomerId = @id",
+      totalSeconds: 12.5,
+      executions: 400,
+      workerSeconds: 9.4,
+      logicalReads: 180_000,
+      database: "shop",
+    },
+  ],
+  agentWork: { statements: 12, totalSeconds: 4.2 },
 };
 
 /** The web host in detail. */

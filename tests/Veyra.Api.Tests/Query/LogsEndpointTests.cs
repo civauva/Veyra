@@ -76,7 +76,7 @@ public class LogsEndpointTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task GetSummary_OneHour_ReturnsThirtyTwoMinuteBucketsAndServiceCounts()
+    public async Task GetSummary_OneHour_ReturnsTwoMinuteBucketsOnTheClockAndServiceCounts()
     {
         await using var factory = await VeyraApiFactory.CreateAsync(postgres);
         using var admin = await factory.CreateAdminClientAsync();
@@ -87,8 +87,13 @@ public class LogsEndpointTests(PostgresFixture postgres)
         var summary = await admin.GetFromJsonAsync<Summary>(
             $"/api/v1/logs/summary?from={Uri.EscapeDataString(from.ToString("O"))}&to={Uri.EscapeDataString(to.ToString("O"))}");
 
+        // The first bucket starts with the window; the others on even minutes, so they can be read from the counts.
         Assert.Equal(120, summary!.BucketSeconds);
-        Assert.Equal(30, summary.Buckets.Count);
+        Assert.Equal(from, summary.Buckets[0].Start, TimeSpan.FromMilliseconds(1));
+        Assert.All(
+            summary.Buckets.Skip(1),
+            bucket => Assert.Equal(0, bucket.Start.UtcTicks % TimeSpan.FromMinutes(2).Ticks));
+        Assert.InRange(summary.Buckets.Count, 30, 31);
         Assert.Equal(2, summary.Buckets.Sum(bucket => bucket.Total));
         Assert.Equal(1, summary.Buckets.Sum(bucket => bucket.Errors));
         Assert.Equal("payments", Assert.Single(summary.Services).Name);

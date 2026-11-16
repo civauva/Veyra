@@ -4,7 +4,6 @@ import { WeatherDays } from "../../alerts/WeatherDays";
 import { ForecastHero, KeyMetrics, Outlook } from "../forecast/ForecastVisual";
 import { BlocksPanel } from "./BlocksPanel";
 import { DayChart } from "./DayChart";
-import { DisksPanel } from "./DisksPanel";
 import { LatestAlerts } from "./LatestAlerts";
 
 /** Props for {@link HomeWall}. */
@@ -18,8 +17,8 @@ const wallDays = 30;
 
 /**
  * The home on a wall-sized screen (VEY-24), at natural size: bands that fill the screen beside Needs you. On top the
- * hero and the key figures; in the middle every service and host and the last 30 days; at the bottom the last 24
- * hours beside the latest alerts, the disks, and the outlook.
+ * hero and the key figures; in the middle every service and host, each host with its disk, and the last 30 days; at
+ * the bottom the last 24 hours beside the latest alerts and the outlook.
  *
  * It reads the alert history of the environment the same way the Alerts screen does, and only while it is shown.
  */
@@ -64,7 +63,6 @@ export function HomeWall({ snapshot }: HomeWallProps) {
         <DayChart snapshot={snapshot} />
         <div className="wall-stack">
           <LatestAlerts items={history.items} error={history.error} now={new Date(snapshot.at)} />
-          <DisksPanel snapshot={snapshot} />
           <Outlook snapshot={snapshot} />
         </div>
       </div>

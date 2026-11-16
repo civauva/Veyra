@@ -8,6 +8,7 @@ import { Avatar } from "../users/Avatar";
 import { closeOnEscape } from "../users/ResetPasswordDialog";
 import { SessionList, SignInList } from "../users/SignInViews";
 import { formatSince, formatWhen } from "../users/userFormat";
+import { TimesPanel } from "./TimesPanel";
 import "../twofactor/twofactor.css";
 import "../users/users.css";
 import "./account.css";
@@ -85,7 +86,7 @@ export function AccountScreen() {
       <div className="people-head">
         <div>
           <h1>Your account</h1>
-          <p>How you sign in, and how far in you reach. Your avatar in the top bar leads here.</p>
+          <p>How you sign in, how far in you reach, and the time zone you see. Your name in the sidebar leads here.</p>
         </div>
       </div>
 
@@ -101,6 +102,8 @@ export function AccountScreen() {
           {account.hasPassword ? <PasswordForm /> : <ProviderNote />}
 
           <TwoFactor account={account} now={now} onOpen={setDialog} />
+
+          <TimesPanel />
 
           <section className="account-panel" aria-labelledby="account-sessions">
             <h2 id="account-sessions">Where you are signed in</h2>

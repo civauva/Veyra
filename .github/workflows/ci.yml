@@ -89,3 +89,24 @@ jobs:
 
       - name: End-to-end tests
         run: npm run test:e2e
+
+  # The tested Collector configuration for SQL Server (integrations/sqlserver) against a real server of each supported
+  # version: it must send every metric and event Veyra reads, under the attributes Veyra files them by (ADR 0018).
+  sqlserver:
+    name: SQL Server ${{ matrix.version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        version: [2019-latest, 2022-latest, 2025-latest]
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Check the Collector configuration
+        run: bash integrations/sqlserver/test/run.sh
+        env:
+          MSSQL_IMAGE_TAG: ${{ matrix.version }}

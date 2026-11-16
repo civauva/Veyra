@@ -33,4 +33,27 @@ public sealed class StorageOptions
     /// with a new value on every point cannot fill the disk. Defaults to 50,000 (ADR 0010).
     /// </summary>
     public int MaxMetricSeries { get; set; } = 50_000;
+
+    /// <summary>
+    /// How many days of traces to keep. Spans are the largest of the three signals, so the default is a week
+    /// (ADR 0014).
+    /// </summary>
+    public int TraceRetentionDays { get; set; } = 7;
+
+    /// <summary>
+    /// The most disk trace storage may use, in gigabytes, or <see langword="null"/> for no budget. When it is exceeded,
+    /// the oldest days are dropped first; today is always kept.
+    /// </summary>
+    public double? MaxTraceStorageGigabytes { get; set; }
+
+    /// <summary>
+    /// How many days of database servers' live sessions to keep: every read of the live view, every 10 seconds
+    /// (ADR 0020). A week by default, enough to look back at last night's blocking.
+    /// </summary>
+    public int DatabaseSessionRetentionDays { get; set; } = 7;
+
+    /// <summary>
+    /// How many days of database servers' plans, deadlocks, events, and setting snapshots to keep (ADR 0020).
+    /// </summary>
+    public int DatabaseRecordRetentionDays { get; set; } = 90;
 }

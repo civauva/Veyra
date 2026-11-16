@@ -1,5 +1,6 @@
 using OpenTelemetry.Proto.Collector.Logs.V1;
 using OpenTelemetry.Proto.Collector.Metrics.V1;
+using OpenTelemetry.Proto.Collector.Trace.V1;
 using Veyra.Ingestion.Pipeline;
 
 namespace Veyra.Ingestion.Otlp;
@@ -21,6 +22,27 @@ internal static class OtlpResponses
             response.PartialSuccess = new ExportLogsPartialSuccess
             {
                 RejectedLogRecords = result.Rejected,
+                ErrorMessage = result.RejectionReason ?? string.Empty,
+            };
+        }
+
+        return response;
+    }
+
+    /// <summary>The answer to a traces export.</summary>
+    /// <param name="result">What the pipeline did.</param>
+    /// <returns>An empty response, or partial success with the count and the reason.</returns>
+    public static ExportTraceServiceResponse Traces(IngestResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        var response = new ExportTraceServiceResponse();
+
+        if (result.Rejected > 0)
+        {
+            response.PartialSuccess = new ExportTracePartialSuccess
+            {
+                RejectedSpans = result.Rejected,
                 ErrorMessage = result.RejectionReason ?? string.Empty,
             };
         }

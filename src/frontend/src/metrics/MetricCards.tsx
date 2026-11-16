@@ -1,7 +1,16 @@
 import { Link } from "react-router";
 
-import type { HostCard, MetricRange, ServiceCard } from "../api/types";
-import { formatAgo, formatAmount, formatFull, formatRate, formatSeconds, formatShare } from "./metricFormat";
+import type { DatabaseCard, HostCard, MetricRange, ServiceCard } from "../api/types";
+import { engineName } from "../alerts/ruleWords";
+import {
+  formatAgo,
+  formatAmount,
+  formatFull,
+  formatRate,
+  formatSeconds,
+  formatShare,
+  formatSpan,
+} from "./metricFormat";
 import { Ring } from "./Ring";
 import { Sparkline } from "./Sparkline";
 
@@ -38,6 +47,104 @@ export function ServiceIcon({ size = 20 }: { size?: number }) {
     >
       <path d="M12 3.5 20 8v8l-8 4.5L4 16V8z M4 8l8 4.5L20 8 M12 12.5v8" strokeLinejoin="round" />
     </svg>
+  );
+}
+
+/** The icon of a database server: a cylinder. */
+export function DatabaseIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      aria-hidden="true"
+    >
+      <ellipse cx="12" cy="6" rx="7.5" ry="2.8" />
+      <path d="M4.5 6v12c0 1.6 3.4 2.8 7.5 2.8s7.5-1.2 7.5-2.8V6 M4.5 12c0 1.6 3.4 2.8 7.5 2.8s7.5-1.2 7.5-2.8" />
+    </svg>
+  );
+}
+
+/** Props for {@link DatabaseCardView}. */
+interface DatabaseCardViewProps {
+  /** The server's numbers. */
+  database: DatabaseCard;
+  /** The range, carried into the server's page. */
+  range: MetricRange;
+  /** The current time, for how long ago it sent. */
+  now: Date;
+}
+
+/**
+ * One database server on the overview (ADR 0018): batch requests, blocked sessions, and the longest query now, batch
+ * requests over the range, and what needs a look: failed SQL Agent jobs or the oldest backup. The whole card leads
+ * to the server's page.
+ */
+export function DatabaseCardView({ database, range, now }: DatabaseCardViewProps) {
+  const id = `database-${database.engine}-${database.server}`;
+  const facts = [
+    engineName(database.engine),
+    database.environment,
+    database.databases === 1 ? "1 database" : `${database.databases} databases`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const blocked = database.blocked !== null && database.blocked > 0;
+  const longQuery = database.longestQuerySeconds !== null && database.longestQuerySeconds >= 300;
+  const lateBackup = database.oldestBackupSeconds !== null && database.oldestBackupSeconds >= 26 * 3600;
+  const hot = blocked || longQuery || lateBackup || database.failedJobs > 0;
+
+  return (
+    <article className={hot ? "metric-card hot" : "metric-card"} aria-labelledby={id}>
+      <Link
+        className="metric-card-link"
+        to={`/metrics/databases/${encodeURIComponent(database.engine)}/${encodeURIComponent(database.server)}?range=${range}`}
+      >
+        <div className="metric-card-head">
+          <span className="metric-icon database">
+            <DatabaseIcon />
+          </span>
+          <div>
+            <h3 id={id}>{database.server}</h3>
+            <small>{facts}</small>
+          </div>
+          <span className="metric-when">{formatAgo(database.lastSeen, now)}</span>
+        </div>
+        <dl className="metric-numbers">
+          <div>
+            <dt>Requests</dt>
+            <dd>
+              {formatRate(database.batchRequests)}
+              <small>/s</small>
+            </dd>
+          </div>
+          <div>
+            <dt>Blocked</dt>
+            <dd className={blocked ? "warn" : undefined}>{database.blocked === null ? "–" : database.blocked}</dd>
+          </div>
+          <div>
+            <dt>Longest query</dt>
+            <dd className={longQuery ? "warn" : undefined}>
+              {database.longestQuerySeconds === null ? "–" : formatSpan(database.longestQuerySeconds)}
+            </dd>
+          </div>
+        </dl>
+        <Sparkline line={database.requests} color="var(--metric-teal)" />
+        <div className="metric-card-foot">
+          <span>Batch requests, last {range}</span>
+          {database.failedJobs > 0 ? (
+            <b className="warn">{database.failedJobs === 1 ? "1 job failed" : `${database.failedJobs} jobs failed`}</b>
+          ) : lateBackup && database.oldestBackupSeconds !== null ? (
+            <b className="warn">Oldest backup {formatSpan(database.oldestBackupSeconds)}</b>
+          ) : (
+            <span>Backups and jobs fine</span>
+          )}
+        </div>
+      </Link>
+    </article>
   );
 }
 

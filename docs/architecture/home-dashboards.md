@@ -145,16 +145,19 @@ visual in the space it is given.
 
 | Size | Width | Layout |
 | --- | --- | --- |
-| Wall | 2400 px wide and 1200 px tall, and larger | Bands fill the screen: the hero and key figures; every block and the last 30 days of alerts; the last 24 hours as a chart beside the latest alerts, the disks, and the outlook. Needs you runs the full height. |
-| Wide desktop | 1800 px and wider | A third column between the visual and Needs you lists every block and every disk. |
+| Wall | 2400 px wide and 1200 px tall, and larger | Bands fill the screen: the hero and key figures; the estate and the last 30 days of alerts; the last 24 hours as a chart beside the latest alerts and the outlook. Needs you runs the full height. |
+| Wide desktop | 1800 px and wider | The estate moves from beside the outlook into a column of its own, between the visual and Needs you. |
 | Desktop | 1200 px and wider | The visual and the Needs you pane side by side. |
-| Tablet | 768 to 1199 px | The visual on top, the Needs you pane below. Environment pills fold into a picker and the navigation into the menu. |
-| Phone | Below 768 px | The Needs you list first, then the visual. The bar keeps the master lights and the menu. |
+| Tablet | 768 to 1199 px | The visual on top, the Needs you pane below. |
+| Phone | Below 768 px | The Needs you list first, then the visual. |
 
-- **Forecast.** On a phone, the hero, the key metrics, the hourly strip, and the outlook stack in one column.
+- **Forecast.** On a phone, the hero, the key metrics, the hourly strip, the estate, and the outlook stack in one
+  column.
 - **City.** On a phone, the city is a map that can be panned and zoomed. The district list in the pane footer is the
   main way to move around.
 - **Touch.** Tapping selects, like a click. Touch targets are at least 44 by 44 px.
+- **Sidebar.** Beside every layout sits the sidebar (ADR 0013): labelled from 1600 px, icons from 1024 px, and a
+  drawer behind a slim top bar below that.
 - **Natural size.** Larger screens show more, never bigger type. A screen as wide as a wall but less tall, such as
   an ultrawide 2560 × 1080, keeps the wide desktop layout, since the bands need the height.
 
@@ -162,14 +165,16 @@ visual in the space it is given.
 
 The shell is shared by all homes and owns everything that must look the same on each of them.
 
-- **Top bar.** It holds the environment pills with their condition and error rate, and the home choice: Forecast,
-  City, and the separate Station view. It also holds master warning and master caution with their counts, and the
-  clock.
+- **Sidebar** (ADR 0013, replacing the top bar). It holds the environment switcher with the chosen environment's
+  condition and error rate, the screens with the open warnings and cautions counted beside Alerts, the settings, and
+  the person's menu, where the home choice (Forecast, City) will join the theme. Station stays a separate view.
 - **Needs you pane.** Alerts are listed warnings first. Within each severity they are ordered by user impact, which
   means a dependency path to an entry point, and then by age. They are numbered 1 to n, and those numbers are the
   badges a dashboard draws on its visual. The selected alert shows its steps and configured actions. At most nine
   are listed, followed by "+N more".
-- **Detail drawer, selection, and refresh.** The snapshot is polled every 15 seconds. Streaming updates are a later
+- **Detail drawer, selection, and refresh.** The snapshot is polled every 15 seconds. The API builds each
+  environment's snapshot at most once every 5 seconds and shares it among everyone who asks (ADR 0015), and reads
+  its counts from the log counts, so a home answers in well under its 150 ms budget. Streaming updates are a later
   decision.
 
 ## The dashboard contract
@@ -225,10 +230,17 @@ The environment is read like a weather report.
 | Condition | `clear` when nothing is lit, `showers` when there are cautions only, `storm` when there is any warning |
 | "over Checkout" | The top-level group, in the dashboard's grouping, that holds alert 1 |
 | Hero number | The environment error ratio across service blocks |
-| Key metrics | A fixed set: errors, p95 latency, ingest rate, lowest free disk, backups, open incidents |
-| Hourly strip | The observed error ratio for past hours, then the expected load from the 4-week baseline |
-| Outlook | Dated projections for the next 30 days: error budget exhaustion, disk full, certificate expiry, storage thresholds |
-| Pane footer | One row per top-level group, with one dot per block or collapsed group. Only lit dots glow. |
+| Hero sentence | How many alerts need you and how many services are dry; the alerts themselves are told in Needs you |
+| Key metrics | Four: errors, p95 latency, ingest rate, and log storage (VEY-26) |
+| Hourly strip | The observed error ratio for past hours, then the expected load from the 4-week baseline; no alert notes |
+| Estate | Every service and host as a tile lit only by its alerts; a host's tile draws its disk that fills soonest, or else its fullest |
+| Outlook | Dated projections for the next 30 days that are not alerts yet: error budget exhaustion, disk full, certificate expiry, storage thresholds |
+| Pane footer | How many alerts resolved since yesterday, and the way to the alert history |
+
+**One place per question (VEY-26).** Each question has one answer on the home, so nothing is told twice: Needs you
+says what needs you now; the hero whether all is well; the estate what runs; the outlook what is coming that is not
+an alert yet; and the Alerts screen, with the wall's chart and month, what happened. The sidebar counts the open
+alerts beside Alerts, as it does on every screen.
 
 ## City
 
@@ -276,37 +288,44 @@ yet, the screen says what it needs instead of showing a made-up number.
 - **Snapshot.** `GET /api/v1/home` as documented in [`docs/api/rest.md`](../api/rest.md). Besides the fields above
   it lists the environments with their weather, the alerts resolved in the last 24 hours, and log storage with its
   projection. `blocks` carries no `signals`, `headline`, `weight`, or `activity` yet.
-- **Shell.** The environment pills (with "All"), master warning and master caution, and the clock sit in the top
-  bar of every screen (VEY-23). The chosen environment is shared: the home, the Alerts screen, the Log Explorer, and
-  the Metrics cards all narrow to it (hosts whose metrics name no environment belong to every one). Below desktop
-  width the navigation, theme, and sign-out fold into a menu. The detail drawer and the home choice follow with City.
+- **Shell.** The sidebar of every screen (VEY-26, ADR 0013) holds the logo, which leads home; the environment
+  switcher, with "All environments" and a search field; Home, Logs, Metrics, and Alerts, the open screen tinted in
+  its own colour and Alerts counting the open warnings and cautions; Settings for administrators; and the person,
+  with their account, the theme, and signing out. The chosen environment is shared: the home, the Alerts screen, the
+  Log Explorer, and the Metrics cards all narrow to it (hosts whose metrics name no environment belong to every one).
+  The detail drawer and the home choice follow with City.
 - **Weather.** The chosen environment's weather lies behind the whole frame, drawn on a canvas: three depths of rain
   with a little wind, more drops on larger screens, and in a storm soft sheet lightning every 9 to 21 seconds, never a
   strobe. It is full on the home and the alert screens; on work screens (Logs, Metrics, Keys, Users, Notifications,
-  Account) it keeps to a calm band under the bar and their panels let it show through a little. The alert details
+  Account) it keeps to a calm band at the top and their panels let it show through a little. The alert details
   screen paints the alert's own weather. Nothing moves for people who ask for reduced motion, and the animation
   pauses in hidden tabs.
 - **Moving between screens.** The navigation links start a view transition: the old screen fades out while the new
-  one rises into place in about half a second, and the bar and the weather keep their place, so the home blends into
+  one rises into place in about half a second, and the sidebar and the weather keep their place, so the home blends into
   the next screen. Browsers without view transitions and reduced motion switch at once.
-- **Large screens (VEY-24).** From 1800 px wide a column lists every service and host as a tile, lit only by its
-  open alerts, with its records and error share of the last five minutes and a link to its logs or metrics, and every
-  disk fullest first. Hosts are those with an open alert and those reporting disks. From 2400 by 1200 px the wall adds
+- **Estate (VEY-24, VEY-26).** Every service and host as a tile, lit only by its open alerts, with its records and
+  error share of the last five minutes and a link to its logs or metrics; a host's tile draws its disk that fills
+  soonest, or else its fullest. Hosts are those with an open alert and those reporting disks. On the standard home it
+  sits beside the outlook and lists at most nine services, the alerted first, with "+N more services" leading to the
+  Log Explorer; on laptops up to 900 px tall the hero is lower, and lower still up to 760 px, so the home fits
+  without scrolling.
+- **Large screens (VEY-24).** From 1800 px wide the estate gets a column of its own. From 2400 by 1200 px the wall adds
   the last 24 hours (records an hour with their errors, the six hours ahead as expected load, an hour tinted at the
   thresholds of the built-in error-rate rule), the weather log of the last 30 days as on the Alerts screen, and the
   latest alerts. Only the wall reads the alert history, every 30 seconds.
 - **Needs you.** Up to nine numbered alerts, each tagged service or host and measured in its rule's unit. An
   error-rate alert offers "Open logs" (its errors in the Log Explorer) and "± 1 minute" (everything the service
   logged around the moment the alert opened); a latency alert the service's metrics; a disk alert the host's
-  metrics. Every alert offers "Details" (the alert details screen) and states its rule. Below: alerts resolved since
-  yesterday, each linking to its details, one dot per service and per host with an alert, the ingest rate, and a link
-  to the Alerts screen.
-- **Forecast.** The hero shows the environment error ratio over the last five minutes. Key metrics: errors, p95
-  latency (from `http.server.request.duration`, with the slowest service; "Not measured" without it), ingest, log
-  storage, the fullest disk from host metrics (backups say "Not watched yet" without host metrics), and alerts. The hourly strip shows six past hours and the current one,
-  then six expected hours learned from up to seven days, instead of four weeks. The outlook projects log storage
-  against its budget and up to two disks that fill up within 30 days, from host metrics (ADR 0010).
-- **Times.** UTC, like the Log Explorer, so both screens always show the same clock.
+  metrics. Every alert offers "Details" (the alert details screen) and states its rule. Its foot counts the alerts
+  resolved since yesterday and leads to the alert history on the Alerts screen.
+- **Forecast.** The hero shows the environment error ratio over the last five minutes and says how many alerts need
+  you. Key metrics: errors with their records, p95 latency (from `http.server.request.duration`, with the slowest
+  service; "Not measured" without it), ingest, and log storage. The hourly strip shows six past hours and the current
+  one, then six expected hours learned from up to seven days, instead of four weeks. The outlook projects log storage
+  against its budget and up to two disks that fill up within 30 days and have no open alert, from host metrics
+  (ADR 0010).
+- **Times.** In the person's zone, like every screen (VEY-22), so the home and the Log Explorer always show the
+  same clock; the hours of the strip are the zone's hours, and sun or moon follow its day.
 
 ## Open questions
 

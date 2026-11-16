@@ -10,4 +10,10 @@ public sealed class IngestionOptions
 
     /// <summary>Maximum number of metric points buffered before backpressure applies.</summary>
     public int MaxMetricQueueLength { get; set; } = 50_000;
+
+    /// <summary>
+    /// The most spans waiting to be written. A trace is 5 to 20 spans, so this holds a few seconds of a busy service;
+    /// beyond it, senders are told to retry (ADR 0014).
+    /// </summary>
+    public int MaxSpanQueueLength { get; set; } = 50_000;
 }

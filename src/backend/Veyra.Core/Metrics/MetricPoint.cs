@@ -1,3 +1,5 @@
+using Veyra.Core.Telemetry;
+
 namespace Veyra.Core.Metrics;
 
 /// <summary>
@@ -21,6 +23,10 @@ namespace Veyra.Core.Metrics;
 /// <param name="StartTimestamp">For cumulative points, when counting started; null when not sent.</param>
 /// <param name="Value">The value of a gauge or sum; null for histograms.</param>
 /// <param name="Histogram">The distribution of a histogram point; null otherwise.</param>
+/// <param name="Block">
+/// The block the series belongs to (ADR 0018); null only where a test does not care, which stores it by its service or
+/// host.
+/// </param>
 public sealed record MetricPoint(
     string Name,
     MetricKind Kind,
@@ -36,4 +42,5 @@ public sealed record MetricPoint(
     DateTimeOffset Timestamp,
     DateTimeOffset? StartTimestamp,
     double? Value,
-    HistogramValue? Histogram);
+    HistogramValue? Histogram,
+    TelemetryBlock? Block = null);

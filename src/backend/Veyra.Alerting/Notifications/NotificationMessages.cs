@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Veyra.Alerting.Alerts;
+using Veyra.Alerting.Catalog;
 using Veyra.Alerting.MetricRules;
 using Veyra.Core.Alerts;
 
@@ -85,11 +86,23 @@ internal static class NotificationMessages
 
         if (message.Alert is { } alert)
         {
-            Line(body, alert.Block.Kind == "host" ? "Host:" : "Service:", alert.Block.Name);
+            var (blockLabel, partLabel) = alert.Block.Kind switch
+            {
+                "host" => ("Host:", "Disk:"),
+                "database" => (
+                    "Server:",
+                    alert.Rule == AlertRules.DatabaseAgentJob
+                        ? "Job:"
+                        : RuleCatalog.Find(alert.Rule)?.PartLabel ?? "Database:"),
+                "container" => ("Container:", "Part:"),
+                _ => ("Service:", "Part:"),
+            };
+            var blockName = alert.Block.Kind == "database" ? Server(alert.Block.Name) : alert.Block.Name;
+            Line(body, blockLabel, blockName);
 
             if (alert.Block.Part is { } part)
             {
-                Line(body, "Disk:", part);
+                Line(body, partLabel, part);
             }
 
             Line(body, "Environment:", alert.Environment ?? "none named");
@@ -130,8 +143,34 @@ internal static class NotificationMessages
     {
         AlertRules.DiskFilling => Days(value),
         AlertRules.LatencyP95 => Seconds(value),
+        AlertRules.DatabaseBlocking => Count(value, "session"),
+        AlertRules.DatabaseDeadlocks => Count(value, "deadlock"),
+        AlertRules.DatabaseLongQuery or AlertRules.DatabaseBackupAge => Duration(TimeSpan.FromSeconds(value)),
+        AlertRules.DatabaseAgentJob => value >= 1 ? "failed" : "succeeded",
+        _ when RuleCatalog.Find(rule) is { } catalog => CatalogWords.Value(catalog, value),
         _ => Percent(value),
     };
+
+    /// <summary>
+    /// Names a database server the way people say it: <c>SQL Server sql-prod-01</c> from
+    /// <c>microsoft.sql_server sql-prod-01</c>.
+    /// </summary>
+    /// <param name="block">The server's block name: its engine and server.</param>
+    /// <returns>The words.</returns>
+    public static string Server(string block)
+    {
+        ArgumentNullException.ThrowIfNull(block);
+
+        var parts = block.Split(' ', 2);
+        var engine = parts[0] switch
+        {
+            "microsoft.sql_server" => "SQL Server",
+            "postgresql" => "PostgreSQL",
+            _ => parts[0],
+        };
+
+        return parts.Length == 2 ? $"{engine} {parts[1]}" : engine;
+    }
 
     // What is wrong, in a few words.
     private static string Headline(AlertState alert, double value) => alert.Rule switch
@@ -139,6 +178,21 @@ internal static class NotificationMessages
         AlertRules.DiskSpace => $"{Disk(alert.Subject)} is {Percent(value)} full",
         AlertRules.DiskFilling => $"{Disk(alert.Subject)} is full in {Days(value)}",
         AlertRules.LatencyP95 => $"{alert.Subject.Name} answers slowly, p95 {Seconds(value)}",
+        AlertRules.DatabaseBlocking =>
+            $"{Server(alert.Subject.Name)}: {Count(value, "session")} blocked for 5 min",
+        AlertRules.DatabaseDeadlocks =>
+            $"{Server(alert.Subject.Name)}: {Count(value, "deadlock")} in 15 min",
+        AlertRules.DatabaseLongQuery =>
+            $"{Server(alert.Subject.Name)}: a query in {alert.Subject.Part} has run for {Measure(alert.Rule, value)}",
+        AlertRules.DatabaseBackupAge =>
+            $"{Server(alert.Subject.Name)}: {alert.Subject.Part} has no backup for {Measure(alert.Rule, value)}",
+        AlertRules.DatabaseAgentJob =>
+            $"{Server(alert.Subject.Name)}: SQL Agent job {alert.Subject.Part} failed",
+        _ when RuleCatalog.Find(alert.Rule) is { } catalog => CatalogWords.Fill(
+            catalog.Headline,
+            Server(alert.Subject.Name),
+            alert.Subject.Part,
+            CatalogWords.Value(catalog, value)),
         _ => $"{alert.Subject.Name} logs {Percent(value)} errors",
     };
 
@@ -150,6 +204,19 @@ internal static class NotificationMessages
             $"{Disk(alert.Subject)} is no longer filling",
         AlertRules.DiskFilling => $"{Disk(alert.Subject)} is full in {Days(value)} again",
         AlertRules.LatencyP95 => $"{alert.Subject.Name} is back to p95 {Seconds(value)}",
+        AlertRules.DatabaseBlocking => $"{Server(alert.Subject.Name)} has no blocked sessions",
+        AlertRules.DatabaseDeadlocks => $"{Server(alert.Subject.Name)} had no deadlock for 30 min",
+        AlertRules.DatabaseLongQuery =>
+            $"{Server(alert.Subject.Name)}: the long query in {alert.Subject.Part} ended",
+        AlertRules.DatabaseBackupAge =>
+            $"{Server(alert.Subject.Name)}: {alert.Subject.Part} has a new backup",
+        AlertRules.DatabaseAgentJob =>
+            $"{Server(alert.Subject.Name)}: SQL Agent job {alert.Subject.Part} succeeded",
+        _ when RuleCatalog.Find(alert.Rule) is { } catalog => CatalogWords.Fill(
+            catalog.Recovery,
+            Server(alert.Subject.Name),
+            alert.Subject.Part,
+            CatalogWords.Value(catalog, value)),
         _ => $"{alert.Subject.Name} is back to {Percent(value)} errors",
     };
 
@@ -172,6 +239,24 @@ internal static class NotificationMessages
             case AlertRules.LatencyP95:
                 Line(body, "Latency:", $"p95 {Seconds(alert.Value)} over {window} ({from})");
                 break;
+            case AlertRules.DatabaseBlocking:
+                Line(body, "Blocked:", $"{Measure(alert.Rule, alert.Value)} throughout {window} ({from})");
+                break;
+            case AlertRules.DatabaseDeadlocks:
+                Line(body, "Deadlocks:", $"{Measure(alert.Rule, alert.Value)} in {window} ({from})");
+                break;
+            case AlertRules.DatabaseLongQuery:
+                Line(body, "Running for:", $"{Measure(alert.Rule, alert.Value)} ({from})");
+                break;
+            case AlertRules.DatabaseBackupAge:
+                Line(body, "Last backup:", $"{Measure(alert.Rule, alert.Value)} ago ({from})");
+                break;
+            case AlertRules.DatabaseAgentJob:
+                Line(body, "Last run:", Measure(alert.Rule, alert.Value));
+                break;
+            case var rule when RuleCatalog.Find(rule) is { } catalog:
+                Line(body, catalog.MeasurementLabel, $"{Measure(alert.Rule, alert.Value)} ({from})");
+                break;
             default:
                 Line(body, "Error rate:", $"{Percent(alert.Value)} of records over {window} ({from})");
                 break;
@@ -181,9 +266,25 @@ internal static class NotificationMessages
     private static string Unit(string rule) => rule switch
     {
         AlertRules.DiskFilling => "days",
-        AlertRules.LatencyP95 => "seconds",
+        AlertRules.LatencyP95 or AlertRules.DatabaseLongQuery or AlertRules.DatabaseBackupAge => "seconds",
+        AlertRules.DatabaseBlocking => "sessions",
+        AlertRules.DatabaseDeadlocks => "deadlocks",
+        AlertRules.DatabaseAgentJob => "failed",
+        _ when RuleCatalog.Find(rule) is { } catalog => catalog.Unit switch
+        {
+            MeasureUnit.Count => (catalog.Noun ?? "item") + "s",
+            var unit => unit.ToString().ToLowerInvariant(),
+        },
         _ => "ratio",
     };
+
+    // "1 session", "3 sessions".
+    private static string Count(double value, string noun)
+    {
+        var whole = (long)Math.Round(value, MidpointRounding.AwayFromZero);
+
+        return whole == 1 ? $"1 {noun}" : $"{whole} {noun}s";
+    }
 
     private static string Disk(AlertSubject subject) => $"disk {subject.Part ?? "?"} on {subject.Name}";
 

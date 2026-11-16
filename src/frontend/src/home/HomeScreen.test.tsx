@@ -26,7 +26,13 @@ vi.mock("../api/client", async (importOriginal) => {
   };
 });
 
-const viewer = { id: "1", email: "viewer@example.com", displayName: "Dana Kim", role: "Viewer" as const };
+const viewer = {
+  id: "1",
+  email: "viewer@example.com",
+  displayName: "Dana Kim",
+  role: "Viewer" as const,
+  timeZone: null,
+};
 
 function renderHome() {
   return render(
@@ -54,10 +60,10 @@ describe("HomeScreen", () => {
     renderHome();
 
     expect(await screen.findByRole("heading", { level: 1, name: "Storm over Services" })).toBeInTheDocument();
-    expect(screen.getByText("payments-gateway fails 21.6% of the time since 06:58.", { exact: false })).toBeVisible();
+    // The hero says whether all is well and points at Needs you, which tells the alerts themselves.
+    expect(screen.getByText("1 warning and 1 caution need you. 6 of 8 services are dry.")).toBeVisible();
     expect(screen.getByTestId("hero-ratio")).toHaveTextContent("5.8%");
-    expect(screen.getByRole("status", { name: "Master warning" })).toHaveTextContent("1 warning");
-    expect(screen.getByRole("status", { name: "Master caution" })).toHaveTextContent("1 caution");
+    expect(screen.getByRole("link", { name: "Alerts" })).toHaveAccessibleDescription("1 warning, 1 caution");
   });
 
   it("lists alerts numbered, warnings first, with the steps of the selected one", async () => {
@@ -118,11 +124,11 @@ describe("HomeScreen", () => {
     await user.click(row);
     expect(within(pane).getByRole("link", { name: "Open metrics" })).toHaveAttribute("href", "/metrics/hosts/web-01");
     expect(within(pane).getByText(/when a disk is full within 14 days/)).toBeVisible();
-    expect(within(pane).getByText(/services · 1 host/)).toBeVisible();
-    expect(screen.getByText(/Disk \/ on web-01 is full in 9 days at today's pace\./)).toBeVisible();
+    // An alert is told once: the outlook does not date the disk again.
+    expect(within(screen.getByRole("region", { name: "Outlook" })).queryByText(/web-01/)).not.toBeInTheDocument();
   });
 
-  it("notes a host alert under its hour by host and disk", async () => {
+  it("keeps the hourly strip to the weather of each hour, without alert notes", async () => {
     const [warning, caution] = stormSnapshot.alerts as [HomeAlert, HomeAlert];
     const disk = {
       ...caution,
@@ -139,8 +145,8 @@ describe("HomeScreen", () => {
     renderHome();
 
     const hours = await screen.findByRole("list", { name: "Hours" });
-    expect(hours).toHaveTextContent("04:20 web-01 · /");
-    expect(hours).not.toHaveTextContent("null");
+    expect(hours).not.toHaveTextContent("04:20");
+    expect(hours).not.toHaveTextContent("busiest");
   });
 
   it("says so in the hero when no records arrived, instead of a dash", async () => {
@@ -176,27 +182,54 @@ describe("HomeScreen", () => {
 
     expect(await screen.findByRole("heading", { level: 1, name: "Clear skies" })).toBeInTheDocument();
     expect(screen.getByText("Nothing needs you")).toBeVisible();
-    expect(screen.getByRole("status", { name: "Master warning" })).toHaveTextContent("0 warnings");
+    expect(screen.getByRole("link", { name: "Alerts" })).toHaveAccessibleDescription("No open alerts");
   });
 
-  it("lists alerts resolved since yesterday with their peak and times", async () => {
+  it("keeps Needs you to the open alerts and leads to the alert history for the rest", async () => {
     vi.mocked(api.home).mockResolvedValue(stormSnapshot);
 
     renderHome();
 
-    const resolved = await screen.findByRole("list", { name: "Resolved since yesterday" });
-    expect(resolved).toHaveTextContent("orders-api · error rate 1.2%");
-    expect(resolved).toHaveTextContent("03:10–03:24");
+    const pane = await screen.findByRole("region", { name: "Needs you" });
+    expect(within(pane).queryByText("1 warning")).not.toBeInTheDocument();
+    expect(within(pane).queryByText(/orders-api/)).not.toBeInTheDocument();
+    expect(within(pane).queryByRole("list", { name: /services/ })).not.toBeInTheDocument();
+    expect(within(pane).getByText("1 resolved since yesterday")).toBeVisible();
+    expect(within(pane).getByRole("link", { name: "Alert history" })).toHaveAttribute("href", "/alerts");
   });
 
-  it("draws one dot per service, named for screen readers", async () => {
+  it("lists every service and host in the estate, each host with its fullest or filling disk", async () => {
     vi.mocked(api.home).mockResolvedValue(stormSnapshot);
 
     renderHome();
 
-    const dots = await screen.findByRole("list", { name: "All 8 services" });
-    expect(within(dots).getAllByRole("listitem")).toHaveLength(8);
-    expect(within(dots).getByRole("listitem", { name: "payments-gateway: warning" })).toBeInTheDocument();
+    const estate = await screen.findByRole("region", { name: "Services and hosts" });
+    expect(within(within(estate).getByRole("list", { name: "Services" })).getAllByRole("listitem")).toHaveLength(8);
+    const hosts = within(estate).getByRole("list", { name: "Hosts" });
+    expect(within(hosts).getByRole("link", { name: /web-01/ })).toHaveTextContent("/ full in 23 days");
+    expect(within(hosts).getByRole("link", { name: /db-01/ })).toHaveTextContent("/data 58% full");
+    expect(within(hosts).getAllByTestId("host-disk")).toHaveLength(2);
+  });
+
+  it("keeps the estate to nine services, the alerted first, and counts the rest", async () => {
+    const [quiet] = stormSnapshot.blocks.filter((block) => block.health === "Ok") as [HomeBlock];
+    const more = ["a-one", "a-two", "a-three", "a-four"].map((name) => ({
+      ...quiet,
+      id: `service:production/${name}`,
+      name,
+    }));
+    vi.mocked(api.home).mockResolvedValue({ ...stormSnapshot, blocks: [...more, ...stormSnapshot.blocks] });
+
+    renderHome();
+
+    const estate = await screen.findByRole("region", { name: "Services and hosts" });
+    const tiles = within(within(estate).getByRole("list", { name: "Services" })).getAllByRole("link");
+    expect(tiles).toHaveLength(9);
+    expect(tiles.slice(0, 2).map((tile) => tile.textContent)).toEqual([
+      expect.stringContaining("payments-gateway"),
+      expect.stringContaining("billing-worker"),
+    ]);
+    expect(within(estate).getByRole("link", { name: "+3 more services" })).toHaveAttribute("href", "/logs");
   });
 
   it("shows the latency and the filling disk from metrics", async () => {
@@ -207,8 +240,11 @@ describe("HomeScreen", () => {
     const metrics = await screen.findByRole("region", { name: "Key metrics" });
     expect(within(metrics).getByText("380 ms")).toBeVisible();
     expect(within(metrics).getByText("slowest checkout-web 480 ms")).toBeVisible();
-    expect(within(metrics).getByText("Fullest disk")).toBeVisible();
-    expect(within(metrics).getByText("/ on web-01")).toBeVisible();
+    // Four figures; disks are on their hosts in the estate and alerts in Needs you.
+    expect(within(metrics).getAllByText(/^(Errors|Latency p95|Ingest|Log storage)$/)).toHaveLength(4);
+    expect(within(metrics).queryByText("Fullest disk")).not.toBeInTheDocument();
+    expect(within(metrics).queryByText("Alerts")).not.toBeInTheDocument();
+    expect(within(metrics).getByText("of 19,920 records, 5 min")).toBeVisible();
     const outlook = screen.getByRole("region", { name: "Outlook" });
     expect(within(outlook).getByText("17 days")).toBeVisible();
     expect(within(outlook).getByText("23 days")).toBeVisible();
@@ -267,10 +303,10 @@ describe("HomeScreen", () => {
 
     await vi.waitFor(() => expect(api.home).toHaveBeenLastCalledWith("production", expect.anything()));
     expect(api.home).toHaveBeenCalledWith(null, expect.anything());
-    expect(await screen.findByRole("button", { name: /production/, pressed: true })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^Environment: production/ })).toBeInTheDocument();
   });
 
-  it("switches environment from the pills and remembers the choice", async () => {
+  it("switches environment from the switcher and remembers the choice", async () => {
     const snapshot: HomeSnapshot = {
       ...clearSnapshot,
       environments: [
@@ -282,7 +318,10 @@ describe("HomeScreen", () => {
     const user = userEvent.setup();
 
     renderHome();
-    await user.click(await screen.findByRole("button", { name: /staging/ }));
+    await user.click(await screen.findByRole("button", { name: /^Environment:/ }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Choose an environment" })).getByRole("button", { name: /staging/ }),
+    );
 
     await vi.waitFor(() => expect(api.home).toHaveBeenLastCalledWith("staging", expect.anything()));
     expect(localStorage.getItem("veyra.home.environment")).toBe(JSON.stringify({ environment: "staging" }));
@@ -326,5 +365,30 @@ describe("HomeScreen", () => {
     renderHome();
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Storage is not configured.");
+  });
+
+  it("lets an Admin set a log storage budget from the home when none is set", async () => {
+    const unbudgeted = { ...stormSnapshot, storage: { ...stormSnapshot.storage, budgetBytes: null } };
+    vi.mocked(api.home).mockResolvedValue(unbudgeted);
+    vi.mocked(api.currentSession).mockResolvedValue({ ...viewer, role: "Admin" });
+
+    renderHome();
+
+    const metrics = await screen.findByRole("region", { name: "Key metrics" });
+    expect(within(metrics).getByRole("link", { name: "Set a budget" })).toHaveAttribute(
+      "href",
+      "/settings?section=Data",
+    );
+  });
+
+  it("only says that no budget is set to people who cannot change it", async () => {
+    const unbudgeted = { ...stormSnapshot, storage: { ...stormSnapshot.storage, budgetBytes: null } };
+    vi.mocked(api.home).mockResolvedValue(unbudgeted);
+
+    renderHome();
+
+    const metrics = await screen.findByRole("region", { name: "Key metrics" });
+    expect(within(metrics).getByText("no budget set")).toBeVisible();
+    expect(within(metrics).queryByRole("link", { name: "Set a budget" })).not.toBeInTheDocument();
   });
 });

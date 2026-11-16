@@ -10,13 +10,15 @@ using Veyra.Access.Sessions;
 using Veyra.Access.Settings;
 using Veyra.Access.Setup;
 using Veyra.Access.Users;
+using Veyra.Testing;
 
 namespace Veyra.Access.Tests.Users;
 
 /// <summary>The Access services over a test database, wired as the module wires them.</summary>
 internal sealed class AccessServices(NpgsqlDataSource database, FakeTimeProvider clock, AccessOptions? settings = null)
 {
-    private readonly IOptions<AccessOptions> _options = Options.Create(settings ?? new AccessOptions());
+    private readonly IOptionsMonitor<AccessOptions> _options = new TestOptionsMonitor<AccessOptions>(
+        settings ?? new AccessOptions());
     private readonly PasswordHasher<AccessUser> _hasher = new();
 
     // One key ring for the whole test, as one Veyra installation has.
@@ -73,7 +75,9 @@ internal sealed class AccessServices(NpgsqlDataSource database, FakeTimeProvider
         _options,
         clock);
 
-    public AccessCleanup Cleanup => new(SignInEvents, SessionStore, _options, clock);
+    public SettingStore SettingStore => new(database, _protection, clock);
+
+    public AccessCleanup Cleanup => new(SignInEvents, SessionStore, SettingStore, _options, clock);
 
     public SetupService CreateSetup() =>
         new(

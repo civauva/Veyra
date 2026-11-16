@@ -1,14 +1,14 @@
 # OTLP endpoints
 
-Veyra receives telemetry over OTLP only. Today it accepts logs and metrics; traces will follow on the same
-endpoints. The behaviour follows the [OTLP specification](https://opentelemetry.io/docs/specs/otlp/).
+Veyra receives telemetry over OTLP only: logs, metrics, and traces. The behaviour follows the
+[OTLP specification](https://opentelemetry.io/docs/specs/otlp/).
 
 ## Where to send
 
 | Transport | Address on the server | Through Caddy (TLS) |
 | --- | --- | --- |
 | OTLP/gRPC | `http://127.0.0.1:4317` | `https://<host>` |
-| OTLP/HTTP | `http://127.0.0.1:4318/v1/logs`, `/v1/metrics` | `https://<host>/v1/logs`, `/v1/metrics` |
+| OTLP/HTTP | `http://127.0.0.1:4318/v1/logs`, `/v1/metrics`, `/v1/traces` | `https://<host>/v1/...`, the same paths |
 
 Senders on the Veyra server itself, such as a Collector watching the host, can use the local ports. Everything else
 goes through Caddy, so the key never travels unencrypted.
@@ -49,6 +49,19 @@ The same bodies, statuses, and limits as `/v1/logs`, with an `ExportMetricsServi
   `partialSuccess.rejectedDataPoints`, and `errorMessage` says why. The standard SDKs and the Collector send none
   of them by default.
 
+## OTLP/HTTP: `POST /v1/traces`
+
+The same bodies, statuses, and limits as `/v1/logs`, with an `ExportTraceServiceRequest` and an
+`ExportTraceServiceResponse`. Spans have their own queue (`Veyra:Ingestion:MaxSpanQueueLength`, 50,000 spans), so a
+burst of spans cannot hold back logs or metrics. See ADR 0014.
+
+- **Stored.** Every span with a trace ID, a span ID, and a start time, as it arrives; nothing waits for the rest of
+  its trace. Veyra does not sample: sample in the SDK or the Collector, as the
+  [traces integration](../integrations/traces.md) shows.
+- **Limits.** A span keeps at most 128 attributes, 128 events, and 32 links, attribute values up to 4 KB, and
+  exception stack traces up to 32 KB. What is left out is counted on the span and shown in the trace view.
+- **Refused.** Spans without a trace ID, a span ID, or a start time, counted in `partialSuccess.rejectedSpans`.
+
 ## OTLP/gRPC: `opentelemetry.proto.collector.logs.v1.LogsService/Export`
 
 | Status | Meaning |
@@ -63,7 +76,11 @@ The same bodies, statuses, and limits as `/v1/logs`, with an `ExportMetricsServi
 
 The same statuses as for logs; `partial_success` counts the refused data points.
 
+## OTLP/gRPC: `opentelemetry.proto.collector.trace.v1.TraceService/Export`
+
+The same statuses as for logs; `partial_success` counts the refused spans.
+
 ## What happens next
 
-Accepted records and points are queued in memory and written shortly after. The details, including when records can be lost,
-are in [`docs/architecture/ingestion.md`](../architecture/ingestion.md).
+Accepted records, points, and spans are queued in memory and written shortly after. The details, including when they
+can be lost, are in [`docs/architecture/ingestion.md`](../architecture/ingestion.md).

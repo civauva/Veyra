@@ -3,6 +3,7 @@ using OpenTelemetry.Proto.Metrics.V1;
 using Veyra.Core.Security;
 using Veyra.Ingestion.Otlp;
 using Veyra.Ingestion.Pipeline;
+using Veyra.Testing;
 using static Veyra.Ingestion.Tests.Otlp.OtlpMetricRequests;
 
 namespace Veyra.Ingestion.Tests.Pipeline;
@@ -63,5 +64,5 @@ public class MetricPipelineTests
     }
 
     private static MetricQueue Queue(int capacity) =>
-        new(Options.Create(new IngestionOptions { MaxMetricQueueLength = capacity }));
+        new(new TestOptionsMonitor<IngestionOptions>(new IngestionOptions { MaxMetricQueueLength = capacity }));
 }

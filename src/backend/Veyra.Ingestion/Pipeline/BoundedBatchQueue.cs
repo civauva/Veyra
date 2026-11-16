@@ -17,8 +17,10 @@ namespace Veyra.Ingestion.Pipeline;
 /// </para>
 /// </remarks>
 /// <typeparam name="T">The kind of item, a log record or a metric point.</typeparam>
-/// <param name="capacity">The most items queued at once.</param>
-internal class BoundedBatchQueue<T>(int capacity)
+/// <param name="capacity">
+/// The most items queued at once, read on every batch so a change on the Settings screen applies at once (ADR 0017).
+/// </param>
+internal class BoundedBatchQueue<T>(Func<int> capacity)
 {
     private readonly Channel<IReadOnlyList<T>> _channel = Channel.CreateUnbounded<IReadOnlyList<T>>(
         new UnboundedChannelOptions { SingleReader = true });
@@ -41,7 +43,7 @@ internal class BoundedBatchQueue<T>(int capacity)
         }
 
         // Reserve room first, so concurrent requests can never overshoot the limit together.
-        if (Interlocked.Add(ref _queued, batch.Count) > capacity)
+        if (Interlocked.Add(ref _queued, batch.Count) > capacity())
         {
             Interlocked.Add(ref _queued, -batch.Count);
 

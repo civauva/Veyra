@@ -30,6 +30,10 @@ Do not re-open these without a new ADR (see section 7).
 | Metrics | Series and daily-partitioned points in PostgreSQL; rates and percentiles computed when read | `docs/adr/0010` |
 | Sign-in | Authenticator-app second factor, recovery codes, session rows, 90 days of sign-in history | `docs/adr/0011` |
 | Alert rules | Built-in error-rate, latency, disk-space, disk-filling rules; alerts on services and hosts; 90 days | `docs/adr/0012` |
+| Settings | Every setting in the database, edited by Admins on a Settings screen, applied without restart | `docs/adr/0017` |
+| Infrastructure | Containers and database servers as blocks; Collector configs set identity; built-in rules per target | `docs/adr/0018` |
+| Agents | Upstream Collector and OpAMP supervisor, managed by Veyra; monitored systems set up on Settings | `docs/adr/0019` |
+| SQL Server | Fourteen areas read by DMV queries in the agent; activity store; findings; Simple and Advanced | `docs/adr/0020` |
 | Monitoring scope | Targets, supported versions, and retention | `docs/architecture/monitoring-scope.md` |
 | Tech stack | Libraries and tools beyond the ADRs | `docs/architecture/tech-stack.md` |
 
@@ -54,8 +58,8 @@ folders without updating this map.
 
 ## 4. Architecture rules
 
-- Modular monolith. Modules: `Core`, `Ingestion`, `Storage`, `Query`, `Alerting`, and `Access` (ADR 0008). Host:
-  `Api`.
+- Modular monolith. Modules: `Core`, `Ingestion`, `Storage`, `Query`, `Alerting`, `Access` (ADR 0008), and `Agents`
+  (ADR 0019). Host: `Api`.
 - Modules reference `Veyra.Core` only. Modules never reference each other. `Veyra.Api` is the only composition root.
 - Cross-module communication goes through interfaces or messages defined in `Veyra.Core`.
 - Each module owns its configuration section, its database schema objects, and its migrations.

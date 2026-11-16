@@ -30,7 +30,7 @@ export function HostDisks({ alert, disk }: HostDisksProps) {
             return (
               <li key={other.mountpoint} className={own ? "host-disk own" : "host-disk"}>
                 <code>{other.mountpoint}</code>
-                <span className="disk-bar" aria-hidden="true">
+                <span className="alert-disk-bar" aria-hidden="true">
                   <i
                     className={own || other.ratio >= 0.9 ? "hot" : ""}
                     style={{ width: `${Math.min(100, other.ratio * 100)}%` }}

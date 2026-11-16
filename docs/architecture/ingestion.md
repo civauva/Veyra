@@ -2,7 +2,7 @@
 
 How a log record or a metric point travels from an application into PostgreSQL, and when it can be lost.
 
-Status: logs and metrics work end to end (metrics: ADR 0010). Traces follow the same path later.
+Status: logs, metrics (ADR 0010), and traces (ADR 0014) work end to end.
 
 ```mermaid
 flowchart LR
@@ -37,8 +37,13 @@ flowchart LR
 `OtlpLogMapper` turns each OTLP record into one `LogRecord`:
 
 - **Time.** The record's time, else its observed time, else the time Veyra received it.
-- **Service and environment.** From the resource attributes `service.name` (default `unknown_service`) and
-  `deployment.environment.name`, or the older `deployment.environment`.
+- **Block and environment.** Each record belongs to the block its resource names (ADR 0018), by the first of:
+  `service.name`; `db.system.name` with `server.address` (SQL Server's `service.instance.id` stands in for the
+  address); `container.name`; `host.name`; else `unknown_service`. `TelemetryBlock.Of` in `Veyra.Core` decides it,
+  for logs and metrics alike. The environment comes from `deployment.environment.name`, or the older
+  `deployment.environment`. A record keeps `host.name` too.
+- **Events.** A record with an OTLP `event_name`, such as a database's `db.server.query_sample`, keeps it as the
+  attribute `event.name`.
 - **Values.** Attribute and body values that are not strings become text; arrays and maps become JSON. The
   instrumentation scope name is kept as the attribute `otel.scope.name`.
 - **IDs.** Trace and span IDs become lower-case hex; all-zero IDs mean none.
@@ -72,6 +77,23 @@ and writer (ADR 0010).
   `Veyra:Storage:MaxMetricSeries` (50,000) exist; points of new series beyond it are dropped when written, with a
   warning in Veyra's log that names the metric. Known series keep arriving.
 
+## Traces
+
+Traces take the same path as logs, with the same keys, environment limits, and backpressure, but their own queue and
+writer (ADR 0014). Veyra stores what it receives and does not sample; sampling happens in the SDKs or the Collector
+([traces integration](../integrations/traces.md)).
+
+- **Mapping.** `OtlpSpanMapper` turns each OTLP span into one `Span`: IDs as lower-case hex, the duration to the
+  microsecond, the status, and service, environment, and `host.name` from the resource.
+- **Limits.** A span keeps at most 128 attributes, 128 events, and 32 links, attribute values up to 4 KB, and exception
+  stack traces up to 32 KB. What is left out is counted on the span, so the trace view can say so.
+- **Refused.** Spans without a trace ID, a span ID, or a start time cannot be placed in a trace and are reported
+  through OTLP partial success; so are spans for an environment the key does not allow.
+- **Queue.** `Veyra:Ingestion:MaxSpanQueueLength` spans, 50,000 by default, a few seconds of a busy service. A request
+  that does not fit gets `503` or `UNAVAILABLE`, as for logs.
+- **Writing.** One background writer takes up to 5,000 spans and stores them with one binary `COPY`, retrying like the
+  log writer. A batch is written as it arrives; nothing waits for the rest of a trace.
+
 ## When data can be lost
 
 Veyra answers success once records are queued, before they are written. That keeps senders fast, and it means:
@@ -89,15 +111,55 @@ Veyra answers success once records are queued, before they are written. That kee
 
 ## Storage
 
-- **Table.** `storage.log_record`, partitioned by day in UTC, with indexes for time, service, trace, word search,
-  and attributes. See the migration `V0001__create_log_record.sql` in `Veyra.Storage`.
+- **Table.** `storage.log_record`, partitioned by day in UTC, with indexes for time, service, trace, words by hour,
+  and attributes. See the migrations `V0001__create_log_record.sql` and `V0005__index_words_by_hour.sql` in
+  `Veyra.Storage`.
+- **Words by hour (ADR 0016).** Each word of a body is indexed with the UTC hour of its record, as
+  `storage.log_terms(body, timestamp)` builds it, for example `deadlock@498452`. A word search walks the hours of its
+  window newest first, looking up only each hour's keys, and stops when the page is full, so it takes the same time
+  however long ago a word last appeared. Word counts look the words up in every hour of the window.
 - **Partitions.** Created at startup and every hour, from yesterday to two days ahead.
 - **Retention.** Every hour, daily partitions older than `LogRetentionDays` (14) are dropped, and old rows are deleted
   from the default partition. With `MaxLogStorageGigabytes` set, the oldest days are also dropped while log storage
   is over that budget, never today.
+- **Blocks (ADR 0018).** A log record's `service_name` holds the name of its block and `block_kind` its kind (1
+  service, 2 host, 3 database, 4 container), so a database server's events are found through the same name and time
+  index as a service's records. The per-minute and per-hour counts keep the kind too: error rates and the home count
+  services only. Metric series have `block_kind` and `block_name` with an index of their own, which a database
+  screen reads. Records and series stored before the migration `V0007__telemetry_blocks.sql` count as their service,
+  or for host metrics their host.
 - **Metrics.** `storage.metric_series` holds each series once; `storage.metric_point` holds the points in daily
   partitions, created and dropped like the log partitions, after `MetricRetentionDays` (30). Series without points
   for that long are deleted. See the migration `V0002__create_metrics.sql`. Rates of counters and percentiles of
   histograms are computed when read, in `Veyra.Query`.
 - **Search.** Newest first with keyset paging, through `ILogSearch` in `Veyra.Core`, served by
   `GET /api/v1/logs` in `Veyra.Query`.
+- **Spans (ADR 0014).** `storage.span` holds one row per span, partitioned by day on its start, with IDs as bytes. Its
+  indexes find a trace's spans, a service's spans in a window, failed spans, and attributes; two partial indexes on
+  root spans hold every column the trace list shows, so the list is read from them alone. Traces keep
+  `TraceRetentionDays` (7), with an optional budget, `MaxTraceStorageGigabytes`, dropped by whole days like logs. See
+  the migration `V0006__create_spans.sql`.
+- **Trace reads.** Through `ITraceSearch` in `Veyra.Core`. The list pages by start time and span ID, and counts each
+  listed trace's spans, failures, and services for that page only; the duration chart reads at most the newest 20,000
+  traces; a trace opened with a known time reads its day and the days next to it first.
+- **Log counts (ADR 0015).** `storage.log_count_minute` and `storage.log_count_hour` hold the number of records per
+  minute and hour, by environment, service, and severity, in daily partitions dropped with the records. The writer adds
+  each batch's counts in the same transaction as its `COPY`, so they are exact and current. The histogram, the home,
+  and the error-rate rules read them; only the seconds at the edges of a window, and filters the counts do not hold
+  (words, attributes, a trace), read the records. A word or an attribute is counted with 64 MB of work memory and
+  four parallel workers, set for that one transaction, because a common one is on nearly every page of a day. See
+  `V0003__create_log_counts.sql`.
+- **Metric rollups (ADR 0015).** `storage.metric_rollup_5m` and `storage.metric_rollup_1h` hold one row per series
+  and 5 minutes or hour: the number of points, the sum of their values, and the last point as stored. A background job
+  rolls up every finished 5 minutes once it is 2 minutes old, and every finished hour; reads take the newest minutes
+  from the points, so charts stay current. A point that arrives for a time already rolled up marks its hour in
+  `storage.metric_rollup_dirty`; the hour is read from the points until the job rolls it up again, so late points
+  are never missing. See `V0004__create_metric_rollups.sql`.
+- **Upgrading.** Records and points written before counts and rollups existed are listed in
+  `storage.log_count_backfill` and `storage.metric_rollup_backfill`. A background job counts and rolls them up a day
+  at a time, newest first; until a day is done, it is read from its records and points, so nothing is wrong meanwhile,
+  only slower. Days written before the index of words by hour are listed in `storage.log_terms_backfill`; the same job
+  builds it on each with `CREATE INDEX CONCURRENTLY`, newest first, so ingestion never waits, and a day not yet done
+  is searched and counted the old way. When none is left, the job drops the old word index.
+- **Speed.** Every request has a budget (ADR 0015), checked by the benchmark in `scripts/benchmark` and by plan
+  tests that fail when a query stops reading its counts, rollups, or partitions.

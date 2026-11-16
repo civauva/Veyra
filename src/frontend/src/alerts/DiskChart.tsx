@@ -4,6 +4,7 @@ import type { AlertDetails, AlertDisk } from "../api/types";
 import { formatClock } from "../logs/format";
 import { besideLine, timeTicks, useWidth } from "./chartParts";
 import { formatDiskShare } from "./ruleWords";
+import { shortDate } from "../time/zone";
 
 /** Props for {@link DiskChart}. */
 interface DiskChartProps {
@@ -210,9 +211,9 @@ export function DiskChart({ alert, disk }: DiskChartProps) {
   );
 }
 
-/** A day as the chart's axis writes it, in UTC: `Nov 19`. */
+/** A day as the chart's axis writes it, on the person's calendar: `Nov 19`. */
 function formatDay(at: number): string {
-  return new Date(at).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  return shortDate(at);
 }
 
 /** The unbroken runs of measured points; a point without a value breaks the line. */

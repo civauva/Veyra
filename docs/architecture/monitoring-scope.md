@@ -61,7 +61,12 @@ flowchart LR
   - Azure SQL Database and Azure SQL Managed Instance.
   - PostgreSQL 14 and newer.
 - **What you see.** Connections, waits, deadlocks, blocking, long-running queries, database and log size growth,
-  backup age, failed SQL Agent jobs on SQL Server, and vacuum and transaction ID wraparound on PostgreSQL.
+  backup age, failed SQL Agent jobs on SQL Server, and vacuum and transaction ID wraparound on PostgreSQL. On SQL
+  Server, a Live tab refreshed every 10 seconds shows every busy session and each blocking chain from its head,
+  in words in the Simple view and in SQL Server's terms in the Advanced view (ADR 0020).
+- **Planned for SQL Server.** Full monitoring in fourteen areas, from live sessions and query plans to backups,
+  integrity, availability, configuration, and security, with a Simple and an Advanced view (ADR 0020). Each area is
+  listed under "What you see" when it ships.
 
 ### Operating systems
 

@@ -2,7 +2,9 @@ import { Link, useParams, useSearchParams } from "react-router";
 
 import { api } from "../api/client";
 import type { ChartLine, ServiceMetrics } from "../api/types";
+import { useViewMode, ViewToggle } from "../app/ViewToggle";
 import { defaultFilters, filtersToUrl } from "../logs/logFilters";
+import { BlockStatus } from "./BlockStatus";
 import { LineChart } from "./LineChart";
 import { ServiceIcon } from "./MetricCards";
 import { formatAmount, formatRate, formatSeconds, formatShare } from "./metricFormat";
@@ -11,8 +13,9 @@ import { useMetricData } from "./useMetricData";
 import "./metrics.css";
 
 /**
- * One service: request durations by percentile, requests by status class, its busiest routes, and CPU, memory, and
- * runtime where the SDK sends them, over the chosen range.
+ * One service over the chosen range. Simple shows how it is, requests, p95 latency, server errors, and its slowest
+ * routes; Advanced adds request durations by percentile, requests by status class, every route, and CPU, memory, and
+ * runtime where the SDK sends them (VEY-37).
  */
 export function ServiceScreen() {
   const { service = "" } = useParams();
@@ -22,6 +25,7 @@ export function ServiceScreen() {
   const { data, notFound, error } = useMetricData(`service-${service}-${environment ?? ""}-${range}`, (signal) =>
     api.serviceMetrics(service, environment, range, signal),
   );
+  const [mode] = useViewMode();
 
   function pick(next: string) {
     const changed = new URLSearchParams(params);
@@ -42,8 +46,10 @@ export function ServiceScreen() {
           <h1>{service}</h1>
           {data && <Tags service={data} />}
         </div>
+        <ViewToggle />
         <RangePicker value={range} onChange={pick} />
       </div>
+      {data && <BlockStatus kind="service" name={service} />}
 
       {error && (
         <p className="metrics-error" role="alert">
@@ -55,7 +61,7 @@ export function ServiceScreen() {
           {service} sent no HTTP or runtime metrics within the last {range}.
         </p>
       )}
-      {data && <ServicePanels service={data} />}
+      {data && (mode === "advanced" ? <ServicePanels service={data} /> : <ServiceBasics service={data} />)}
     </main>
   );
 }
@@ -84,6 +90,87 @@ function Tags({ service }: { service: ServiceMetrics }) {
   );
 }
 
+/** The Simple view: three figures and the five slowest routes. */
+function ServiceBasics({ service }: { service: ServiceMetrics }) {
+  const { card } = service;
+  const slowest = [...service.routes]
+    .filter((route) => route.p95Seconds !== null)
+    .sort((a, b) => (b.p95Seconds ?? 0) - (a.p95Seconds ?? 0))
+    .slice(0, 5);
+
+  return (
+    <>
+      <dl className="metrics-strip">
+        <div>
+          <dt>Requests</dt>
+          <dd>
+            {formatRate(card.requestsPerSecond)} <small>per second</small>
+          </dd>
+        </div>
+        <div>
+          <dt>Latency p95</dt>
+          <dd>{formatSeconds(card.p95Seconds)}</dd>
+        </div>
+        <div>
+          <dt>5xx answers</dt>
+          <dd className={card.serverErrorRatio !== null && card.serverErrorRatio >= 0.01 ? "bad" : undefined}>
+            {formatShare(card.serverErrorRatio)}
+          </dd>
+        </div>
+      </dl>
+      <div className="metric-panels">
+        <section className="metric-panel wide" aria-labelledby="service-slowest">
+          <div className="metric-panel-head">
+            <h2 id="service-slowest">Slowest routes</h2>
+            <span>p95, last 5 minutes</span>
+          </div>
+          {slowest.length === 0 ? (
+            <p className="metrics-empty">No requests in the last 5 minutes.</p>
+          ) : (
+            <table className="route-table">
+              <thead>
+                <tr>
+                  <th scope="col">Route</th>
+                  <th scope="col">Requests</th>
+                  <th scope="col" className="number">
+                    p95
+                  </th>
+                  <th scope="col" className="number">
+                    5xx
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {slowest.map((route) => (
+                  <tr key={`${route.method ?? ""} ${route.route}`}>
+                    <th scope="row">
+                      <code>
+                        {route.method ? `${route.method} ` : ""}
+                        {route.route}
+                      </code>
+                    </th>
+                    <td data-label="Requests">{formatRate(route.requestsPerSecond)} /s</td>
+                    <td data-label="p95" className="number">
+                      {formatSeconds(route.p95Seconds)}
+                    </td>
+                    <td data-label="5xx" className="number">
+                      {formatShare(route.serverErrorRatio)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
+        <p className="metric-more">
+          p50 and p99, requests by status class, every route, CPU and memory, and the runtime are in the Advanced view.
+        </p>
+      </div>
+    </>
+  );
+}
+
+/** The Advanced view: every figure and panel. */
 function ServicePanels({ service }: { service: ServiceMetrics }) {
   const { card } = service;
   const find = (lines: ChartLine[], label: string) => lines.find((line) => line.label === label);

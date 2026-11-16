@@ -28,7 +28,8 @@ public sealed record SignInRequest([Required] string Email, [Required] string Pa
 /// <param name="Email">The email address.</param>
 /// <param name="DisplayName">The name shown in the UI.</param>
 /// <param name="Role">What the user may do.</param>
-public sealed record SessionResponse(Guid Id, string Email, string DisplayName, VeyraRole Role);
+/// <param name="TimeZone">The IANA time zone the user picked, or <see langword="null"/> for the browser's.</param>
+public sealed record SessionResponse(Guid Id, string Email, string DisplayName, VeyraRole Role, string? TimeZone);
 
 /// <summary>The token to send in the antiforgery header on requests that change state.</summary>
 /// <param name="Token">The request token. Fetch a new one after signing in.</param>

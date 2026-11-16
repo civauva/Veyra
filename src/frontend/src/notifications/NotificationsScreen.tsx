@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router";
 
 import { api } from "../api/client";
 import type { EmailServer, NotificationChannel } from "../api/types";
@@ -103,7 +104,7 @@ const securityWords: Record<EmailServer["security"], string> = {
   None: "no encryption",
 };
 
-/** The SMTP server email channels send through, which comes from the environment, not from this screen. */
+/** The SMTP server email channels send through, which is set on the Settings screen (ADR 0017). */
 function EmailServerStrip({ server }: { server: EmailServer }) {
   return (
     <p className={server.configured ? "email-server" : "email-server missing"}>
@@ -115,14 +116,13 @@ function EmailServerStrip({ server }: { server: EmailServer }) {
         </span>
       ) : (
         <span>
-          <b>No email server</b> · email channels cannot send until <code>VEYRA_SMTP_HOST</code> and{" "}
-          <code>VEYRA_SMTP_FROM</code> are set
+          <b>No email server</b> · email channels cannot send until a server and a sender are set
         </span>
       )}
       <span className="grow" />
-      <span className="email-server-where">
-        Set in <code>deploy/.env</code>
-      </span>
+      <Link className="email-server-where" to="/settings?section=Email">
+        Change in Settings
+      </Link>
     </p>
   );
 }

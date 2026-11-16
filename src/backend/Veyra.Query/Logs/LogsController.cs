@@ -47,12 +47,12 @@ public sealed class LogsController : ControllerBase
     /// <param name="search">The storage module's log search.</param>
     /// <param name="options">The Query settings, for the largest page.</param>
     /// <param name="clock">The clock for the default time window.</param>
-    public LogsController(ILogSearch search, IOptions<QueryOptions> options, TimeProvider clock)
+    public LogsController(ILogSearch search, IOptionsMonitor<QueryOptions> options, TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(options);
 
         _search = search;
-        _options = options.Value;
+        _options = options.CurrentValue;
         _clock = clock;
     }
 
@@ -127,7 +127,9 @@ public sealed class LogsController : ControllerBase
     /// </summary>
     /// <remarks>
     /// Takes the same filters as the search. The bucket width is chosen for about 30 to 40 bars over the window.
-    /// The service counts ignore the <paramref name="service"/> filter, so other services can still be added.
+    /// Buckets are aligned to the clock: the first starts with the window and ends at the first round time, so whole
+    /// minutes and hours can be read from the counts (ADR 0015). The service counts ignore the
+    /// <paramref name="service"/> filter, so other services can still be added.
     /// </remarks>
     /// <param name="from">Start of the time window, inclusive, in ISO 8601.</param>
     /// <param name="to">End of the time window, exclusive, in ISO 8601. Defaults to now.</param>
@@ -214,7 +216,17 @@ public sealed class LogsController : ControllerBase
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        query = new LogQuery(start, end, severity, service, text, traceId, _defaultLimit, null, environment, attributes);
+        query = new LogQuery(
+            start,
+            end,
+            severity,
+            service,
+            text,
+            traceId,
+            _defaultLimit,
+            null,
+            environment,
+            attributes);
 
         return null;
     }

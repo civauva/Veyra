@@ -29,7 +29,7 @@ vi.mock("../api/client", async (importOriginal) => {
   };
 });
 
-const admin = { id: "1", email: "ana@example.com", displayName: "Ana Admin", role: "Admin" as const };
+const admin = { id: "1", email: "ana@example.com", displayName: "Ana Admin", role: "Admin" as const, timeZone: null };
 
 function renderScreen() {
   return render(
@@ -52,6 +52,7 @@ describe("NotificationsScreen", () => {
 
     expect(await screen.findByRole("heading", { level: 1, name: "Notifications" })).toBeVisible();
     expect(await screen.findByText("smtp.example.com:587")).toBeVisible();
+    expect(screen.getByRole("link", { name: "Change in Settings" })).toHaveAttribute("href", "/settings?section=Email");
 
     const bot = screen.getByRole("article", { name: "Incident bot" });
     expect(bot).toHaveClass("failing");

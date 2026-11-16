@@ -23,8 +23,16 @@ public class AnonymousEndpointTests(WebApplicationFactory<Program> factory)
         // OTLP checks ingestion keys itself, not sessions.
         "POST /v1/logs",
         "POST /v1/metrics",
+        "POST /v1/traces",
+        // OpAMP checks agent keys itself (ADR 0019).
+        "POST /v1/opamp",
+        // Installers in other networks: the scripts, and the one-time code as the credential (VEY-40).
+        "GET /v1/agents/install.ps1",
+        "GET /v1/agents/install.sh",
+        "POST /v1/agents/enroll",
         "POST /opentelemetry.proto.collector.logs.v1.LogsService/Export",
         "POST /opentelemetry.proto.collector.metrics.v1.MetricsService/Export",
+        "POST /opentelemetry.proto.collector.trace.v1.TraceService/Export",
         // The single-page app: index.html for its own routes, never for the API or OTLP.
         "GET /",
         "HEAD /",

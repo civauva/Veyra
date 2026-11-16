@@ -2,6 +2,7 @@ import { type RefObject, useEffect, useId, useRef, useState } from "react";
 
 import type { ChartLine } from "../api/types";
 import { formatClock } from "../logs/format";
+import { localDay } from "../time/zone";
 
 /** One line to draw, with its colour. */
 export interface ChartSeries {
@@ -197,5 +198,5 @@ function label(at: string, points: { at: string }[]): string {
   const last = points.at(-1)?.at ?? at;
   const days = (new Date(last).getTime() - new Date(first).getTime()) / 86_400_000;
 
-  return days > 2 ? new Date(at).toISOString().slice(5, 10).replace("-", "/") : formatClock(at);
+  return days > 2 ? localDay(at).slice(5).replace("-", "/") : formatClock(at);
 }

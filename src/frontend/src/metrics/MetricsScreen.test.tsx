@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type * as client from "../api/client";
 import { api, ApiError } from "../api/client";
+import type { AlertListItem } from "../api/types";
 import { App } from "../app/App";
 import { SessionProvider } from "../session/SessionProvider";
 import { durationChart, hostMetrics, names, overview, serviceMetrics, web01 } from "./testMetrics";
@@ -24,12 +25,19 @@ vi.mock("../api/client", async (importOriginal) => {
       metricNames: vi.fn(),
       metricChart: vi.fn(),
       searchLogs: vi.fn(),
+      alerts: vi.fn(),
       summarizeLogs: vi.fn(),
     },
   };
 });
 
-const viewer = { id: "1", email: "viewer@example.com", displayName: "Dana Kim", role: "Viewer" as const };
+const viewer = {
+  id: "1",
+  email: "viewer@example.com",
+  displayName: "Dana Kim",
+  role: "Viewer" as const,
+  timeZone: null,
+};
 
 function renderAt(path: string) {
   return render(
@@ -41,7 +49,27 @@ function renderAt(path: string) {
   );
 }
 
+/** An open disk alert on web-01, as the alerts API lists it. */
+const diskAlert: AlertListItem = {
+  id: "0193a2b4-0000-7000-8000-000000000042",
+  rule: "disk-filling",
+  environment: "production",
+  block: { kind: "host", name: "web-01", part: "/", id: "host:production/web-01" },
+  severity: "Caution",
+  worst: "Caution",
+  value: 9,
+  peak: 9,
+  peakAt: null,
+  threshold: 14,
+  windowSeconds: 86400,
+  openedAt: "2026-11-10T06:00:00Z",
+  updatedAt: "2026-11-10T07:00:00Z",
+  resolvedAt: null,
+};
+
 beforeEach(() => {
+  localStorage.clear();
+  vi.mocked(api.alerts).mockResolvedValue({ items: [], next: null });
   vi.mocked(api.currentSession).mockResolvedValue(viewer);
   vi.mocked(api.metricsOverview).mockResolvedValue(overview);
   vi.mocked(api.hostMetrics).mockResolvedValue(hostMetrics);
@@ -52,6 +80,7 @@ beforeEach(() => {
 
 describe("MetricsScreen", () => {
   it("shows the usage and a card per host and service", async () => {
+    localStorage.setItem("veyra.view", "advanced");
     renderAt("/metrics");
 
     const hosts = await screen.findByRole("region", { name: "Hosts" });
@@ -107,10 +136,48 @@ describe("MetricsScreen", () => {
     expect(within(disks).getAllByRole("listitem")).toHaveLength(3);
     expect(within(disks).getByRole("meter", { name: "/ in use" })).toHaveAttribute("aria-valuenow", "81");
     expect(within(disks).getByText("full in about 23 days")).toBeVisible();
+    expect(screen.getByRole("img", { name: /^CPU and memory: CPU 4\d%/ })).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent("web-01 is fine. No alert is open.");
+    expect(screen.queryByRole("region", { name: "Network" })).not.toBeInTheDocument();
+    expect(screen.getByText(/in the Advanced view/)).toBeVisible();
+  });
+
+  it("shows every host panel in the Advanced view, with the fundamentals", async () => {
+    localStorage.setItem("veyra.view", "advanced");
+    renderAt("/metrics/hosts/web-01");
+
+    expect(await screen.findByRole("region", { name: "Network" })).toBeVisible();
     expect(screen.getByRole("img", { name: /^CPU in use: total 4\d%/ })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Disks" })).toBeVisible();
+    expect(screen.getByRole("region", { name: "Now" })).toBeVisible();
+    expect(await screen.findByRole("status")).toHaveTextContent("web-01 is fine.");
+  });
+
+  it("says what the open alert of a host is, with a way to it", async () => {
+    vi.mocked(api.alerts).mockResolvedValue({ items: [diskAlert], next: null });
+
+    renderAt("/metrics/hosts/web-01");
+
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent(/Disk \/ on web-01/);
+    expect(within(status).getByRole("link", { name: "Alert details" })).toHaveAttribute(
+      "href",
+      `/alerts/${diskAlert.id}`,
+    );
+  });
+
+  it("shows a service's three figures and slowest routes in the Simple view", async () => {
+    renderAt("/metrics/services/payments-gateway?environment=production");
+
+    const slowest = await screen.findByRole("region", { name: "Slowest routes" });
+    expect(within(slowest).getAllByRole("row").length).toBeLessThanOrEqual(6);
+    expect(screen.getByText("Latency p95")).toBeVisible();
+    expect(screen.queryByText("Memory")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Latency" })).not.toBeInTheDocument();
   });
 
   it("shows a service with its routes and a link into its logs", async () => {
+    localStorage.setItem("veyra.view", "advanced");
     renderAt("/metrics/services/payments-gateway?environment=production");
 
     expect(await screen.findByRole("heading", { level: 1, name: "payments-gateway" })).toBeVisible();
@@ -148,6 +215,14 @@ describe("MetricsScreen", () => {
       { name: "http.server.request.duration", show: null, split: "http.route", range: "6h" },
       expect.any(AbortSignal),
     );
+  });
+
+  it("keeps the overview to the cards in the Simple view", async () => {
+    renderAt("/metrics");
+
+    expect(await screen.findByRole("region", { name: "Hosts" })).toBeVisible();
+    expect(screen.queryByText("1,284")).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /All metrics/ })).not.toBeInTheDocument();
   });
 
   it("explains how to send metrics when there are none", async () => {

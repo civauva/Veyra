@@ -45,6 +45,7 @@ internal sealed class FakeMetricSearch : IMetricSearch
             .Where(series => query.ServiceName is null || series.ServiceName == query.ServiceName)
             .Where(series => query.Environment is null || series.Environment == query.Environment)
             .Where(series => query.HostName is null || series.HostName == query.HostName)
+            .Where(series => query.Block is null || series.Block == query.Block)
             .OrderBy(series => series.Name, StringComparer.Ordinal)
             .ThenBy(series => series.Id)
             .Take(query.Limit)

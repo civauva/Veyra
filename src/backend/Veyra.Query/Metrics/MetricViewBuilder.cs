@@ -1,11 +1,13 @@
+using Veyra.Core.Alerts;
 using Veyra.Core.Metrics;
 using Veyra.Query.Metrics.Api;
 
 namespace Veyra.Query.Metrics;
 
 /// <summary>
-/// Puts together the Metrics screens: the overview of hosts and services, one host, one service, and one metric for
-/// the browser. Each view reads its series once for the chosen window and once for the last five minutes.
+/// Puts together the Metrics screens: the overview of hosts, services, and database servers, one host, one service,
+/// and one metric for the browser. Each view reads its series once for the chosen window and once for the last five
+/// minutes.
 /// </summary>
 /// <param name="search">The stored metrics.</param>
 /// <param name="clock">The clock that decides what now is.</param>
@@ -39,23 +41,77 @@ internal sealed class MetricViewBuilder(IMetricSearch search, TimeProvider clock
     public async Task<MetricsOverviewResponse> OverviewAsync(string? range, CancellationToken cancellationToken)
     {
         var now = clock.GetUtcNow();
-        var window = MetricWindow.Of(range, now);
+        var window = MetricWindow.Card(range, now);
         var recent = MetricWindow.Recent(now);
 
-        var hostSeries = (await search.FindSeriesAsync(
-                new MetricSeriesQuery(now - _activeWithin, Names: _hostCard),
-                cancellationToken))
+        // The reads do not depend on each other, so they run at the same time: the overview takes as long as its
+        // slowest read, not all of them together (ADR 0015).
+        var findingHosts = search.FindSeriesAsync(
+            new MetricSeriesQuery(now - _activeWithin, Names: _hostCard),
+            cancellationToken);
+        var findingServices = search.FindSeriesAsync(
+            new MetricSeriesQuery(now - _activeWithin, Names: _serviceCard),
+            cancellationToken);
+        var findingDatabases = search.FindSeriesAsync(
+            new MetricSeriesQuery(now - _activeWithin, Names: SqlServerNames.Card),
+            cancellationToken);
+        var measuringUsage = search.GetUsageAsync(now, cancellationToken);
+        var listingNames = search.ListNamesAsync(null, window.Start, cancellationToken);
+
+        var hostSeries = (await findingHosts)
             .Where(series => series.HostName is not null && series.ServiceName is null)
             .ToList();
-        var hostWindow = await _reader.ReadAsync(
+        var serviceSeries = (await findingServices)
+            .Where(series => series.ServiceName is not null)
+            .ToList();
+        var databaseSeries = (await findingDatabases)
+            .Where(series => series.Block?.Kind == AlertBlockKind.Database)
+            .ToList();
+
+        var readingHostWindow = _reader.ReadAsync(
             hostSeries.Where(series => series.Name == MetricNames.CpuTime).ToList(),
             window,
             cancellationToken);
-        var hostRecent = await _reader.ReadAsync(hostSeries, recent, cancellationToken);
-        var hostDay = await _reader.ReadAsync(
+        var readingHostRecent = _reader.ReadAsync(hostSeries, recent, cancellationToken);
+        var readingHostDay = _reader.ReadAsync(
             hostSeries.Where(series => series.Name == MetricNames.Filesystem).ToList(),
             MetricWindow.Day(now),
             cancellationToken);
+        var readingServiceWindow = _reader.ReadAsync(
+            serviceSeries.Where(series => series.Name == MetricNames.RequestDuration).ToList(),
+            window,
+            cancellationToken);
+        var readingServiceRecent = _reader.ReadAsync(serviceSeries, recent, cancellationToken);
+        var readingDatabaseWindow = _reader.ReadAsync(
+            databaseSeries.Where(series => series.Name == SqlServerNames.BatchRequests).ToList(),
+            window,
+            cancellationToken);
+        var readingDatabaseRecent = _reader.ReadAsync(databaseSeries, recent, cancellationToken);
+        var readingDatabaseQuarter = _reader.ReadAsync(
+            databaseSeries.Where(series => series.Name == SqlServerNames.DeadlockRate).ToList(),
+            DatabaseViewBuilder.Quarter(now),
+            cancellationToken);
+
+        await Task.WhenAll(
+            readingHostWindow,
+            readingHostRecent,
+            readingHostDay,
+            readingServiceWindow,
+            readingServiceRecent,
+            readingDatabaseWindow,
+            readingDatabaseRecent,
+            readingDatabaseQuarter,
+            measuringUsage,
+            listingNames);
+
+        var hostWindow = await readingHostWindow;
+        var hostRecent = await readingHostRecent;
+        var hostDay = await readingHostDay;
+        var serviceWindow = await readingServiceWindow;
+        var serviceRecent = await readingServiceRecent;
+        var databaseWindow = await readingDatabaseWindow;
+        var databaseRecent = await readingDatabaseRecent;
+        var databaseQuarter = await readingDatabaseQuarter;
 
         var hosts = hostSeries
             .Select(series => series.HostName!)
@@ -67,17 +123,6 @@ internal sealed class MetricViewBuilder(IMetricSearch search, TimeProvider clock
                 hostRecent.Where(series => series.HostName == host),
                 hostDay.Where(series => series.HostName == host)))
             .ToList();
-
-        var serviceSeries = (await search.FindSeriesAsync(
-                new MetricSeriesQuery(now - _activeWithin, Names: _serviceCard),
-                cancellationToken))
-            .Where(series => series.ServiceName is not null)
-            .ToList();
-        var serviceWindow = await _reader.ReadAsync(
-            serviceSeries.Where(series => series.Name == MetricNames.RequestDuration).ToList(),
-            window,
-            cancellationToken);
-        var serviceRecent = await _reader.ReadAsync(serviceSeries, recent, cancellationToken);
 
         var services = serviceSeries
             .Select(series => (Service: series.ServiceName!, series.Environment))
@@ -91,8 +136,19 @@ internal sealed class MetricViewBuilder(IMetricSearch search, TimeProvider clock
                 serviceRecent.Where(series => Belongs(series, key.Service, key.Environment))))
             .ToList();
 
-        var usage = await search.GetUsageAsync(now, cancellationToken);
-        var names = await search.ListNamesAsync(null, window.Start, cancellationToken);
+        var databases = databaseSeries
+            .Select(series => series.Block!)
+            .Distinct()
+            .OrderBy(block => block.Name, StringComparer.Ordinal)
+            .Select(block => DatabaseView.Card(
+                block,
+                databaseWindow.Where(series => series.Block == block),
+                databaseRecent.Where(series => series.Block == block),
+                databaseQuarter.Where(series => series.Block == block)))
+            .ToList();
+
+        var usage = await measuringUsage;
+        var names = await listingNames;
 
         return new MetricsOverviewResponse(
             now,
@@ -106,7 +162,8 @@ internal sealed class MetricViewBuilder(IMetricSearch search, TimeProvider clock
                 usage.RetentionDays,
                 names.Count),
             hosts,
-            services);
+            services,
+            databases);
     }
 
     /// <summary>Builds one host's view.</summary>

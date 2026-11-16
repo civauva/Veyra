@@ -5,6 +5,7 @@ import { formatRatio } from "../home/homeFormat";
 import { formatClock } from "../logs/format";
 import type { ErrorRateAlert } from "./alertFormat";
 import { timeTicks, useWidth } from "./chartParts";
+import { zoneLabel } from "../time/zone";
 
 /** Props for {@link ErrorRateChart}. */
 interface ErrorRateChartProps {
@@ -73,7 +74,7 @@ export function ErrorRateChart({ alert }: ErrorRateChartProps) {
   const peakLabel = peakAt ? placePeak(x(peakAt), y(alert.peak), plotRight) : null;
 
   const summary =
-    `Error rate of ${alert.block.name} from ${formatClock(alert.series.from)} to ${formatClock(alert.series.to)} UTC` +
+    `Error rate of ${alert.block.name} from ${formatClock(alert.series.from)} to ${formatClock(alert.series.to)} ${zoneLabel()}` +
     `, peak ${formatRatio(alert.peak)}${peakAt ? ` at ${formatClock(peakAt)}` : ""}` +
     `, warning from ${formatRatio(alert.warningThreshold)}, caution from ${formatRatio(alert.cautionThreshold)}.`;
 

@@ -1,7 +1,7 @@
 # 0009. Alert notifications: channels, a delivery outbox, and the webhook payload
 
 Date: 2026-11-10
-Status: Accepted
+Status: Accepted; keeping the SMTP password out of the database is superseded by [0017](0017-settings-in-the-admin-ui.md)
 
 ## Context
 

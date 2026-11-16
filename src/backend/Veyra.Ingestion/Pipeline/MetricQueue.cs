@@ -8,5 +8,5 @@ namespace Veyra.Ingestion.Pipeline;
 /// <see cref="IngestionOptions.MaxMetricQueueLength"/> points.
 /// </summary>
 /// <param name="options">The Ingestion settings, for the limit.</param>
-internal sealed class MetricQueue(IOptions<IngestionOptions> options)
-    : BoundedBatchQueue<MetricPoint>(options.Value.MaxMetricQueueLength);
+internal sealed class MetricQueue(IOptionsMonitor<IngestionOptions> options)
+    : BoundedBatchQueue<MetricPoint>(() => options.CurrentValue.MaxMetricQueueLength);

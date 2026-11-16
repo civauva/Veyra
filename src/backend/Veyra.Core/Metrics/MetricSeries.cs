@@ -1,3 +1,5 @@
+using Veyra.Core.Telemetry;
+
 namespace Veyra.Core.Metrics;
 
 /// <summary>One stored series: a metric name with one exact set of attributes (ADR 0010).</summary>
@@ -11,6 +13,7 @@ namespace Veyra.Core.Metrics;
 /// <param name="ServiceName">The sending service, if any.</param>
 /// <param name="Environment">The environment, if any.</param>
 /// <param name="HostName">The host, if any.</param>
+/// <param name="Block">The block the series belongs to (ADR 0018).</param>
 /// <param name="ResourceAttributes">The resource's attributes.</param>
 /// <param name="Attributes">The series' own attributes.</param>
 /// <param name="FirstSeen">When its first point arrived.</param>
@@ -29,4 +32,5 @@ public sealed record MetricSeries(
     IReadOnlyDictionary<string, string> ResourceAttributes,
     IReadOnlyDictionary<string, string> Attributes,
     DateTimeOffset FirstSeen,
-    DateTimeOffset LastSeen);
+    DateTimeOffset LastSeen,
+    TelemetryBlock? Block = null);

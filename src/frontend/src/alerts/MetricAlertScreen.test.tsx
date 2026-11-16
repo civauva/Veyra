@@ -22,7 +22,13 @@ vi.mock("../api/client", async (importOriginal) => {
   };
 });
 
-const viewer = { id: "1", email: "viewer@example.com", displayName: "Dana Kim", role: "Viewer" as const };
+const viewer = {
+  id: "1",
+  email: "viewer@example.com",
+  displayName: "Dana Kim",
+  role: "Viewer" as const,
+  timeZone: null,
+};
 
 function renderAt(path: string) {
   return render(
@@ -37,6 +43,8 @@ function renderAt(path: string) {
 beforeEach(() => {
   vi.mocked(api.currentSession).mockResolvedValue(viewer);
   localStorage.clear();
+  // Advanced is a superset; the Simple view has its own tests below.
+  localStorage.setItem("veyra.view", "advanced");
 });
 
 describe("AlertScreen for a disk alert", () => {

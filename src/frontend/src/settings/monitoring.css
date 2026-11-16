@@ -1,0 +1,786 @@
+/* Settings → Database monitoring and Agents (ADR 0019): servers and agents as cards with their state in words, and
+   the side panel that adds a server. Every class starts with "monitor-", so nothing here reaches another screen. */
+
+.monitor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* The agent's state above the servers: one quiet line when it runs, a notice when it needs someone. */
+.monitor-agent {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  font-size: 13px;
+}
+
+.monitor-agent p {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.monitor-agent i {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.monitor-agent.ok {
+  color: var(--muted);
+}
+
+.monitor-agent.ok i {
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+}
+
+.monitor-agent.wait {
+  border-color: color-mix(in srgb, var(--amber) 45%, var(--line));
+  background: color-mix(in srgb, var(--amber) 9%, var(--panel));
+}
+
+.monitor-agent.wait i {
+  background: var(--amber);
+  animation: monitor-pulse 1.6s ease-in-out infinite;
+}
+
+.monitor-agent.bad {
+  border-color: color-mix(in srgb, var(--red) 45%, var(--line));
+  background: color-mix(in srgb, var(--red) 8%, var(--panel));
+}
+
+.monitor-agent.bad i {
+  background: var(--red);
+}
+
+.monitor-agent code {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.monitor-agent .link-button {
+  flex: none;
+  font-weight: 650;
+}
+
+.monitor-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.monitor-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.monitor-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.monitor-kind.on {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: var(--selected);
+  color: var(--accent);
+}
+
+.monitor-kind.soon {
+  opacity: 0.55;
+}
+
+.monitor-kind small {
+  color: var(--faint);
+  font-weight: 500;
+}
+
+/* ---- Cards ---- */
+
+.monitor-card {
+  padding: 14px 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel);
+}
+
+.monitor-server {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+}
+
+.monitor-server.bad {
+  border-color: color-mix(in srgb, var(--red) 45%, var(--line));
+}
+
+.monitor-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: var(--chip);
+  color: var(--accent);
+}
+
+.monitor-main {
+  min-width: 0;
+}
+
+.monitor-main b {
+  font-size: 15px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.monitor-meta {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.monitor-why {
+  display: block;
+  margin-top: 6px;
+  font-size: 12.5px;
+}
+
+.monitor-why.ok {
+  color: var(--muted);
+}
+
+.monitor-why.bad {
+  color: var(--red);
+}
+
+.monitor-why.wait {
+  color: var(--amber);
+}
+
+.monitor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.monitor-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.monitor-state i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.monitor-state.ok {
+  background: color-mix(in srgb, var(--green) 16%, transparent);
+  color: var(--green);
+}
+
+.monitor-state.ok i {
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+}
+
+.monitor-state.bad {
+  background: color-mix(in srgb, var(--red) 16%, transparent);
+  color: var(--red);
+}
+
+.monitor-state.bad i {
+  background: var(--red);
+}
+
+.monitor-state.wait {
+  background: color-mix(in srgb, var(--amber) 16%, transparent);
+  color: var(--amber);
+}
+
+.monitor-state.wait i {
+  background: var(--amber);
+  animation: monitor-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes monitor-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.monitor-empty,
+.monitor-later {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.monitor-empty p,
+.monitor-later p,
+.monitor-rules p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* How the built-in agent runs: folded while it is online, open when it needs someone. */
+.monitor-guide summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.monitor-guide summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+.monitor-guide p {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.monitor-guide code {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.monitor-commands {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.monitor-commands li > span {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.monitor-commands .monitor-code {
+  margin-bottom: 0;
+}
+
+/* Installing an agent in another network: its code, the line for Windows or Linux, and the wait for it. */
+.monitor-install {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+
+.monitor-install h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.monitor-install p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.monitor-install [role="tabpanel"] {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.monitor-install .monitor-code {
+  margin-bottom: 0;
+}
+
+.monitor-enroll {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--selected);
+}
+
+.monitor-install .monitor-enroll {
+  color: var(--fg);
+  font-size: 12.5px;
+}
+
+.monitor-enroll code {
+  color: var(--fg);
+  font: 700 16px var(--mono);
+  letter-spacing: 0.08em;
+}
+
+.monitor-enroll span {
+  color: var(--muted);
+}
+
+.monitor-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.monitor-tabs button {
+  margin-bottom: -1px;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.monitor-tabs button.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.monitor-tabs button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+.monitor-install-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.monitor-install .monitor-waiting {
+  display: flex;
+  flex: 1 1 260px;
+  align-items: center;
+  gap: 10px;
+  color: var(--amber);
+}
+
+.monitor-install .monitor-waiting.ok {
+  color: var(--green);
+}
+
+.monitor-waiting i {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 9px currentColor;
+  animation: monitor-pulse 1.6s ease-in-out infinite;
+}
+
+.monitor-waiting.ok i {
+  animation: none;
+}
+
+.monitor-add-agent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.monitor-later > .button {
+  align-self: flex-start;
+  margin-top: 8px;
+}
+
+.monitor-remove {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.monitor-remove p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.monitor-remove .monitor-code {
+  margin-bottom: 0;
+}
+
+.monitor-later {
+  border-style: dashed;
+  background: transparent;
+}
+
+.monitor-rules {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+
+.monitor-rules > div:first-child {
+  flex: 1 1 220px;
+}
+
+.monitor-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.monitor-chips span {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--chip);
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+/* Links that act as buttons, such as Open and Alert rules, look like the buttons beside them. */
+.monitor a.button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+/* ---- Side panel ---- */
+
+.monitor-shade {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgba(14, 36, 64, 0.28);
+}
+
+.monitor-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 31;
+  display: flex;
+  flex-direction: column;
+  width: min(620px, 100%);
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: -30px 0 60px rgba(14, 36, 64, 0.14);
+  backdrop-filter: blur(18px);
+}
+
+.monitor-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.monitor-panel-head h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.monitor-panel-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.monitor-panel-steps {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  min-height: 0;
+  padding: 18px 22px;
+  overflow-y: auto;
+}
+
+.monitor-step {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.monitor-step-number {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--selected);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.monitor-step h3 {
+  margin: 2px 0 8px;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.monitor-step p {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.monitor-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  margin-bottom: 10px;
+}
+
+.monitor-field {
+  display: flex;
+  flex: 1 1 150px;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.monitor-field.wide {
+  flex: 2 1 220px;
+}
+
+.monitor-field.narrow {
+  flex: 0 1 90px;
+}
+
+.monitor-field input,
+.monitor-field select {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--input);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+.monitor-field input:focus-visible,
+.monitor-field select:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.monitor-field small {
+  color: var(--faint);
+  font-weight: 500;
+}
+
+.monitor-password {
+  display: flex;
+  gap: 6px;
+}
+
+.monitor-password input {
+  flex: 1;
+  font-family: var(--mono);
+}
+
+.monitor-code {
+  position: relative;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--chip);
+}
+
+.monitor-code pre {
+  margin: 0;
+  padding: 12px 64px 12px 14px;
+  overflow-x: auto;
+  font: 11.5px/1.55 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.monitor-code .link-button {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.monitor-segments {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 0;
+  padding: 3px;
+  border: 0;
+  border-radius: 11px;
+  background: var(--chip);
+}
+
+.monitor-label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.monitor-segments label {
+  padding: 6px 11px;
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.monitor-segments label.on {
+  background: var(--panel);
+  color: var(--fg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.monitor-segments label:has(:focus-visible) {
+  outline: 2px solid var(--focus);
+}
+
+.monitor-segments input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.monitor-check-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.monitor-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+}
+
+.monitor-checks li {
+  display: flex;
+  gap: 8px;
+}
+
+.monitor-checks li > span:first-child {
+  width: 14px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.monitor-checks li.yes > span:first-child {
+  color: var(--green);
+}
+
+.monitor-checks li.no > span:first-child {
+  color: var(--red);
+}
+
+.monitor-checks li.open {
+  color: var(--muted);
+}
+
+.monitor-checks small {
+  color: var(--faint);
+}
+
+.monitor-panel-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 22px 18px;
+  border-top: 1px solid var(--line);
+}
+
+/* ---- Tablet and phone ---- */
+
+@media (max-width: 767px) {
+  .monitor-server {
+    grid-template-columns: 34px minmax(0, 1fr);
+    padding: 12px;
+  }
+
+  .monitor-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+
+  .monitor-bar .button.primary {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .monitor-panel-steps {
+    padding: 14px;
+  }
+
+  .monitor-panel-foot {
+    padding: 12px 14px;
+  }
+
+  .monitor-step {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .monitor-step-number {
+    display: none;
+  }
+}

@@ -187,7 +187,7 @@ public sealed class ChannelServiceTests(PostgresFixture postgres) : IDisposable
 
     private ChannelService Service(NpgsqlDataSource database)
     {
-        var options = Options.Create(new AlertingOptions());
+        var options = new TestOptionsMonitor<AlertingOptions>(new AlertingOptions());
         var protector = new WebhookUrlProtector(_keys);
         var sender = new ChannelSender(new WebhookSender(_webhooks, options), new EmailSender(options), protector);
 

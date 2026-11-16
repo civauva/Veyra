@@ -26,7 +26,13 @@ vi.mock("../api/client", async (importOriginal) => {
   };
 });
 
-const viewer = { id: "1", email: "viewer@example.com", displayName: "Dana Kim", role: "Viewer" as const };
+const viewer = {
+  id: "1",
+  email: "viewer@example.com",
+  displayName: "Dana Kim",
+  role: "Viewer" as const,
+  timeZone: null,
+};
 
 const days = Array.from({ length: 30 }, (_, index) => ({
   date: new Date(Date.parse("2026-10-12T00:00:00Z") + index * 86_400_000).toISOString().slice(0, 10),
@@ -112,6 +118,8 @@ beforeEach(() => {
   vi.mocked(api.alertSummary).mockResolvedValue(summary);
   vi.mocked(api.alerts).mockResolvedValue({ items: [errors, disk], next: "page-2" });
   localStorage.clear();
+  // Advanced is a superset; the Simple view has its own tests below.
+  localStorage.setItem("veyra.view", "advanced");
 });
 
 describe("AlertsScreen", () => {
@@ -123,7 +131,7 @@ describe("AlertsScreen", () => {
     expect(
       await screen.findByText("2 alerts are open. 3 alerts in the last 30 days; the median cleared in 18 min."),
     ).toBeVisible();
-    expect(screen.getByText("1 warning, 1 caution")).toBeVisible();
+    expect(within(screen.getByRole("main")).getByText("1 warning, 1 caution")).toBeVisible();
     await waitFor(() => expect(container.querySelector(".shell")).toHaveClass("scene-storm"));
   });
 
@@ -156,7 +164,7 @@ describe("AlertsScreen", () => {
     renderAt("/alerts");
     await screen.findByRole("region", { name: "Today" });
 
-    await user.click(screen.getByRole("button", { name: /^Open/ }));
+    await user.click(screen.getByRole("button", { name: /^Open\s*\d/ }));
     await user.click(screen.getByRole("button", { name: /Disk filling/ }));
     await user.type(screen.getByRole("searchbox", { name: "Service, host, or disk" }), "web");
 
@@ -167,7 +175,7 @@ describe("AlertsScreen", () => {
         expect.anything(),
       ),
     );
-    expect(screen.getByRole("button", { name: /^Open/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /^Open\s*\d/ })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("loads older alerts on request", async () => {
@@ -192,11 +200,42 @@ describe("AlertsScreen", () => {
     expect(rules).toHaveTextContent("Full at the pace of the last day: caution within 14 days, warning within 3 days.");
     expect(rules).toHaveTextContent("p95 of a service's requests over 5 minutes: caution 1 s, warning 3 s.");
     expect(rules).toHaveTextContent("Switched off for this installation.");
+    expect(within(rules).queryByRole("link", { name: "Change them in Settings" })).not.toBeInTheDocument();
+  });
+
+  it("lets an Admin go from the rules to where their thresholds are changed", async () => {
+    vi.mocked(api.currentSession).mockResolvedValue({ ...viewer, role: "Admin" });
+    renderAt("/alerts");
+
+    const rules = await screen.findByRole("complementary", { name: "Built-in rules" });
+
+    expect(within(rules).getByRole("link", { name: "Change them in Settings" })).toHaveAttribute(
+      "href",
+      "/settings?section=Rules",
+    );
   });
 
   it("is in the main navigation", async () => {
     renderAt("/alerts");
 
     expect(await screen.findByRole("link", { name: "Alerts" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("keeps to the headline, the state, and the list in the Simple view", async () => {
+    localStorage.setItem("veyra.view", "simple");
+    renderAt("/alerts");
+
+    expect(await screen.findByRole("region", { name: "Alert list" })).toBeVisible();
+    expect(screen.getByRole("group", { name: "State" })).toBeVisible();
+    expect(screen.queryByRole("group", { name: "Rules" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "Built-in rules" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /Weather log/ })).not.toBeInTheDocument();
+  });
+
+  it("shows a rule filter that is in use, even in the Simple view", async () => {
+    localStorage.setItem("veyra.view", "simple");
+    renderAt("/alerts?rule=disk-space");
+
+    expect(await screen.findByRole("group", { name: "Rules" })).toBeVisible();
   });
 });

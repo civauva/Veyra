@@ -16,5 +16,6 @@ tests
 samples
 scripts
 integrations
+!integrations/sqlserver/collector.yaml
 deploy
 **/dist

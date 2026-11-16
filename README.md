@@ -94,10 +94,26 @@ beyond those decisions are listed in [`docs/architecture/tech-stack.md`](docs/ar
 - [x] Provide a minimal alerting workflow with email or webhook notifications
 - [x] Publish a working .NET sample application and setup guide
 
+### v0.2 — Distributed tracing
+
+- [x] Receive traces via OTLP, store them for 7 days with an optional size budget (ADR 0014)
+- [x] List traces with a duration chart, and open a trace on a waterfall with its critical path
+- [x] Go between a trace and its log records
+- [x] Link alerts to the failing and slow traces of their window
+
+### v0.3 — The infrastructure your apps run on
+
+- [x] Change every setting on a Settings screen, applied without a restart, with review and history (ADR 0017)
+- [x] Simple and Advanced views on Settings and the monitoring screens: the fundamentals, or everything
+- [ ] Docker containers: resources, restarts, and logs per container (ADR 0018)
+- [ ] PostgreSQL: connections, size, long and blocked queries, deadlocks, wraparound
+- [x] SQL Server: waits, blocking, deadlocks, backup age, failed SQL Agent jobs, with a tested Collector configuration
+- [x] Veyra's built-in agent: add a SQL Server on the Settings screen, with no file or variable to edit (ADR 0019)
+- [x] Agents in other networks, installed on Windows or Linux with a one-time code from the Settings screen
+- [ ] Windows hosts and IIS: Event Log errors and IIS sites as services
+
 ### Later milestones
 
-- Distributed tracing and cross-signal correlation
-- Windows/IIS, Docker, SQL Server, and PostgreSQL integrations
 - Background job and data-pipeline monitoring
 - Browser telemetry: Blazor WebAssembly, then React, Angular, and Blazor Server
 - macOS hosts, Azure platform services, uptime and certificate checks, and message queues
@@ -117,12 +133,14 @@ beyond those decisions are listed in [`docs/architecture/tech-stack.md`](docs/ar
 Veyra is pre-alpha and has **no released images yet**. It can be built and run from source with Docker Compose;
 see [`docs/guides/deployment.md`](docs/guides/deployment.md).
 
-Today it receives logs and metrics over OTLP, stores them in PostgreSQL, and shows them on the Forecast home, in
-the Log Explorer, and on the Metrics screens for hosts and services. Accounts have roles and optional two-factor
-sign-in, and the Users screen shows each account's sign-ins and sessions; senders use ingestion keys. Built-in
-rules raise alerts on a service's error rate and request latency and on a host's disk space and growth, each with
-its own details screen; the Alerts screen keeps 90 days of history, and alerts go to webhook and email channels. A
-tested Collector configuration watches Linux hosts. Traces and user-defined rules are not built yet.
+Today it receives logs, metrics, and traces over OTLP, stores them in PostgreSQL, and shows them on the Forecast
+home, in the Log Explorer, on the Traces screens, and on the Metrics screens for hosts and services. Accounts have
+roles and optional two-factor sign-in, and the Users screen shows each account's sign-ins and sessions; senders use
+ingestion keys. Built-in rules raise alerts on a service's error rate and request latency and on a host's disk space
+and growth, each with its own details screen; the Alerts screen keeps 90 days of history, and alerts go to webhook and
+email channels. Tested Collector configurations watch Linux hosts and sample traces. SQL Servers are added on the
+Settings screen: Veyra's built-in agent, which runs beside it in Docker Compose, reads them, and the page says how each
+one stands. User-defined rules are not built yet.
 
 ## Contributing
 

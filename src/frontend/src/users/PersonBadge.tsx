@@ -24,7 +24,7 @@ export function PersonBadge({ person, isYou, selected, now, onSelect }: PersonBa
   const locked = person.lockedUntil !== null && new Date(person.lockedUntil) > now;
   const tag = isYou ? "You" : locked ? "Locked" : person.disabled ? "Off" : "";
   const classes = [
-    "badge",
+    "person-badge",
     `r-${person.role}`,
     locked ? "hot" : "",
     person.disabled ? "off" : "",

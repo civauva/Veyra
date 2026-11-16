@@ -1,0 +1,122 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Veyra.Agents.Agents;
+using Veyra.Agents.Enrollment;
+using Veyra.Core.Security;
+
+namespace Veyra.Agents.Api;
+
+/// <summary>
+/// Veyra's agents (ADR 0019): lists them, adds agents for other networks with a one-time code, and removes them.
+/// Administrators only, like every page under Settings.
+/// </summary>
+[ApiController]
+[Route("api/v1/agents")]
+[Authorize(Policy = VeyraPolicies.Admin)]
+[AgentsErrors]
+public sealed class AgentsController : ControllerBase
+{
+    private readonly AgentsOverview _overview;
+
+    private readonly AgentEnrollment _enrollment;
+
+    /// <summary>Creates the controller. The Agents module builds it, so its services can stay internal.</summary>
+    /// <param name="overview">Reads the agents with their states.</param>
+    /// <param name="enrollment">Adds, installs, and removes agents for other networks.</param>
+    internal AgentsController(AgentsOverview overview, AgentEnrollment enrollment)
+    {
+        _overview = overview;
+        _enrollment = enrollment;
+    }
+
+    /// <summary>Lists the active agents, the built-in one first.</summary>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The agents with their states.</returns>
+    [HttpGet]
+    public async Task<IReadOnlyList<AgentResponse>> ListAsync(CancellationToken cancellationToken) =>
+        (await _overview.ListAgentsAsync(cancellationToken)).Select(ToResponse).ToList();
+
+    /// <summary>
+    /// Adds an agent for a network Veyra cannot reach, with a one-time code that installs it. The code works once, for
+    /// an hour, and is shown only in this answer.
+    /// </summary>
+    /// <param name="request">The agent's name.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The agent, not installed yet, and its code.</returns>
+    /// <response code="201">The agent was added.</response>
+    /// <response code="400">The name is empty or too long.</response>
+    [HttpPost]
+    [Consumes("application/json")]
+    [ProducesResponseType<AddedAgentResponse>(StatusCodes.Status201Created)]
+    public async Task<IActionResult> CreateAsync(AddAgentRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var added = await _enrollment.AddAsync(request.Name, cancellationToken);
+        var view = new AgentView(added.Agent, AgentState.NotConnected, 0, added.ExpiresAt);
+
+        return Created(
+            $"/api/v1/agents/{added.Agent.Id}",
+            new AddedAgentResponse(ToResponse(view), added.Code, added.ExpiresAt));
+    }
+
+    /// <summary>
+    /// Gives an agent for another network a new one-time code, to install it for the first time or again. Installing
+    /// again gives it a new key and revokes the old one.
+    /// </summary>
+    /// <param name="id">The agent's ID.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The code and when it stops working.</returns>
+    /// <response code="200">The new code.</response>
+    /// <response code="404">No agent in another network has this ID.</response>
+    [HttpPost("{id:guid}/code")]
+    [ProducesResponseType<IssuedCode>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> NewCodeAsync(Guid id, CancellationToken cancellationToken) =>
+        await _enrollment.NewCodeAsync(id, cancellationToken) is { } code ? Ok(code) : NotFound();
+
+    /// <summary>
+    /// Removes an agent for another network and revokes its key, so it can no longer connect or send. Uninstall it on
+    /// its machine as well.
+    /// </summary>
+    /// <param name="id">The agent's ID.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>No content.</returns>
+    /// <response code="204">The agent was removed.</response>
+    /// <response code="400">It is the built-in agent.</response>
+    /// <response code="404">No agent has this ID.</response>
+    /// <response code="409">It still reads SQL Servers.</response>
+    [HttpDelete("{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteAsync(Guid id, CancellationToken cancellationToken) =>
+        await _enrollment.RemoveAsync(id, cancellationToken) ? NoContent() : NotFound();
+
+    private static AgentResponse ToResponse(AgentView view)
+    {
+        var report = view.Agent.Report;
+
+        return new AgentResponse(
+            Id: view.Agent.Id,
+            Name: view.Agent.Name,
+            Placement: view.Agent.Placement,
+            State: view.State,
+            Version: report.Version,
+            HostName: report.HostName,
+            OperatingSystem: report.OperatingSystem,
+            LastSeenAt: report.LastSeenAt,
+            Error: view.State switch
+            {
+                AgentState.ConfigurationFailed => report.ConfigError,
+                AgentState.Unhealthy => report.HealthError,
+                _ => null,
+            },
+            Servers: view.Servers,
+            CreatedAt: view.Agent.CreatedAt)
+        {
+            Installed = view.Agent.IngestionKeyId is not null,
+            CodeExpiresAt = view.CodeExpiresAt,
+        };
+    }
+}

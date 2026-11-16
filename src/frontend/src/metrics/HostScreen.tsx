@@ -2,16 +2,19 @@ import { Link, useParams, useSearchParams } from "react-router";
 
 import { api } from "../api/client";
 import type { ChartLine, HostMetrics } from "../api/types";
+import { useViewMode, ViewToggle } from "../app/ViewToggle";
+import { BlockStatus } from "./BlockStatus";
 import { LineChart } from "./LineChart";
 import { HostIcon } from "./MetricCards";
 import { formatAgo, formatAmount, formatFull, formatRate, formatShare, shareTone } from "./metricFormat";
 import { RangePicker, rangeFrom } from "./RangePicker";
+import { Ring } from "./Ring";
 import { useMetricData } from "./useMetricData";
 import "./metrics.css";
 
 /**
- * One host: CPU by state, memory, every disk with when it is full, network, disk I/O, and load, over the chosen
- * range. Reached from its card on the Metrics overview.
+ * One host over the chosen range. Simple shows how it is, its rings now, CPU and memory, and its disks; Advanced adds
+ * CPU by state and load, cache, network, and disk I/O (VEY-37). Reached from its card on the Metrics overview.
  */
 export function HostScreen() {
   const { host = "" } = useParams();
@@ -20,6 +23,7 @@ export function HostScreen() {
   const { data, notFound, error } = useMetricData(`host-${host}-${range}`, (signal) =>
     api.hostMetrics(host, range, signal),
   );
+  const [mode] = useViewMode();
 
   return (
     <main className="metrics">
@@ -34,8 +38,10 @@ export function HostScreen() {
           <h1>{host}</h1>
           {data && <Tags host={data} />}
         </div>
+        <ViewToggle />
         <RangePicker value={range} onChange={(next) => setParams({ range: next }, { replace: true })} />
       </div>
+      {data && <BlockStatus kind="host" name={host} />}
 
       {error && (
         <p className="metrics-error" role="alert">
@@ -47,7 +53,8 @@ export function HostScreen() {
           {host} sent no host metrics within the last {range}.
         </p>
       )}
-      {data && <HostPanels host={data} />}
+      {data && <HostNow host={data} />}
+      {data && (mode === "advanced" ? <HostPanels host={data} /> : <HostBasics host={data} />)}
     </main>
   );
 }
@@ -71,6 +78,104 @@ function Tags({ host }: { host: HostMetrics }) {
   );
 }
 
+/** The rings: CPU, memory, and the fullest disk, now. In both views. */
+function HostNow({ host }: { host: HostMetrics }) {
+  const { card } = host;
+  const fullest = card.fullestDisk;
+
+  return (
+    <section className="metric-panel metric-now" aria-labelledby="host-now">
+      <div className="metric-panel-head">
+        <h2 id="host-now">Now</h2>
+      </div>
+      <div className="rings">
+        <Ring share={card.cpuRatio} label="CPU" detail={card.cpus === null ? "" : `of ${card.cpus} cores`} />
+        <Ring
+          share={card.memoryRatio}
+          label="Memory"
+          detail={card.memoryBytes === null ? "" : `of ${formatAmount(card.memoryBytes)}`}
+        />
+        {fullest && (
+          <Ring
+            share={fullest.ratio}
+            label={`Disk ${fullest.mountpoint}`}
+            detail={`${formatAmount(fullest.usedBytes)} of ${formatAmount(fullest.totalBytes)}`}
+          />
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** The Simple view: CPU and memory on one chart, and the disks. */
+function HostBasics({ host }: { host: HostMetrics }) {
+  const total = host.cpu.find((line) => line.label === "total");
+  const used = host.memory.find((line) => line.label === "used");
+
+  return (
+    <div className="metric-panels">
+      <section className="metric-panel" aria-labelledby="host-cpu-memory">
+        <div className="metric-panel-head">
+          <h2 id="host-cpu-memory">CPU and memory</h2>
+        </div>
+        <LineChart
+          title="CPU and memory"
+          max={1}
+          format={formatShare}
+          series={[
+            ...(total ? [{ line: total, color: "var(--accent)", name: "CPU", filled: true }] : []),
+            ...(used ? [{ line: used, color: "var(--ok-fg)", name: "Memory" }] : []),
+          ]}
+        />
+      </section>
+      <DiskPanel host={host} />
+      <p className="metric-more">Load, CPU by state, cache, network, and disk I/O are in the Advanced view.</p>
+    </div>
+  );
+}
+
+/** Every disk with how full it is and when it is full. In both views. */
+function DiskPanel({ host }: { host: HostMetrics }) {
+  const filling = host.disks.filter((disk) => disk.daysUntilFull !== null).length;
+
+  return (
+    <section className="metric-panel wide" aria-labelledby="host-disks">
+      <div className="metric-panel-head">
+        <h2 id="host-disks">Disks</h2>
+        <span>{filling === 0 ? "none filling" : `${filling} filling · at the pace of the last day`}</span>
+      </div>
+      {host.disks.length === 0 ? (
+        <p className="metrics-empty">The Collector reports no filesystems for this host.</p>
+      ) : (
+        <ul className="disk-list">
+          {host.disks.map((disk) => (
+            <li key={disk.mountpoint}>
+              <code>{disk.mountpoint}</code>
+              <span
+                className="disk-bar"
+                role="meter"
+                aria-label={`${disk.mountpoint} in use`}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(disk.ratio * 100)}
+              >
+                <i className={shareTone(disk.ratio)} style={{ width: `${disk.ratio * 100}%` }} />
+              </span>
+              <span className="disk-text">
+                <b>{formatShare(disk.ratio)}</b> · {sizeOf(disk)} ·{" "}
+                <span className={disk.daysUntilFull !== null && disk.daysUntilFull <= 30 ? "warn" : undefined}>
+                  {formatFull(disk.daysUntilFull)}
+                </span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** The Advanced view: every panel, the disks included. */
 function HostPanels({ host }: { host: HostMetrics }) {
   const line = (lines: ChartLine[], label: string) => lines.find((one) => one.label === label);
   const series = (lines: ChartLine[], picks: [string, string, string?][]) =>
@@ -134,43 +239,7 @@ function HostPanels({ host }: { host: HostMetrics }) {
         />
       </section>
 
-      <section className="metric-panel wide" aria-labelledby="host-disks">
-        <div className="metric-panel-head">
-          <h2 id="host-disks">Disks</h2>
-          <span>
-            {host.disks.filter((disk) => disk.daysUntilFull !== null).length === 0
-              ? "none filling"
-              : `${host.disks.filter((disk) => disk.daysUntilFull !== null).length} filling · at the pace of the last day`}
-          </span>
-        </div>
-        {host.disks.length === 0 ? (
-          <p className="metrics-empty">The Collector reports no filesystems for this host.</p>
-        ) : (
-          <ul className="disk-list">
-            {host.disks.map((disk) => (
-              <li key={disk.mountpoint}>
-                <code>{disk.mountpoint}</code>
-                <span
-                  className="disk-bar"
-                  role="meter"
-                  aria-label={`${disk.mountpoint} in use`}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={Math.round(disk.ratio * 100)}
-                >
-                  <i className={shareTone(disk.ratio)} style={{ width: `${disk.ratio * 100}%` }} />
-                </span>
-                <span className="disk-text">
-                  <b>{formatShare(disk.ratio)}</b> · {formatAmount(disk.usedBytes)} of {formatAmount(disk.totalBytes)} ·{" "}
-                  <span className={disk.daysUntilFull !== null && disk.daysUntilFull <= 30 ? "warn" : undefined}>
-                    {formatFull(disk.daysUntilFull)}
-                  </span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <DiskPanel host={host} />
 
       <section className="metric-panel" aria-labelledby="host-network">
         <div className="metric-panel-head">
@@ -201,4 +270,9 @@ function HostPanels({ host }: { host: HostMetrics }) {
       </section>
     </div>
   );
+}
+
+/** How much of a filesystem is used, such as "41 GB of 80 GB". */
+function sizeOf(disk: { usedBytes: number; totalBytes: number }): string {
+  return `${formatAmount(disk.usedBytes)} of ${formatAmount(disk.totalBytes)}`;
 }

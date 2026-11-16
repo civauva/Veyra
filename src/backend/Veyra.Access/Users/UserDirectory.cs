@@ -26,7 +26,7 @@ internal sealed class UserDirectory(
     UserEventStore events,
     SecondFactorStore secondFactors,
     AccessSettingStore settings,
-    IOptions<AccessOptions> options,
+    IOptionsMonitor<AccessOptions> options,
     TimeProvider clock)
 {
     /// <summary>How many sign-in attempts the detail lists.</summary>
@@ -87,5 +87,5 @@ internal sealed class UserDirectory(
             history);
     }
 
-    private DateTimeOffset ActiveSince() => clock.GetUtcNow() - options.Value.SessionIdleTimeout;
+    private DateTimeOffset ActiveSince() => clock.GetUtcNow() - options.CurrentValue.SessionIdleTimeout;
 }

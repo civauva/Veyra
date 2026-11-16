@@ -1,18 +1,24 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Veyra.Storage.Activity;
 using Veyra.Storage.Logs;
 using Veyra.Storage.Metrics;
+using Veyra.Storage.Traces;
 
 namespace Veyra.Storage;
 
 /// <summary>
-/// Keeps storage in shape while Veyra runs: daily partitions of logs and metric points ahead of the clock, and old or
-/// excess data removed. Runs once at startup and then every hour.
+/// Keeps storage in shape while Veyra runs: daily partitions of logs, metric points, spans, and database activity ahead
+/// of the clock, and old or excess data removed. Runs once at startup and then every hour.
 /// </summary>
 /// <param name="logPartitions">Creates the daily log partitions.</param>
 /// <param name="logRetention">Removes logs that are too old or over the size budget.</param>
 /// <param name="metricPartitions">Creates the daily metric point partitions.</param>
 /// <param name="metricRetention">Removes old metric points and series.</param>
+/// <param name="spanPartitions">Creates the daily span partitions.</param>
+/// <param name="traceRetention">Removes traces that are too old or over the size budget.</param>
+/// <param name="activityPartitions">Creates the daily partitions of database activity.</param>
+/// <param name="activityRetention">Removes old database activity.</param>
 /// <param name="clock">The clock behind the hourly timer.</param>
 /// <param name="logger">Receives failures, which are retried on the next run.</param>
 internal sealed partial class StorageMaintenance(
@@ -20,6 +26,10 @@ internal sealed partial class StorageMaintenance(
     LogRetention logRetention,
     MetricPartitions metricPartitions,
     MetricRetention metricRetention,
+    SpanPartitions spanPartitions,
+    TraceRetention traceRetention,
+    ActivityPartitions activityPartitions,
+    ActivityRetention activityRetention,
     TimeProvider clock,
     ILogger<StorageMaintenance> logger) : BackgroundService
 {
@@ -35,7 +45,7 @@ internal sealed partial class StorageMaintenance(
 
         do
         {
-            // Logs and metrics are kept apart, so a failure in one does not hold up the other.
+            // Logs, metrics, and traces are kept apart, so a failure in one does not hold up the others.
             try
             {
                 await logPartitions.EnsureAsync(stoppingToken);
@@ -55,6 +65,26 @@ internal sealed partial class StorageMaintenance(
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
                 LogFailed(exception, "Metric");
+            }
+
+            try
+            {
+                await spanPartitions.EnsureAsync(stoppingToken);
+                await traceRetention.ApplyAsync(stoppingToken);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                LogFailed(exception, "Trace");
+            }
+
+            try
+            {
+                await activityPartitions.EnsureAsync(stoppingToken);
+                await activityRetention.ApplyAsync(stoppingToken);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                LogFailed(exception, "Database activity");
             }
         }
         while (await timer.WaitForNextTickAsync(stoppingToken));

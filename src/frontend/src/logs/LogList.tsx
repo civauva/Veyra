@@ -2,7 +2,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useRef, type KeyboardEvent, type UIEvent } from "react";
 
 import type { LogEntry } from "../api/types";
-import { formatTime } from "./format";
+import { zoneLabel } from "../time/zone";
+import { formatTime, formatUtc } from "./format";
 import { SeverityBadge } from "./SeverityBadge";
 
 /** How close to the end of the list, in pixels, scrolling starts loading the next page. */
@@ -75,7 +76,7 @@ export function LogList({ items, selectedId, onSelect, hasMore, onLoadMore }: Lo
   return (
     <div className="log-list" ref={scrollRef} onScroll={onScroll} onKeyDown={onKeyDown}>
       <div className="log-header" aria-hidden="true">
-        <span>Time (UTC)</span>
+        <span>Time ({zoneLabel()})</span>
         <span>Severity</span>
         <span>Service</span>
         <span>Message</span>
@@ -104,7 +105,9 @@ export function LogList({ items, selectedId, onSelect, hasMore, onLoadMore }: Lo
                 aria-current={entry.id === selectedId ? "true" : undefined}
                 onClick={() => onSelect(entry)}
               >
-                <span className="log-time mono">{formatTime(entry.timestamp)}</span>
+                <span className="log-time mono" title={formatUtc(entry.timestamp)}>
+                  {formatTime(entry.timestamp)}
+                </span>
                 <SeverityBadge severity={entry.severity} />
                 <span className="log-service">{entry.serviceName}</span>
                 <span className="log-message">{entry.body}</span>

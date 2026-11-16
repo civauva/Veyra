@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Time.Testing;
 using Veyra.Access.Sessions;
+using Veyra.Access.Settings;
 using Veyra.Access.Users;
 using Veyra.Core.Security;
 using Veyra.Testing;
@@ -42,5 +43,36 @@ public class AccessCleanupTests(PostgresFixture postgres)
         Assert.Equal(2, deleted);
         Assert.Single(await access.SignInEvents.ListAsync(user.Id, 10, CancellationToken.None));
         Assert.Single(await access.Sessions.ListActiveAsync(user.Id, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task RunAsync_DeletesSettingChangesOlderThanAYear_AndKeepsTheSavedValues()
+    {
+        var access = new AccessServices(await AccessDatabase.CreateAsync(postgres), _clock);
+        var author = new SettingAuthor(null, "Lena Adler");
+        var version = await access.SettingStore.SaveAsync(
+            0,
+            [new SettingWrite("Veyra:Storage:LogRetentionDays", "7", false)],
+            author,
+            SettingChangeKind.Changed,
+            null,
+            CancellationToken.None);
+
+        _clock.Advance(TimeSpan.FromDays(366));
+        await access.SettingStore.SaveAsync(
+            version!.Value,
+            [new SettingWrite("Veyra:Query:MaxPageSize", "500", false)],
+            author,
+            SettingChangeKind.Changed,
+            null,
+            CancellationToken.None);
+
+        await access.Cleanup.RunAsync(CancellationToken.None);
+
+        var history = await access.SettingStore.HistoryAsync(new SettingHistoryQuery(), CancellationToken.None);
+        Assert.Equal(["Veyra:Query:MaxPageSize"], history.Changes.Select(change => change.Name));
+        Assert.Equal(
+            "7",
+            (await access.SettingStore.ReadAllAsync(CancellationToken.None))["Veyra:Storage:LogRetentionDays"].Value);
     }
 }

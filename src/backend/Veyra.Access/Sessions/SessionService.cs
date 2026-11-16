@@ -16,7 +16,7 @@ namespace Veyra.Access.Sessions;
 internal sealed class SessionService(
     SessionStore store,
     UserEventStore events,
-    IOptions<AccessOptions> options,
+    IOptionsMonitor<AccessOptions> options,
     TimeProvider clock)
 {
     /// <summary>Starts a session after a successful sign-in.</summary>
@@ -67,7 +67,7 @@ internal sealed class SessionService(
 
         var now = clock.GetUtcNow();
 
-        if (session.LastActiveAt < now - options.Value.SessionIdleTimeout)
+        if (session.LastActiveAt < now - options.CurrentValue.SessionIdleTimeout)
         {
             return null;
         }
@@ -142,5 +142,5 @@ internal sealed class SessionService(
         return ended;
     }
 
-    private DateTimeOffset ActiveSince() => clock.GetUtcNow() - options.Value.SessionIdleTimeout;
+    private DateTimeOffset ActiveSince() => clock.GetUtcNow() - options.CurrentValue.SessionIdleTimeout;
 }

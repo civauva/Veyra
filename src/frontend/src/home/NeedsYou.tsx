@@ -1,7 +1,7 @@
 import { useId } from "react";
 import { Link } from "react-router";
 
-import { formatMeasure, ruleName, ruleSentence, ruleSummary, subjectLabel } from "../alerts/ruleWords";
+import { databasePath, formatMeasure, ruleSentence, ruleSummary, serverName, subjectLabel } from "../alerts/ruleWords";
 import type { HomeAlert, HomeSnapshot } from "../api/types";
 import { formatClock } from "../logs/format";
 import { defaultFilters, filtersToUrl } from "../logs/logFilters";
@@ -27,20 +27,16 @@ interface NeedsYouProps {
 }
 
 /**
- * The Needs you pane: open alerts numbered warnings first, about services and hosts, the steps of the chosen one,
- * what resolved since yesterday, and one dot per service and per host. The numbers match the badges the dashboard
- * draws.
+ * The Needs you pane: the one place that tells the open alerts (VEY-26), numbered warnings first, about services and
+ * hosts, with the steps of the chosen one. The numbers match the badges the dashboard draws. What resolved is told on
+ * the Alerts screen, which the foot leads to; the services and hosts are in the estate.
  */
 export function NeedsYou({ snapshot, selectedId, onSelect, now }: NeedsYouProps) {
   const headingId = useId();
-  const { alerts, blocks } = snapshot;
+  const { alerts } = snapshot;
   const listed = alerts.slice(0, maxListed);
   const selected = alerts.find((alert) => alert.id === selectedId) ?? alerts[0] ?? null;
-  const warnings = alerts.filter((alert) => alert.severity === "Warning").length;
-  const cautions = alerts.length - warnings;
-  const services = blocks.filter((block) => block.kind === "service");
-  const hosts = blocks.filter((block) => block.kind === "host");
-  const budget = snapshot.storage.budgetBytes;
+  const resolved = snapshot.resolved.length;
 
   return (
     <section className="glass needs-you" aria-labelledby={headingId}>
@@ -48,8 +44,6 @@ export function NeedsYou({ snapshot, selectedId, onSelect, now }: NeedsYouProps)
         <h2 id={headingId} className="cap">
           Needs you
         </h2>
-        {warnings > 0 && <span className="chip warning">{warnings} warning</span>}
-        {cautions > 0 && <span className="chip caution">{cautions} caution</span>}
       </div>
 
       {alerts.length === 0 ? (
@@ -93,80 +87,13 @@ export function NeedsYou({ snapshot, selectedId, onSelect, now }: NeedsYouProps)
         </ol>
       )}
 
-      {snapshot.resolved.length > 0 && (
-        <div className="resolved">
-          <p className="cap" id={`${headingId}-resolved`}>
-            Resolved since yesterday
-          </p>
-          <ul aria-labelledby={`${headingId}-resolved`}>
-            {snapshot.resolved.map((alert) => (
-              <li key={alert.id}>
-                <i aria-hidden="true" />
-                <Link className="resolved-link" to={`/alerts/${encodeURIComponent(alert.id)}`}>
-                  {subjectLabel(alert)} · {ruleName(alert.rule).toLowerCase()} {formatMeasure(alert.rule, alert.peak)}
-                </Link>
-                <small>
-                  {formatClock(alert.since)}–{formatClock(alert.resolvedAt ?? alert.since)}
-                </small>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
       <div className="needs-foot">
-        <p className="cap" id={`${headingId}-services`}>
-          {hosts.length === 0
-            ? `All ${services.length} services`
-            : `${services.length} services · ${hosts.length} ${hosts.length === 1 ? "host" : "hosts"}`}
-        </p>
-        <BlockRow label="Services" blocks={services} labelledBy={`${headingId}-services`} />
-        {hosts.length > 0 && <BlockRow label="Hosts" blocks={hosts} labelledBy={`${headingId}-services`} />}
-        <p className="fine">
-          Ingest {Math.round(snapshot.metrics.ingestPerSecond)}/s
-          {budget ? ` · storage ${Math.round((snapshot.storage.usedBytes / budget) * 100)}% of budget` : ""}
-        </p>
-        <p className="fine">
-          <Link className="resolved-link" to="/alerts">
-            All alerts, last 90 days ›
-          </Link>
-        </p>
+        <span>{resolved === 0 ? "Nothing resolved since yesterday" : `${resolved} resolved since yesterday`}</span>
+        <Link className="resolved-link" to="/alerts">
+          Alert history<span aria-hidden="true"> ›</span>
+        </Link>
       </div>
     </section>
-  );
-}
-
-/** Props for {@link BlockRow}. */
-interface BlockRowProps {
-  /** `Services` or `Hosts`. */
-  label: string;
-  /** The blocks, one dot each. */
-  blocks: HomeSnapshot["blocks"];
-  /** The ID of the heading the dots belong to. */
-  labelledBy: string;
-}
-
-/** One dot per block, coloured by its health, and how many are dry. */
-function BlockRow({ label, blocks, labelledBy }: BlockRowProps) {
-  const dry = blocks.filter((block) => block.health === "Ok").length;
-
-  return (
-    <div className="service-row">
-      <span>{label}</span>
-      <ul className="dots" aria-labelledby={labelledBy}>
-        {blocks.map((block) => (
-          <li
-            key={block.id}
-            className={`dot ${block.health.toLowerCase()}`}
-            aria-label={`${block.name}: ${block.health.toLowerCase()}`}
-            title={`${block.name}: ${block.health.toLowerCase()}`}
-          />
-        ))}
-      </ul>
-      <span className="dry">
-        {dry}/{blocks.length}
-      </span>
-    </div>
   );
 }
 
@@ -206,6 +133,14 @@ function AlertSteps({ alert }: { alert: HomeAlert }) {
           <li>
             <span>Its request durations and routes in Metrics</span>
             <Link className="step-button primary" to={`/metrics/services/${encodeURIComponent(alert.name)}`}>
+              Open metrics
+            </Link>
+          </li>
+        )}
+        {alert.kind === "database" && (
+          <li>
+            <span>See {serverName(alert.name)} in Metrics: its queries, databases, and jobs</span>
+            <Link className="step-button primary" to={databasePath(alert.name)}>
               Open metrics
             </Link>
           </li>

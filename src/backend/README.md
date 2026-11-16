@@ -10,6 +10,7 @@ ASP.NET Core WebAPI on .NET 10, organized as a modular monolith.
 | `Veyra.Query` | Search, filtering, and correlation across signals. | Core |
 | `Veyra.Alerting` | Rule evaluation, incidents, email/webhook notifications. | Core |
 | `Veyra.Access` | Users, roles, sessions, ingestion keys, first-run setup (ADR 0008). | Core |
+| `Veyra.Agents` | Veyra's agents, the systems they read, and the OpAMP server that configures them (ADR 0019). | Core |
 | `Veyra.Api` | Host process: HTTP endpoints, auth, DI wiring, serves the frontend. | all modules |
 
 Rules:
@@ -43,6 +44,8 @@ supplied through environment variables, for example `Veyra__Storage__ConnectionS
 - OTLP: `POST /v1/logs`, `POST /v1/metrics`, and the gRPC `LogsService/Export` and `MetricsService/Export` belong
   to `Veyra.Ingestion` and check ingestion keys.
   Kestrel listens on 8080 (API and OTLP/HTTP), 4317 (OTLP/gRPC), and 4318 (OTLP/HTTP). See `docs/api/`.
+- `/api/v1/agents` and `/api/v1/sql-servers` belong to `Veyra.Agents`, Admins only. Its OpAMP endpoint,
+  `POST /v1/opamp`, is where agents poll for their configuration; it checks agent keys itself.
 
 ## Database migrations
 

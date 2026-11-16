@@ -18,7 +18,7 @@ internal sealed class AlertRuleRun(
     AlertStore store,
     ErrorRateEvaluator errorRates,
     MetricRuleEvaluator metrics,
-    IOptions<AlertingOptions> options,
+    IOptionsMonitor<AlertingOptions> options,
     TimeProvider clock)
 {
     /// <summary>Runs every rule once.</summary>
@@ -30,7 +30,7 @@ internal sealed class AlertRuleRun(
     /// <returns>A task that completes when every alert is up to date.</returns>
     public async Task RunAsync(CancellationToken cancellationToken)
     {
-        var history = TimeSpan.FromDays(options.Value.HistoryDays);
+        var history = TimeSpan.FromDays(options.CurrentValue.HistoryDays);
 
         await store.DeleteResolvedBeforeAsync(clock.GetUtcNow() - history, cancellationToken);
         await errorRates.EvaluateAsync(cancellationToken);

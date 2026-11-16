@@ -42,6 +42,38 @@ test.describe("Alerts screen", () => {
     }
   });
 
+  test("draws each alert's span centred on its day's track, with nothing else beside it", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === "phone", "Phones leave the span out of the row.");
+    await answerApi(page);
+    await page.goto("/alerts");
+    await expect(page.getByRole("region", { name: "Today" }).getByRole("link")).toHaveCount(3);
+    // The spans are drawn after the rows; read them only once they are there.
+    await expect(page.locator(".alert-line-span i").first()).toBeVisible();
+
+    // Styles of other screens share the page: the Users screen's "live" dot once moved these bars and drew on them.
+    const bars = await page.evaluate(() =>
+      [...document.querySelectorAll(".alert-line-span i")].map((bar) => {
+        const span = bar.parentElement as HTMLElement;
+        const track = getComputedStyle(span, "::before");
+        const box = bar.getBoundingClientRect();
+
+        return {
+          offCentre:
+            box.top -
+            span.getBoundingClientRect().top +
+            box.height / 2 -
+            (parseFloat(track.top) + parseFloat(track.height) / 2),
+          before: getComputedStyle(bar, "::before").content,
+        };
+      }),
+    );
+
+    expect(bars.length).toBeGreaterThan(0);
+    expect(bars.filter((bar) => Math.abs(bar.offCentre) > 0.5 || bar.before !== "none")).toEqual([]);
+  });
+
   test("keeps the filters in the address", async ({ page }) => {
     await answerApi(page);
     await page.goto("/alerts");
@@ -66,7 +98,7 @@ test.describe("Alerts screen", () => {
   });
 
   test("is reached from the main navigation with the keyboard", async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name !== "desktop", "The main navigation folds into the menu below desktop width.");
+    test.skip(testInfo.project.name === "phone", "On phones the main navigation waits in the drawer.");
     await answerApi(page);
     await page.goto("/");
 

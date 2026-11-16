@@ -147,7 +147,7 @@ public class ErrorRateEvaluatorTests(PostgresFixture postgres)
         _rates,
         new AlertStore(database),
         new AlertTransitions(new AlertStore(database), NullLogger<AlertTransitions>.Instance),
-        Options.Create(options ?? new AlertingOptions()),
+        new TestOptionsMonitor<AlertingOptions>(options ?? new AlertingOptions()),
         _clock);
 
     private static Task<IReadOnlyList<AlertState>> OpenAsync(NpgsqlDataSource database) =>

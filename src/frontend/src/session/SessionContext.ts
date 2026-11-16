@@ -25,6 +25,12 @@ export interface SessionValue {
   signOut(): Promise<void>;
   /** Moves from first-run setup to sign-in, with a confirmation for the person. */
   setupCompleted(): void;
+  /**
+   * Keeps the time zone every screen shows times in (VEY-22); throws an ApiError the form can show.
+   *
+   * @param timeZone - An IANA name, or null to use the browser's zone again.
+   */
+  setTimeZone(timeZone: string | null): Promise<void>;
 }
 
 /** The session context. Use {@link useSession} to read it. */

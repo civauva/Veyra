@@ -18,14 +18,18 @@ public sealed class MetricsController : ControllerBase
 {
     private readonly MetricViewBuilder _views;
 
-    /// <summary>Creates the controller. The Query module builds it, so its builder can stay internal.</summary>
+    private readonly DatabaseViewBuilder _databases;
+
+    /// <summary>Creates the controller. The Query module builds it, so its builders can stay internal.</summary>
     /// <param name="views">Builds the views.</param>
-    internal MetricsController(MetricViewBuilder views)
+    /// <param name="databases">Builds the database servers' screens.</param>
+    internal MetricsController(MetricViewBuilder views, DatabaseViewBuilder databases)
     {
         _views = views;
+        _databases = databases;
     }
 
-    /// <summary>Returns every host and service that sent metrics in the last 15 minutes.</summary>
+    /// <summary>Returns every host, service, and database server that sent metrics in the last 15 minutes.</summary>
     /// <param name="range">The window of the lines.</param>
     /// <param name="cancellationToken">Cancels the reads when the client goes away.</param>
     /// <returns>The overview.</returns>
@@ -50,6 +54,29 @@ public sealed class MetricsController : ControllerBase
         [FromQuery] string? range,
         CancellationToken cancellationToken) =>
         await _views.HostAsync(host, range, cancellationToken) is { } view ? Ok(view) : NotFound();
+
+    /// <summary>
+    /// Returns one database server's requests, blocking, deadlocks, waits, databases, SQL Agent jobs, and the queries
+    /// running now (ADR 0018).
+    /// </summary>
+    /// <param name="engine">The engine, from <c>db.system.name</c>, such as <c>microsoft.sql_server</c>.</param>
+    /// <param name="server">The server, from <c>server.address</c>.</param>
+    /// <param name="range">The window.</param>
+    /// <param name="cancellationToken">Cancels the reads when the client goes away.</param>
+    /// <returns>The server's metrics.</returns>
+    /// <response code="200">The server's metrics.</response>
+    /// <response code="404">The server sent no metrics within the window.</response>
+    [HttpGet("databases/{engine}/{server}")]
+    [ProducesResponseType<DatabaseMetricsResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DatabaseAsync(
+        string engine,
+        string server,
+        [FromQuery] string? range,
+        CancellationToken cancellationToken) =>
+        await _databases.DatabaseAsync(engine, server, range, cancellationToken) is { } view
+            ? Ok(view)
+            : NotFound();
 
     /// <summary>Returns one service's request durations, routes, and process and runtime metrics.</summary>
     /// <param name="service">The service name, from <c>service.name</c>.</param>

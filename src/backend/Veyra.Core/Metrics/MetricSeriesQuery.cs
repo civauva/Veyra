@@ -1,3 +1,5 @@
+using Veyra.Core.Telemetry;
+
 namespace Veyra.Core.Metrics;
 
 /// <summary>
@@ -9,10 +11,12 @@ namespace Veyra.Core.Metrics;
 /// <param name="Environment">Only series of this environment.</param>
 /// <param name="HostName">Only series of this host.</param>
 /// <param name="Limit">The most series to return.</param>
+/// <param name="Block">Only series of this block, of any kind (ADR 0018).</param>
 public sealed record MetricSeriesQuery(
     DateTimeOffset SeenSince,
     IReadOnlyList<string>? Names = null,
     string? ServiceName = null,
     string? Environment = null,
     string? HostName = null,
-    int Limit = 2_000);
+    int Limit = 2_000,
+    TelemetryBlock? Block = null);

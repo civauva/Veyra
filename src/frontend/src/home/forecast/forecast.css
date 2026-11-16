@@ -64,8 +64,70 @@
 
 .fc-metrics {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
+}
+
+/* The estate and the outlook side by side under the strip (VEY-26). */
+.fc-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+/* Beside the estate the tiles are smaller and three to a row on a laptop. */
+.fc-row .lg-panel {
+  padding: 14px 16px;
+}
+
+.fc-row .lg-tiles {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px;
+}
+
+.fc-row .lg-tile {
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  padding: 7px 9px;
+}
+
+/* Under the Hosts heading the tag says nothing more, and the name gets its room. */
+.fc-row .lg-tile-value.kind-tag {
+  display: none;
+}
+
+.fc-row .lg-more-services {
+  display: inline-block;
+  margin-top: 8px;
+}
+
+/* Beside the estate the outlook is narrow: the days, the picture, and the words, without the 30-day track. */
+.fc-row .fc-outlook {
+  padding: 14px 16px 6px;
+}
+
+.fc-row .fc-outlook-head,
+.fc-row .fc-outlook-row {
+  grid-template-columns: 62px 22px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.fc-row .fc-ticks,
+.fc-row .fc-track,
+.fc-row .fc-outlook-row > :nth-child(4) {
+  display: none;
+}
+
+.fc-row .fc-outlook-row {
+  min-height: 0;
+  padding: 9px 0;
+  font-size: 13.5px;
+  line-height: 1.35;
+}
+
+.fc-row .fc-outlook-row b {
+  font-size: 14px;
 }
 
 .fc-tile {
@@ -178,18 +240,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.fc-hour-note {
-  min-height: 13px;
-  max-width: 100%;
-  padding: 0 4px;
-  font-size: 10.5px;
-  font-weight: 600;
-  line-height: 1.2;
-  text-align: center;
-  opacity: 0.8;
-  overflow-wrap: anywhere;
-}
-
 .fc-hour.now {
   background: var(--now-bg);
   box-shadow: inset 0 0 0 1px var(--now-line);
@@ -207,6 +257,7 @@
 .fc-hour.learning .fc-hour-icon,
 .fc-hour.learning .fc-hour-value {
   opacity: 0.5;
+  font-size: 12px;
   font-weight: 500;
 }
 
@@ -285,10 +336,6 @@
 /* ---- Tablet ---- */
 
 @media (max-width: 1199px) {
-  .fc-metrics {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
   .fc-big {
     font-size: 120px;
   }
@@ -297,6 +344,10 @@
 /* ---- Phone: everything in one column; the hours scroll sideways ---- */
 
 @media (max-width: 767px) {
+  .fc-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .fc-hero {
     flex-wrap: wrap;
     gap: 10px 16px;

@@ -10,7 +10,7 @@ namespace Veyra.Alerting.Notifications;
 
 /// <summary>Sends notifications as plain-text email through the SMTP server in Veyra's settings.</summary>
 /// <param name="options">The Alerting settings with the SMTP server and the time limit per try.</param>
-internal sealed class EmailSender(IOptions<AlertingOptions> options)
+internal sealed class EmailSender(IOptionsMonitor<AlertingOptions> options)
 {
     /// <summary>Sends one message to every recipient in one email.</summary>
     /// <param name="recipients">The addresses.</param>
@@ -27,7 +27,7 @@ internal sealed class EmailSender(IOptions<AlertingOptions> options)
         ArgumentNullException.ThrowIfNull(recipients);
         ArgumentNullException.ThrowIfNull(message);
 
-        var settings = options.Value.Notifications;
+        var settings = options.CurrentValue.Notifications;
         var smtp = settings.Smtp;
 
         if (string.IsNullOrWhiteSpace(smtp.Host) || string.IsNullOrWhiteSpace(smtp.From))

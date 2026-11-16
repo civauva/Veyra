@@ -34,7 +34,7 @@ internal sealed partial class SetupService(
     UserEventStore events,
     IPasswordHasher<AccessUser> hasher,
     PasswordPolicy policy,
-    IOptions<AccessOptions> options,
+    IOptionsMonitor<AccessOptions> options,
     TimeProvider clock,
     ILogger<SetupService> logger)
 {
@@ -66,7 +66,7 @@ internal sealed partial class SetupService(
         }
 
         var token = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32));
-        var lifetime = options.Value.SetupTokenLifetime;
+        var lifetime = options.CurrentValue.SetupTokenLifetime;
 
         lock (_gate)
         {

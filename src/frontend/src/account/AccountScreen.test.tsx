@@ -26,6 +26,7 @@ vi.mock("../api/client", async (importOriginal) => {
       switchOffSecondFactor: vi.fn(),
       endOwnSession: vi.fn(),
       endOtherSessions: vi.fn(),
+      setTimeZone: vi.fn(),
     },
   };
 });
@@ -50,7 +51,9 @@ beforeEach(() => {
     email: lenaAccount.email,
     displayName: lenaAccount.displayName,
     role: "Editor",
+    timeZone: null,
   });
+  vi.mocked(api.setTimeZone).mockResolvedValue(undefined);
   vi.mocked(api.account).mockResolvedValue(lenaAccount);
   vi.mocked(api.changePassword).mockResolvedValue(undefined);
   vi.mocked(api.endOwnSession).mockResolvedValue(undefined);
@@ -64,6 +67,37 @@ afterEach(() => {
 });
 
 describe("AccountScreen", () => {
+  it("keeps the time zone the person picks, and goes back to the browser's", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderAccount();
+
+    const times = await screen.findByRole("region", { name: "Times" });
+    expect(within(times).getByText(/Veyra uses your browser's zone/)).toBeVisible();
+    const field = within(times).getByRole("combobox", { name: "Time zone" });
+    await user.clear(field);
+    await user.type(field, "Asia/Tokyo");
+    await user.click(within(times).getByRole("button", { name: "Save" }));
+
+    expect(api.setTimeZone).toHaveBeenCalledWith("Asia/Tokyo");
+    expect(await within(times).findByText("Saved. Times show in Asia/Tokyo.")).toBeVisible();
+
+    await user.click(within(times).getByRole("button", { name: "Use my browser's zone" }));
+    expect(api.setTimeZone).toHaveBeenLastCalledWith(null);
+  });
+
+  it("refuses a zone no browser knows", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderAccount();
+
+    const field = await screen.findByRole("combobox", { name: "Time zone" });
+    await user.clear(field);
+    await user.type(field, "Mars/Olympus_Mons");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(api.setTimeZone).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Pick a zone from the list");
+  });
+
   it("shows who you are, how far in you reach, and where you are signed in", async () => {
     renderAccount();
 

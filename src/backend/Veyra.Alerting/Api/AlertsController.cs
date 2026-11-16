@@ -3,8 +3,10 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Veyra.Alerting.Alerts;
+using Veyra.Alerting.Catalog;
 using Veyra.Core.Alerts;
 using Veyra.Core.Security;
+using Veyra.Core.Time;
 
 namespace Veyra.Alerting.Api;
 
@@ -23,7 +25,7 @@ public sealed class AlertsController : ControllerBase
 
     private readonly AlertDetailsBuilder _details;
     private readonly AlertStore _store;
-    private readonly IOptions<AlertingOptions> _options;
+    private readonly IOptionsMonitor<AlertingOptions> _options;
     private readonly TimeProvider _clock;
 
     /// <summary>Creates the controller. The Alerting module builds it, so its services can stay internal.</summary>
@@ -34,7 +36,7 @@ public sealed class AlertsController : ControllerBase
     internal AlertsController(
         AlertDetailsBuilder details,
         AlertStore store,
-        IOptions<AlertingOptions> options,
+        IOptionsMonitor<AlertingOptions> options,
         TimeProvider clock)
     {
         _details = details;
@@ -47,6 +49,7 @@ public sealed class AlertsController : ControllerBase
     /// Lists the alerts that were open at some time in the last days, newest first, a page at a time.
     /// </summary>
     /// <param name="days">How many days back, from 1 to the history kept (90 by default). Defaults to 30.</param>
+    /// <param name="timeZone">The viewer's IANA time zone, whose midnight starts each day; UTC when not given.</param>
     /// <param name="state"><c>open</c>, <c>resolved</c>, or <c>all</c>, the default.</param>
     /// <param name="rule">Only alerts of these rules, for example <c>disk-filling</c>. Repeat for several.</param>
     /// <param name="severity">Only alerts whose worst severity was <c>Warning</c>, or <c>Caution</c>.</param>
@@ -64,6 +67,7 @@ public sealed class AlertsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ListAsync(
         [FromQuery] int? days,
+        [FromQuery] string? timeZone,
         [FromQuery] string? state,
         [FromQuery] string[]? rule,
         [FromQuery] AlertSeverity? severity,
@@ -74,7 +78,12 @@ public sealed class AlertsController : ControllerBase
         [FromQuery] string? cursor,
         CancellationToken cancellationToken)
     {
-        if (Period(days) is not { } from)
+        if (!ZoneOf(timeZone, out var zone))
+        {
+            return ZoneProblem();
+        }
+
+        if (Period(days, zone) is not { } from)
         {
             return DaysProblem();
         }
@@ -104,7 +113,9 @@ public sealed class AlertsController : ControllerBase
         {
             if (!AlertSubject.TryParseKind(kind, out var parsed))
             {
-                return Problem(title: "The kind must be service or host.", statusCode: StatusCodes.Status400BadRequest);
+                return Problem(
+                    title: "The kind must be service, host, database, or container.",
+                    statusCode: StatusCodes.Status400BadRequest);
             }
 
             blockKind = parsed;
@@ -154,6 +165,7 @@ public sealed class AlertsController : ControllerBase
     /// Counts the alerts of the last days: open now, in all, at warning, how long they lasted, per rule, and per day.
     /// </summary>
     /// <param name="days">How many days back, from 1 to the history kept (90 by default). Defaults to 30.</param>
+    /// <param name="timeZone">The viewer's IANA time zone, whose midnight starts each day; UTC when not given.</param>
     /// <param name="environment">Only alerts of this environment.</param>
     /// <param name="cancellationToken">Cancels the query when the client goes away.</param>
     /// <returns>The counts.</returns>
@@ -164,10 +176,16 @@ public sealed class AlertsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> SummaryAsync(
         [FromQuery] int? days,
+        [FromQuery] string? timeZone,
         [FromQuery] string? environment,
         CancellationToken cancellationToken)
     {
-        if (Period(days) is not { } from)
+        if (!ZoneOf(timeZone, out var zone))
+        {
+            return ZoneProblem();
+        }
+
+        if (Period(days, zone) is not { } from)
         {
             return DaysProblem();
         }
@@ -179,7 +197,41 @@ public sealed class AlertsController : ControllerBase
             string.IsNullOrEmpty(environment) ? null : environment,
             cancellationToken);
 
-        return Ok(AlertSummaries.Summarise(spans, from, now, _options.Value));
+        return Ok(AlertSummaries.Summarise(spans, from, now, _options.CurrentValue, zone));
+    }
+
+    /// <summary>
+    /// Lists the catalog rules with the words their alerts use and their levels (ADR 0020), so screens word alerts of
+    /// rules they were not built with.
+    /// </summary>
+    /// <returns>The rules, in the order screens list them.</returns>
+    /// <response code="200">The rules.</response>
+    [HttpGet("catalog")]
+    [ProducesResponseType<IReadOnlyList<CatalogRuleResponse>>(StatusCodes.Status200OK)]
+    public IReadOnlyList<CatalogRuleResponse> Catalog()
+    {
+        var settings = _options.CurrentValue;
+
+        return RuleCatalog.All
+            .Select(rule =>
+            {
+                var (caution, warning) = RuleCatalog.Levels(rule, settings);
+
+                return new CatalogRuleResponse(
+                    rule.Id,
+                    rule.Name,
+                    rule.Description,
+                    rule.Unit.ToString().ToLowerInvariant(),
+                    rule.Noun,
+                    rule.Headline,
+                    rule.Recovery,
+                    rule.PartLabel?.TrimEnd(':'),
+                    rule.LowerIsWorse,
+                    RuleCatalog.Enabled(rule, settings),
+                    caution,
+                    warning);
+            })
+            .ToList();
     }
 
     /// <summary>Returns one alert, open or resolved within the history kept (90 days by default).</summary>
@@ -194,22 +246,40 @@ public sealed class AlertsController : ControllerBase
     public async Task<IActionResult> GetAsync(Guid id, CancellationToken cancellationToken) =>
         await _details.BuildAsync(id, cancellationToken) is { } details ? Ok(details) : NotFound();
 
-    // The start of the period: midnight UTC, the given number of days back, today counting as one.
-    private DateTimeOffset? Period(int? days)
+    // The start of the period: midnight in the viewer's zone, the given number of days back, today counting as one.
+    private DateTimeOffset? Period(int? days, TimeZoneInfo zone)
     {
         var count = days ?? _defaultDays;
 
-        if (count < 1 || count > _options.Value.HistoryDays)
+        if (count < 1 || count > _options.CurrentValue.HistoryDays)
         {
             return null;
         }
 
-        var today = _clock.GetUtcNow().UtcDateTime.Date;
-
-        return new DateTimeOffset(today.AddDays(1 - count), TimeSpan.Zero);
+        return TimeZones.LocalMidnight(_clock.GetUtcNow(), zone, count - 1);
     }
 
+    // No zone means UTC, as before VEY-22; a name that is not an IANA zone is refused.
+    private static bool ZoneOf(string? name, out TimeZoneInfo zone)
+    {
+        if (string.IsNullOrEmpty(name))
+        {
+            zone = TimeZoneInfo.Utc;
+
+            return true;
+        }
+
+        var known = TimeZones.TryFind(name, out var found);
+        zone = found ?? TimeZoneInfo.Utc;
+
+        return known;
+    }
+
+    private ObjectResult ZoneProblem() => Problem(
+        title: "The time zone must be an IANA name, such as Europe/Berlin.",
+        statusCode: StatusCodes.Status400BadRequest);
+
     private ObjectResult DaysProblem() => Problem(
-        title: $"The days must be between 1 and {_options.Value.HistoryDays}.",
+        title: $"The days must be between 1 and {_options.CurrentValue.HistoryDays}.",
         statusCode: StatusCodes.Status400BadRequest);
 }

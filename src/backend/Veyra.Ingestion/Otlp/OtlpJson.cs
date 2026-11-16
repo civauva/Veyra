@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using Google.Protobuf;
 using OpenTelemetry.Proto.Collector.Logs.V1;
 using OpenTelemetry.Proto.Collector.Metrics.V1;
+using OpenTelemetry.Proto.Collector.Trace.V1;
 
 namespace Veyra.Ingestion.Otlp;
 
@@ -50,6 +51,31 @@ internal static class OtlpJson
     }
 
     /// <summary>
+    /// Parses an OTLP/JSON traces request. Spans carry a trace ID, a span ID, and a parent span ID, and so does each
+    /// link, as far as its trace and span go.
+    /// </summary>
+    /// <param name="json">The request body.</param>
+    /// <returns>The request.</returns>
+    /// <exception cref="OtlpFormatException">The JSON is not a valid OTLP traces request.</exception>
+    public static ExportTraceServiceRequest ParseTracesRequest(string json)
+    {
+        var root = ParseJson(json);
+
+        foreach (var span in SpanItems(root))
+        {
+            FixIds(span);
+            HexToBase64(span, "parentSpanId", "parent_span_id", 8);
+
+            foreach (var link in Items(span, "links", "links").OfType<JsonObject>())
+            {
+                FixIds(link);
+            }
+        }
+
+        return Parse<ExportTraceServiceRequest>(root, "traces");
+    }
+
+    /// <summary>
     /// Writes a response as OTLP/JSON.
     /// </summary>
     /// <param name="response">The response.</param>
@@ -85,6 +111,12 @@ internal static class OtlpJson
         Items(root, "resourceLogs", "resource_logs")
             .SelectMany(resource => Items(resource, "scopeLogs", "scope_logs"))
             .SelectMany(scope => Items(scope, "logRecords", "log_records"))
+            .OfType<JsonObject>();
+
+    private static IEnumerable<JsonObject> SpanItems(JsonNode? root) =>
+        Items(root, "resourceSpans", "resource_spans")
+            .SelectMany(resource => Items(resource, "scopeSpans", "scope_spans"))
+            .SelectMany(scope => Items(scope, "spans", "spans"))
             .OfType<JsonObject>();
 
     private static IEnumerable<JsonObject> Exemplars(JsonNode? root) =>

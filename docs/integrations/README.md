@@ -10,5 +10,7 @@ configuration in `/integrations/<target>/`.
 | Linux hosts | `hostmetrics`; later `filelog`, `journald` | [`linux.md`](linux.md) |
 | Docker containers | `docker_stats`, `filelog` | `docker.md` |
 | PostgreSQL | `postgresql` | `postgres.md` |
-| SQL Server | `sqlserver` | `sqlserver.md` |
+| SQL Server | `sqlserver`, `sqlquery` | [`sqlserver.md`](sqlserver.md) |
+| Veyra agents | the Collector and its OpAMP supervisor, configured by Veyra | [`agents.md`](agents.md) |
 | .NET applications | OpenTelemetry .NET SDK, OTLP exporter | [`dotnet.md`](dotnet.md) |
+| Traces and sampling | OTLP exporter, `tail_sampling` processor | [`traces.md`](traces.md) |

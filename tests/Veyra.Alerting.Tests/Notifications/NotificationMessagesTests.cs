@@ -195,6 +195,50 @@ public class NotificationMessagesTests
         Assert.DoesNotContain("Service:", body, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("db-backup-age", "shop", 31 * 3600, "Warning: SQL Server sql-prod-01: shop has no backup for 1 d 7 h (production)")]
+    [InlineData("db-long-query", "shop", 840, "Warning: SQL Server sql-prod-01: a query in shop has run for 14 min (production)")]
+    [InlineData("db-blocking", null, 3, "Warning: SQL Server sql-prod-01: 3 sessions blocked for 5 min (production)")]
+    [InlineData("db-deadlocks", null, 1, "Warning: SQL Server sql-prod-01: 1 deadlock in 15 min (production)")]
+    [InlineData("db-agent-job", "Nightly full backup - shop", 1, "Warning: SQL Server sql-prod-01: SQL Agent job Nightly full backup - shop failed (production)")]
+    public void For_DatabaseRules_NameTheServerAndPartInWords(string rule, string? part, double value, string expected)
+    {
+        var alert = Alert() with
+        {
+            Rule = rule,
+            Subject = AlertSubject.Database("microsoft.sql_server sql-prod-01", part),
+            Value = value,
+            Peak = value,
+        };
+
+        var message = NotificationMessages.For(Event(AlertEventKind.Opened, value), alert, _site);
+
+        Assert.Equal(expected, message.Text);
+        Assert.Equal("database", message.Alert!.Block.Kind);
+        Assert.Null(message.Alert.Service);
+    }
+
+    [Fact]
+    public void ToEmailBody_DatabaseAlert_NamesTheServerAndDatabase()
+    {
+        var alert = Alert() with
+        {
+            Rule = "db-backup-age",
+            Subject = AlertSubject.Database("microsoft.sql_server sql-prod-01", "shop"),
+            Value = 31 * 3600,
+            Peak = 31 * 3600,
+            Threshold = 26 * 3600,
+        };
+
+        var body = NotificationMessages.ToEmailBody(
+            NotificationMessages.For(Event(AlertEventKind.Opened, 31 * 3600), alert, _site),
+            "on call");
+
+        Assert.Contains("Server:       SQL Server sql-prod-01", body, StringComparison.Ordinal);
+        Assert.Contains("Database:     shop", body, StringComparison.Ordinal);
+        Assert.Contains("Last backup:  1 d 7 h ago (warning from 1 d 2 h)", body, StringComparison.Ordinal);
+    }
+
     private static AlertState Disk(string rule, double value, double threshold) => Alert() with
     {
         Rule = rule,

@@ -1,17 +1,21 @@
 using OpenTelemetry.Proto.Collector.Logs.V1;
+using Veyra.Core.Activity;
 using Veyra.Core.Security;
 using Veyra.Core.Telemetry;
+using Veyra.Ingestion.Activity;
 using Veyra.Ingestion.Otlp;
 
 namespace Veyra.Ingestion.Pipeline;
 
 /// <summary>
 /// The part of ingestion that both OTLP transports share: map the request, apply the key's environment limit, and
-/// queue the result.
+/// queue the result. Rows of Veyra's own agent queries go to the database activity queue (ADR 0020); every other
+/// record is a log record.
 /// </summary>
-/// <param name="queue">The bounded queue to the database writer.</param>
+/// <param name="queue">The bounded queue to the log writer.</param>
+/// <param name="activity">The bounded queue to the database activity writer.</param>
 /// <param name="clock">The clock for records that carry no time.</param>
-internal sealed class LogPipeline(LogQueue queue, TimeProvider clock)
+internal sealed class LogPipeline(LogQueue queue, ActivityQueue activity, TimeProvider clock)
 {
     /// <summary>
     /// Accepts the records of one request from a sender whose key was already checked.
@@ -48,7 +52,29 @@ internal sealed class LogPipeline(LogQueue queue, TimeProvider clock)
             }
         }
 
-        if (!queue.TryEnqueue(accepted))
+        var logs = new List<LogRecord>(accepted.Count);
+        var rows = new List<DatabaseActivity>();
+
+        foreach (var record in accepted)
+        {
+            if (ActivityRecordMapper.IsActivity(record))
+            {
+                rows.Add(ActivityRecordMapper.Map(record));
+            }
+            else
+            {
+                logs.Add(record);
+            }
+        }
+
+        // The agent sends its rows in requests of their own, apart from log records. Should one request hold both and
+        // the log queue be full, the sender retries it whole, and the store keeps a session of a read only once.
+        if (!activity.TryEnqueue(rows))
+        {
+            return new IngestResult(0, 0, null, QueueFull: true);
+        }
+
+        if (!queue.TryEnqueue(logs))
         {
             return new IngestResult(0, 0, null, QueueFull: true);
         }

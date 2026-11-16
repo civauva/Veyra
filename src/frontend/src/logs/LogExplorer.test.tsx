@@ -92,6 +92,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  localStorage.clear();
   vi.mocked(api.searchLogs).mockResolvedValue({ items: [declined, created], nextCursor: null });
   vi.mocked(api.summarizeLogs).mockResolvedValue({
     bucketSeconds: 120,
@@ -119,6 +120,15 @@ describe("LogExplorer", () => {
     const params = lastParams(api.searchLogs);
     const window = Date.parse(params.get("to") ?? "") - Date.parse(params.get("from") ?? "");
     expect(window).toBe(60 * 60_000);
+  });
+
+  it("shows the records without waiting for the counts", async () => {
+    // A word search counts its records, which can take longer than finding the first page (ADR 0015).
+    vi.mocked(api.summarizeLogs).mockReturnValue(new Promise(() => {}));
+    renderExplorer();
+
+    expect(await screen.findByRole("button", { name: /Payment declined by PSP/ })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /Counting records/ })).toBeInTheDocument();
   });
 
   it("draws the histogram with errors, for screen readers too", async () => {
@@ -161,6 +171,7 @@ describe("LogExplorer", () => {
 
   it("adds and removes attribute filters", async () => {
     const user = userEvent.setup();
+    localStorage.setItem("veyra.view", "advanced");
     renderExplorer();
 
     await user.click(await screen.findByRole("button", { name: "Add attribute filter" }));
@@ -177,8 +188,36 @@ describe("LogExplorer", () => {
     await waitFor(() => expect(lastParams(api.searchLogs).getAll("attribute")).toEqual([]));
   });
 
+  it("keeps to time, severity, and services in the Simple view", async () => {
+    renderExplorer();
+
+    expect(await screen.findByRole("region", { name: "At least" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Add attribute filter" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Trace" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Export" })).not.toBeInTheDocument();
+  });
+
+  it("shows a trace filter that is in use, even in the Simple view", async () => {
+    renderExplorer("?traceId=5b8efff798038103d269b633813fc60c");
+
+    expect(await screen.findByRole("button", { name: "Clear the trace filter" })).toBeVisible();
+  });
+
+  it("shows a record's message, stack, and attributes in Simple, the resource in Advanced", async () => {
+    const user = userEvent.setup();
+    renderExplorer();
+
+    await user.click(await screen.findByRole("button", { name: /Payment declined by PSP/ }));
+
+    const detail = screen.getByRole("region", { name: "Selected record" });
+    expect(within(detail).getByText(/System.TimeoutException: The PSP did not answer/)).toBeInTheDocument();
+    expect(within(detail).getByText("/checkout/confirm")).toBeInTheDocument();
+    expect(within(detail).queryByText("web-02")).not.toBeInTheDocument();
+  });
+
   it("opens the selected record with its stack trace, attributes, resource, and trace", async () => {
     const user = userEvent.setup();
+    localStorage.setItem("veyra.view", "advanced");
     renderExplorer();
 
     await user.click(await screen.findByRole("button", { name: /Payment declined by PSP/ }));
@@ -199,6 +238,18 @@ describe("LogExplorer", () => {
     await user.click(screen.getByRole("button", { name: "Same trace" }));
 
     await waitFor(() => expect(lastParams(api.searchLogs).get("traceId")).toBe("5b8efff798038103d269b633813fc60c"));
+  });
+
+  it("opens the selected record's trace at the record's time", async () => {
+    const user = userEvent.setup();
+    renderExplorer();
+
+    await user.click(await screen.findByRole("button", { name: /Payment declined by PSP/ }));
+
+    expect(screen.getByRole("link", { name: "Open trace" })).toHaveAttribute(
+      "href",
+      "/traces/5b8efff798038103d269b633813fc60c?at=2026-11-09T07%3A34%3A12.418Z",
+    );
   });
 
   it("shows one minute around the selected record in its service", async () => {

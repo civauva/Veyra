@@ -8,7 +8,7 @@ import { api, ApiError } from "../api/client";
 import { App } from "../app/App";
 import { stormSnapshot } from "../home/testSnapshots";
 import { SessionProvider } from "../session/SessionProvider";
-import { openWarning, resolvedCaution } from "./testAlerts";
+import { openWarning, resolvedCaution, resolvedLatency } from "./testAlerts";
 
 vi.mock("../api/client", async (importOriginal) => {
   const original = await importOriginal<typeof client>();
@@ -27,7 +27,13 @@ vi.mock("../api/client", async (importOriginal) => {
   };
 });
 
-const viewer = { id: "1", email: "viewer@example.com", displayName: "Dana Kim", role: "Viewer" as const };
+const viewer = {
+  id: "1",
+  email: "viewer@example.com",
+  displayName: "Dana Kim",
+  role: "Viewer" as const,
+  timeZone: null,
+};
 
 function renderAt(path: string) {
   return render(
@@ -44,6 +50,8 @@ beforeEach(() => {
   vi.mocked(api.searchLogs).mockResolvedValue({ items: [], nextCursor: null });
   vi.mocked(api.summarizeLogs).mockResolvedValue({ bucketSeconds: 60, buckets: [], services: [] });
   localStorage.clear();
+  // Advanced is a superset; the Simple view has its own tests below.
+  localStorage.setItem("veyra.view", "advanced");
 });
 
 describe("AlertScreen", () => {
@@ -59,6 +67,26 @@ describe("AlertScreen", () => {
     expect(screen.getByText(/went above 1% at 06:58 and above 5% at 07:01/)).toBeVisible();
     await waitFor(() => expect(container.querySelector(".shell")).toHaveClass("scene-storm"));
     expect(vi.mocked(api.alert)).toHaveBeenCalledWith(openWarning.id, expect.any(AbortSignal));
+  });
+
+  it("links a service's alert to its failing or slow traces of the alert's window", async () => {
+    vi.mocked(api.alert).mockResolvedValue(openWarning);
+    const { unmount } = renderAt(`/alerts/${openWarning.id}`);
+
+    // Ten minutes before it opened to five after its last check, as the trace list writes a picked window.
+    expect(await screen.findByRole("link", { name: "Its failed traces" })).toHaveAttribute(
+      "href",
+      "/traces?show=failed&service=payments-gateway&from=2026-11-10T06%3A48%3A00.000Z&to=2026-11-10T07%3A39%3A00.000Z",
+    );
+    unmount();
+
+    vi.mocked(api.alert).mockResolvedValue(resolvedLatency);
+    renderAt(`/alerts/${resolvedLatency.id}`);
+
+    expect(await screen.findByRole("link", { name: "Its slow traces" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("/traces?show=slow&service=checkout-web&from="),
+    );
   });
 
   it("shows the five facts with the channels that were told", async () => {
@@ -152,5 +180,16 @@ describe("AlertScreen", () => {
     await user.click(within(pane).getByRole("link", { name: "Details" }));
 
     expect(await screen.findByRole("heading", { level: 1, name: "payments-gateway logs 21.6% errors" })).toBeVisible();
+  });
+
+  it("keeps to the headline, the facts, and the chart in the Simple view", async () => {
+    localStorage.setItem("veyra.view", "simple");
+    vi.mocked(api.alert).mockResolvedValue(openWarning);
+
+    renderAt(`/alerts/${openWarning.id}`);
+
+    expect(await screen.findByText("Peak")).toBeVisible();
+    expect(screen.queryByRole("region", { name: "Timeline" })).not.toBeInTheDocument();
+    expect(screen.getByText(/Timeline, messages, and the most frequent errors are in the Advanced view/)).toBeVisible();
   });
 });

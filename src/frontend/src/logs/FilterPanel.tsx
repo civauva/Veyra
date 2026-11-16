@@ -2,8 +2,10 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { selectableSeverities, type ServiceCount } from "../api/types";
 import { formatClock, formatCount, formatTime } from "./format";
-import { timeRanges, type LogFilters } from "./logFilters";
+import { timeRanges, type AttributeFilter, type LogFilters } from "./logFilters";
 import { severityLabels } from "./SeverityBadge";
+import { zoneLabel } from "../time/zone";
+import { useViewMode } from "../app/ViewToggle";
 
 /** How many services show before "Show all". */
 const collapsedServiceCount = 7;
@@ -31,6 +33,10 @@ interface FilterPanelProps {
  * applies at once; on phones the panel opens as a sheet from the toolbar's Filters button.
  */
 export function FilterPanel({ filters, onChange, services, from, to, open, onClose }: FilterPanelProps) {
+  // Simple keeps to time, severity, and services; a filter already in use always shows, so a link never hides it.
+  const [mode] = useViewMode();
+  const advanced = mode === "advanced";
+
   const [showAllServices, setShowAllServices] = useState(false);
   const doneRef = useRef<HTMLButtonElement>(null);
 
@@ -86,14 +92,14 @@ export function FilterPanel({ filters, onChange, services, from, to, open, onClo
         </div>
         {filters.around ? (
           <p className="filter-note">
-            ± 1 minute around {formatTime(filters.around)} UTC.{" "}
+            ± 1 minute around {formatTime(filters.around)} {zoneLabel(new Date(filters.around))}.{" "}
             <button type="button" className="link-button" onClick={() => onChange({ ...filters, around: null })}>
               Back to the last {filters.range}
             </button>
           </p>
         ) : (
           <p className="filter-note">
-            {formatClock(from)} – {formatClock(to)} UTC
+            {formatClock(from)} – {formatClock(to)} {zoneLabel(to)}
           </p>
         )}
       </section>
@@ -146,54 +152,61 @@ export function FilterPanel({ filters, onChange, services, from, to, open, onClo
         )}
       </section>
 
-      <section className="filter-group" aria-labelledby="filter-attributes">
-        <h3 id="filter-attributes" className="section-title">
-          Attributes
-        </h3>
-        <AttributeFilters filters={filters} onChange={onChange} />
-      </section>
+      {(advanced || filters.attributes.length > 0) && (
+        <section className="filter-group" aria-labelledby="filter-attributes">
+          <h3 id="filter-attributes" className="section-title">
+            Attributes
+          </h3>
+          <AttributeFilters
+            attributes={filters.attributes}
+            onChange={(attributes) => onChange({ ...filters, attributes })}
+          />
+        </section>
+      )}
 
-      <section className="filter-group" aria-labelledby="filter-trace">
-        <h3 id="filter-trace" className="section-title">
-          Trace
-        </h3>
-        {filters.traceId ? (
-          <span className="filter-chip">
-            <span className="mono">{filters.traceId}</span>
-            <button
-              type="button"
-              className="chip-remove"
-              aria-label="Clear the trace filter"
-              onClick={() => onChange({ ...filters, traceId: null })}
-            >
-              ×
-            </button>
-          </span>
-        ) : (
-          <p className="filter-note">Select a record with a trace, then choose &quot;Same trace&quot;.</p>
-        )}
-      </section>
+      {(advanced || filters.traceId) && (
+        <section className="filter-group" aria-labelledby="filter-trace">
+          <h3 id="filter-trace" className="section-title">
+            Trace
+          </h3>
+          {filters.traceId ? (
+            <span className="filter-chip">
+              <span className="mono">{filters.traceId}</span>
+              <button
+                type="button"
+                className="chip-remove"
+                aria-label="Clear the trace filter"
+                onClick={() => onChange({ ...filters, traceId: null })}
+              >
+                ×
+              </button>
+            </span>
+          ) : (
+            <p className="filter-note">Select a record with a trace, then choose &quot;Same trace&quot;.</p>
+          )}
+        </section>
+      )}
     </aside>
   );
 }
 
 /** Props for {@link AttributeFilters}. */
 interface AttributeFiltersProps {
-  /** The current filters. */
-  filters: LogFilters;
-  /** Called with the new filters. */
-  onChange: (filters: LogFilters) => void;
+  /** The attribute filters now. */
+  attributes: AttributeFilter[];
+  /** Called with the new list when one is added or removed. */
+  onChange: (attributes: AttributeFilter[]) => void;
 }
 
-/** The attribute filters as removable chips, and a small form to add one. */
-function AttributeFilters({ filters, onChange }: AttributeFiltersProps) {
+/** The attribute filters as removable chips, and a small form to add one. Shared by the logs and traces filters. */
+export function AttributeFilters({ attributes, onChange }: AttributeFiltersProps) {
   const [adding, setAdding] = useState(false);
   const [key, setKey] = useState("");
   const [value, setValue] = useState("");
 
   function add(event: FormEvent) {
     event.preventDefault();
-    onChange({ ...filters, attributes: [...filters.attributes, { key: key.trim(), value }] });
+    onChange([...attributes, { key: key.trim(), value }]);
     setKey("");
     setValue("");
     setAdding(false);
@@ -201,7 +214,7 @@ function AttributeFilters({ filters, onChange }: AttributeFiltersProps) {
 
   return (
     <>
-      {filters.attributes.map((attribute, index) => (
+      {attributes.map((attribute, index) => (
         <span key={`${attribute.key}=${attribute.value}`} className="filter-chip">
           <span className="mono">
             {attribute.key} = {attribute.value}
@@ -210,7 +223,7 @@ function AttributeFilters({ filters, onChange }: AttributeFiltersProps) {
             type="button"
             className="chip-remove"
             aria-label={`Remove ${attribute.key} = ${attribute.value}`}
-            onClick={() => onChange({ ...filters, attributes: filters.attributes.filter((_, at) => at !== index) })}
+            onClick={() => onChange(attributes.filter((_, at) => at !== index))}
           >
             ×
           </button>

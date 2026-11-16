@@ -1,0 +1,72 @@
+# OpenTelemetry Collector (contrib distribution) between applications and Veyra for traces: it keeps every failed
+# and every slow trace and a share of the rest, then sends them to Veyra over OTLP/HTTP.
+# See docs/integrations/traces.md.
+#
+# Veyra stores what it receives and does not sample (ADR 0014), so this is where the volume of traces is decided.
+# Tail sampling needs every span of a trace in this one Collector: send all of an application's spans here, and run
+# one Collector, or route by trace ID with the loadbalancing exporter in front of several.
+#
+# Settings come from the environment, never from this file:
+#   VEYRA_OTLP_ENDPOINT   Veyra's OTLP/HTTP address, for example https://veyra.example.com or http://127.0.0.1:4318
+#   VEYRA_INGESTION_KEY   an ingestion key created in Veyra (vyk_...)
+#   KEEP_PERCENT          the share of ordinary traces to keep, for example 10
+#   SLOW_MS               a trace at least this long counts as slow and is kept, for example 1000
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Protects the Collector itself; spans beyond the limit are refused, and the SDKs retry.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 20
+
+  tail_sampling:
+    # How long to wait for the last span of a trace before deciding. Most requests end well within it.
+    decision_wait: 10s
+    num_traces: 100000
+    expected_new_traces_per_sec: 1000
+    policies:
+      # Every trace with a failed span: these are the ones people open.
+      - name: failed
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      # Every slow trace.
+      - name: slow
+        type: latency
+        latency:
+          threshold_ms: ${env:SLOW_MS:-1000}
+      # A share of the rest, chosen by trace ID, so every span of a kept trace is kept.
+      - name: some-of-the-rest
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: ${env:KEEP_PERCENT:-10}
+
+  batch:
+    send_batch_size: 2048
+    timeout: 2s
+
+exporters:
+  otlphttp/veyra:
+    endpoint: ${env:VEYRA_OTLP_ENDPOINT}
+    headers:
+      Authorization: Bearer ${env:VEYRA_INGESTION_KEY}
+    compression: gzip
+    retry_on_failure:
+      enabled: true
+    sending_queue:
+      enabled: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, tail_sampling, batch]
+      exporters: [otlphttp/veyra]

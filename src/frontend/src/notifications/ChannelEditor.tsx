@@ -262,7 +262,7 @@ export function ChannelEditor({ channel, onSaved, onClose }: ChannelEditorProps)
               Send test
             </button>
             <span className="grow" />
-            <button type="button" className="button ghost" onClick={onClose}>
+            <button type="button" className="button quiet" onClick={onClose}>
               Cancel
             </button>
             <button type="submit" className="button primary" disabled={busy}>

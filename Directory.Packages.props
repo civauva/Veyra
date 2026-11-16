@@ -19,6 +19,13 @@
     <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.14" />
     <!-- PostgreSQL driver (ADR 0003). Plain SQL and binary COPY; no ORM. -->
     <PackageVersion Include="Npgsql" Version="10.0.3" />
+    <!-- OpAMP messages to Veyra's agents (Agents, ADR 0019): the protobuf runtime and the .proto compiler, at the
+         versions Grpc.AspNetCore already brings to Ingestion. -->
+    <PackageVersion Include="Google.Protobuf" Version="3.36.2" />
+    <PackageVersion Include="Grpc.Tools" Version="2.85.0" />
+    <!-- Reads the Collector templates in integrations/ and writes each agent's configuration (Agents). .NET has no
+         YAML reader of its own. -->
+    <PackageVersion Include="YamlDotNet" Version="16.3.0" />
   </ItemGroup>
 
   <ItemGroup Label="Samples">

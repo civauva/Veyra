@@ -1,5 +1,7 @@
 using OpenTelemetry.Proto.Metrics.V1;
+using Veyra.Core.Alerts;
 using Veyra.Core.Metrics;
+using Veyra.Core.Telemetry;
 using Veyra.Ingestion.Otlp;
 using static Veyra.Ingestion.Tests.Otlp.OtlpMetricRequests;
 using static Veyra.Ingestion.Tests.Otlp.OtlpRequests;
@@ -59,6 +61,34 @@ public class OtlpMetricMapperTests
         var point = Assert.Single(OtlpMetricMapper.Map(request, _receivedAt).Points);
 
         Assert.Equal((null, null, "db-01"), (point.ServiceName, point.Environment, point.HostName));
+    }
+
+    [Fact]
+    public void Map_SqlServerMetrics_BelongToTheDatabaseServer()
+    {
+        var request = Metrics(
+            [
+                Attribute("db.system.name", "microsoft.sql_server"),
+                Attribute("server.address", "sql-prod-01"),
+                Attribute("service.instance.id", "mssql:1433"),
+                Attribute("host.name", ""),
+            ],
+            Gauge("sqlserver.processes.blocked", 2));
+
+        var point = Assert.Single(OtlpMetricMapper.Map(request, _receivedAt).Points);
+
+        Assert.Equal(new TelemetryBlock(AlertBlockKind.Database, "microsoft.sql_server sql-prod-01"), point.Block);
+        Assert.Equal((null, null), (point.ServiceName, point.HostName));
+    }
+
+    [Fact]
+    public void Map_HostMetrics_BelongToTheHost()
+    {
+        var request = Metrics([Attribute("host.name", "db-01")], Gauge("system.cpu.load_average.1m", 1.5));
+
+        var point = Assert.Single(OtlpMetricMapper.Map(request, _receivedAt).Points);
+
+        Assert.Equal(new TelemetryBlock(AlertBlockKind.Host, "db-01"), point.Block);
     }
 
     [Fact]

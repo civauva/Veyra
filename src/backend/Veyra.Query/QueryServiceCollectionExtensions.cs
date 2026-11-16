@@ -1,10 +1,18 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using Veyra.Core;
 using Veyra.Core.Metrics.Health;
+using Veyra.Core.Settings;
+using Veyra.Query.Blocking;
 using Veyra.Query.Home;
+using Veyra.Query.Live;
 using Veyra.Query.Metrics;
+using Veyra.Query.Queries;
+using Veyra.Query.Server;
+using Veyra.Query.Settings;
+using Veyra.Query.Storage;
 
 namespace Veyra.Query;
 
@@ -29,18 +37,51 @@ public static class QueryServiceCollectionExtensions
 
         services.AddOptions<QueryOptions>()
             .Bind(configuration.GetSection(VeyraOptionNames.Query))
-            .Validate(o => o.MaxPageSize > 0, "Veyra:Query:MaxPageSize must be greater than zero.")
             .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<QueryOptions>, QueryOptionsRules>();
+        services.AddSingleton<IModuleSettings, QuerySettings>();
 
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<HomeSnapshotBuilder>();
+        services.AddSingleton(provider => new SharedHomeSnapshots(
+            provider.GetRequiredService<HomeSnapshotBuilder>().BuildAsync,
+            provider.GetRequiredService<TimeProvider>()));
         services.AddSingleton<MetricViewBuilder>();
+        services.AddSingleton<DatabaseViewBuilder>();
+        services.AddSingleton<LiveViewBuilder>();
+        services.AddSingleton<QueriesViewBuilder>();
+        services.AddSingleton<BlockingViewBuilder>();
+        services.AddSingleton<StorageViewBuilder>();
+        services.AddSingleton<IndexViewBuilder>();
+        services.AddSingleton<ServerViewBuilder>();
+        services.AddSingleton<JobsViewBuilder>();
+        services.AddSingleton<EventsViewBuilder>();
+        services.AddSingleton<AvailabilityViewBuilder>();
+        services.AddSingleton<ConfigurationViewBuilder>();
         services.AddSingleton<IMetricHealth, MetricHealth>();
 
         // The controller is public, as MVC requires, but its builder is internal, so the module builds it. The host's
         // AddControllersAsServices() only adds controllers that are not registered yet.
-        services.AddTransient(provider => new HomeController(provider.GetRequiredService<HomeSnapshotBuilder>()));
-        services.AddTransient(provider => new MetricsController(provider.GetRequiredService<MetricViewBuilder>()));
+        services.AddTransient(provider => new HomeController(provider.GetRequiredService<SharedHomeSnapshots>()));
+        services.AddTransient(provider => new MetricsController(
+            provider.GetRequiredService<MetricViewBuilder>(),
+            provider.GetRequiredService<DatabaseViewBuilder>()));
+        services.AddTransient(provider => new DatabaseLiveController(provider.GetRequiredService<LiveViewBuilder>()));
+        services.AddTransient(provider =>
+            new DatabaseQueriesController(provider.GetRequiredService<QueriesViewBuilder>()));
+        services.AddTransient(provider =>
+            new DatabaseBlockingController(provider.GetRequiredService<BlockingViewBuilder>()));
+        services.AddTransient(provider =>
+            new DatabaseStorageController(
+                provider.GetRequiredService<StorageViewBuilder>(),
+                provider.GetRequiredService<IndexViewBuilder>()));
+        services.AddTransient(provider =>
+            new DatabaseServerController(
+                provider.GetRequiredService<ServerViewBuilder>(),
+                provider.GetRequiredService<JobsViewBuilder>(),
+                provider.GetRequiredService<EventsViewBuilder>(),
+                provider.GetRequiredService<AvailabilityViewBuilder>(),
+                provider.GetRequiredService<ConfigurationViewBuilder>()));
 
         return services;
     }

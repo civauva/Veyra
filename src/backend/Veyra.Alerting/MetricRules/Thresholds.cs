@@ -56,4 +56,15 @@ internal static class Thresholds
             : Holds(AlertSeverity.Caution, caution) ? AlertSeverity.Caution
             : null;
     }
+
+    /// <summary>
+    /// For rules that clear only after a quiet while, such as no deadlock for 30 minutes: a held severity stays while
+    /// the condition still shows, and a higher one replaces it.
+    /// </summary>
+    /// <param name="raised">The severity the measurement raises by itself, or <see langword="null"/>.</param>
+    /// <param name="current">The severity held now, or <see langword="null"/> when no alert is open.</param>
+    /// <param name="stillShows">Whether the condition still shows within the rule's quiet while.</param>
+    /// <returns>The severity, or <see langword="null"/> when no alert should be open.</returns>
+    public static AlertSeverity? HeldWhile(AlertSeverity? raised, AlertSeverity? current, bool stillShows) =>
+        current is { } held && stillShows && (raised is null || raised < held) ? held : raised;
 }

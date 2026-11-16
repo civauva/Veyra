@@ -21,14 +21,16 @@ internal sealed partial class IngestionKeyService(
     /// The environments the key may send data for, or <see langword="null"/> for all.
     /// </param>
     /// <param name="expiresAt">When the key stops working by itself, or <see langword="null"/> for never.</param>
-    /// <param name="createdBy">The administrator who creates the key.</param>
+    /// <param name="createdBy">
+    /// The administrator who creates the key, or <see langword="null"/> when Veyra issues it for itself.
+    /// </param>
     /// <param name="cancellationToken">Cancels the creation.</param>
     /// <returns>The stored key and its secret.</returns>
     public async Task<CreatedIngestionKey> CreateAsync(
         string name,
         IReadOnlyList<string>? environments,
         DateTimeOffset? expiresAt,
-        Guid createdBy,
+        Guid? createdBy,
         CancellationToken cancellationToken)
     {
         var secret = IngestionKeyFormat.Generate();
@@ -45,7 +47,14 @@ internal sealed partial class IngestionKeyService(
 
         await store.InsertAsync(key, IngestionKeyFormat.Hash(secret), cancellationToken);
 
-        LogKeyCreated(key.Id, key.Name, key.DisplayPrefix, createdBy);
+        if (createdBy is { } user)
+        {
+            LogKeyCreated(key.Id, key.Name, key.DisplayPrefix, user);
+        }
+        else
+        {
+            LogKeyIssued(key.Id, key.Name, key.DisplayPrefix);
+        }
 
         return new CreatedIngestionKey(key, secret);
     }
@@ -60,16 +69,22 @@ internal sealed partial class IngestionKeyService(
     /// Revokes a key. Senders using it are rejected once the validator's cache has expired.
     /// </summary>
     /// <param name="id">The key's ID.</param>
-    /// <param name="revokedBy">The administrator who revokes the key.</param>
+    /// <param name="revokedBy">
+    /// The administrator who revokes the key, or <see langword="null"/> when Veyra revokes a key it issued.
+    /// </param>
     /// <param name="cancellationToken">Cancels the revocation.</param>
     /// <returns><see langword="true"/> when an active key was revoked; <see langword="false"/> otherwise.</returns>
-    public async Task<bool> RevokeAsync(Guid id, Guid revokedBy, CancellationToken cancellationToken)
+    public async Task<bool> RevokeAsync(Guid id, Guid? revokedBy, CancellationToken cancellationToken)
     {
         var revoked = await store.RevokeAsync(id, clock.GetUtcNow(), cancellationToken);
 
-        if (revoked)
+        if (revoked && revokedBy is { } user)
         {
-            LogKeyRevoked(id, revokedBy);
+            LogKeyRevoked(id, user);
+        }
+        else if (revoked)
+        {
+            LogKeyRevokedByVeyra(id);
         }
 
         return revoked;
@@ -82,4 +97,12 @@ internal sealed partial class IngestionKeyService(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Security: ingestion key {KeyId} revoked by user {UserId}")]
     private partial void LogKeyRevoked(Guid keyId, Guid userId);
+
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Security: ingestion key {KeyId} {KeyName} ({DisplayPrefix}) issued by Veyra for itself")]
+    private partial void LogKeyIssued(Guid keyId, string keyName, string displayPrefix);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Security: ingestion key {KeyId} revoked by Veyra")]
+    private partial void LogKeyRevokedByVeyra(Guid keyId);
 }

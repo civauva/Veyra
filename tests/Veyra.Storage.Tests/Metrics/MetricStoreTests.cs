@@ -2,7 +2,9 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
+using Veyra.Core.Alerts;
 using Veyra.Core.Metrics;
+using Veyra.Core.Telemetry;
 using Veyra.Storage.Metrics;
 using Veyra.Testing;
 
@@ -56,13 +58,44 @@ public class MetricStoreTests(PostgresFixture postgres)
 
         var byName = await store.FindSeriesAsync(new MetricSeriesQuery(since, Names: ["dotnet.gc.heap"]), default);
         var byHost = await store.FindSeriesAsync(new MetricSeriesQuery(since, HostName: "db-01"), default);
-        var byService = await store.FindSeriesAsync(new MetricSeriesQuery(since, ServiceName: "orders", Environment: "staging"), default);
+        var byService = await store.FindSeriesAsync(
+            new MetricSeriesQuery(since, ServiceName: "orders", Environment: "staging"),
+            default);
         var notSeen = await store.FindSeriesAsync(new MetricSeriesQuery(_noon.AddMinutes(1)), default);
 
         Assert.Single(byName);
         Assert.Equal("db-01", Assert.Single(byHost).HostName);
         Assert.Equal("orders", Assert.Single(byService).ServiceName);
         Assert.Empty(notSeen);
+    }
+
+    [Fact]
+    public async Task FindSeriesAsync_Block_MatchesTheDatabaseServerAndKeepsHostsApart()
+    {
+        await using var database = await CreateAsync();
+        var store = Store(database);
+        var sqlServer = TelemetryBlock.Database("microsoft.sql_server", "sql-prod-01");
+        await store.WriteAsync(
+            [
+                Cpu("user", 1, _noon),
+                Gauge("sqlserver.processes.blocked", 2, _noon) with
+                {
+                    HostName = null,
+                    ResourceAttributes = new Dictionary<string, string> { ["server.address"] = "sql-prod-01" },
+                    Block = sqlServer,
+                },
+            ],
+            CancellationToken.None);
+        var since = _noon.AddHours(-1);
+
+        var byDatabase = await store.FindSeriesAsync(new MetricSeriesQuery(since, Block: sqlServer), default);
+        var byHost = await store.FindSeriesAsync(
+            new MetricSeriesQuery(since, Block: new TelemetryBlock(AlertBlockKind.Host, "web-01")),
+            default);
+
+        var blocked = Assert.Single(byDatabase);
+        Assert.Equal(("sqlserver.processes.blocked", sqlServer), (blocked.Name, blocked.Block));
+        Assert.Equal("system.cpu.time", Assert.Single(byHost).Name);
     }
 
     [Fact]
@@ -79,10 +112,17 @@ public class MetricStoreTests(PostgresFixture postgres)
             CancellationToken.None);
         var id = Assert.Single(await store.FindSeriesAsync(new MetricSeriesQuery(_noon.AddHours(-1)), default)).Id;
 
-        var buckets = await store.ReadBucketsAsync([id], _noon.AddMinutes(-10), _noon, TimeSpan.FromMinutes(5), default);
+        var buckets = await store.ReadBucketsAsync(
+            [id],
+            _noon.AddMinutes(-10),
+            _noon,
+            TimeSpan.FromMinutes(5),
+            default);
 
         Assert.Equal(2, buckets.Count);
-        Assert.Equal((_noon.AddMinutes(-10), 2, 2d, 4d), (buckets[0].Start, buckets[0].Points, buckets[0].Average, buckets[0].Total));
+        Assert.Equal(
+            (_noon.AddMinutes(-10), 2, 2d, 4d),
+            (buckets[0].Start, buckets[0].Points, buckets[0].Average, buckets[0].Total));
         Assert.Equal((_noon.AddMinutes(-7), 3d), (buckets[0].LastTimestamp, buckets[0].LastValue));
         Assert.Equal((_noon.AddMinutes(-5), 1, 8d), (buckets[1].Start, buckets[1].Points, buckets[1].LastValue));
     }
@@ -96,7 +136,8 @@ public class MetricStoreTests(PostgresFixture postgres)
         await store.WriteAsync([Durations(histogram, _noon.AddMinutes(-1))], CancellationToken.None);
         var id = Assert.Single(await store.FindSeriesAsync(new MetricSeriesQuery(_noon.AddHours(-1)), default)).Id;
 
-        var bucket = Assert.Single(await store.ReadBucketsAsync([id], _noon.AddMinutes(-5), _noon, TimeSpan.FromMinutes(5), default));
+        var bucket = Assert.Single(
+            await store.ReadBucketsAsync([id], _noon.AddMinutes(-5), _noon, TimeSpan.FromMinutes(5), default));
 
         Assert.Null(bucket.LastValue);
         Assert.Equal(_noon.AddHours(-1), bucket.LastStart);
@@ -194,7 +235,7 @@ public class MetricStoreTests(PostgresFixture postgres)
 
     private MetricStore Store(NpgsqlDataSource database, int maxSeries = 50_000) => new(
         database,
-        Options.Create(new StorageOptions { MaxMetricSeries = maxSeries }),
+        new TestOptionsMonitor<StorageOptions>(new StorageOptions { MaxMetricSeries = maxSeries }),
         _clock,
         NullLogger<MetricStore>.Instance);
 

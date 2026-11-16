@@ -69,13 +69,20 @@ export function SessionProvider({ children }: SessionProviderProps) {
     setState({ status: "signedOut" });
   }, []);
 
+  const setTimeZone = useCallback(async (timeZone: string | null) => {
+    await api.setTimeZone(timeZone);
+    setState((current) =>
+      current.status === "signedIn" ? { status: "signedIn", session: { ...current.session, timeZone } } : current,
+    );
+  }, []);
+
   const setupCompleted = useCallback(() => {
     setState({ status: "signedOut", notice: "Administrator created. Sign in to continue." });
   }, []);
 
   const value = useMemo<SessionValue>(
-    () => ({ state, signIn, completeSignIn, signOut, setupCompleted }),
-    [state, signIn, completeSignIn, signOut, setupCompleted],
+    () => ({ state, signIn, completeSignIn, signOut, setupCompleted, setTimeZone }),
+    [state, signIn, completeSignIn, signOut, setupCompleted, setTimeZone],
   );
 
   return <SessionContext value={value}>{children}</SessionContext>;

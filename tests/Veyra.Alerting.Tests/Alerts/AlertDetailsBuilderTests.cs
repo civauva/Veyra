@@ -156,7 +156,14 @@ public class AlertDetailsBuilderTests(PostgresFixture postgres)
         Assert.Null(details.Latency);
 
         var disk = details.Disk!;
-        Assert.Equal(("/", 0.86, 86.0, 100.0, 9.2), (disk.Mountpoint, disk.Ratio!.Value, disk.UsedBytes!.Value, disk.TotalBytes!.Value, disk.DaysUntilFull!.Value));
+        Assert.Equal(
+            ("/", 0.86, 86.0, 100.0, 9.2),
+            (
+                disk.Mountpoint,
+                disk.Ratio!.Value,
+                disk.UsedBytes!.Value,
+                disk.TotalBytes!.Value,
+                disk.DaysUntilFull!.Value));
         Assert.Equal(3600, disk.BucketSeconds);
         Assert.Equal(2, disk.Points.Count);
         Assert.Equal(["/", "/boot"], disk.Disks.Select(other => other.Mountpoint));
@@ -229,7 +236,7 @@ public class AlertDetailsBuilderTests(PostgresFixture postgres)
         new DeliveryStore(database),
         _logs,
         _metrics,
-        Options.Create(new AlertingOptions()),
+        new TestOptionsMonitor<AlertingOptions>(new AlertingOptions()),
         _clock);
 
     /// <summary>Answers summaries per minute from counts a test sets, and one error group.</summary>

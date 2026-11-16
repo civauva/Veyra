@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router";
 
 import type { LogEntry } from "../api/types";
-import { formatInstant } from "./format";
+import { formatInstant, formatUtc } from "./format";
 import { SeverityBadge } from "./SeverityBadge";
+import { useViewMode } from "../app/ViewToggle";
 
 /** The OpenTelemetry attribute that holds an exception's stack trace; it is shown as a block, not as a row. */
 const stackTraceAttribute = "exception.stacktrace";
@@ -27,6 +29,7 @@ interface LogDetailProps {
  * search from it. A column on wide screens, a drawer on tablets, and full screen on phones.
  */
 export function LogDetail({ entry, onSameTrace, onAround, onClose }: LogDetailProps) {
+  const [mode] = useViewMode();
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const closeRef = useRef<HTMLButtonElement>(null);
 
@@ -63,7 +66,9 @@ export function LogDetail({ entry, onSameTrace, onAround, onClose }: LogDetailPr
     <section className="detail" aria-label="Selected record">
       <div className="detail-top">
         <SeverityBadge severity={entry.severity} />
-        <span className="mono detail-time">{formatInstant(entry.timestamp)}</span>
+        <span className="mono detail-time" title={formatUtc(entry.timestamp)}>
+          {formatInstant(entry.timestamp)}
+        </span>
         <button
           ref={closeRef}
           type="button"
@@ -81,8 +86,10 @@ export function LogDetail({ entry, onSameTrace, onAround, onClose }: LogDetailPr
       {stackTrace && <pre className="detail-stack mono">{stackTrace}</pre>}
 
       <Fields title="Attributes" fields={attributes} empty="This record has no attributes." />
-      <Fields title="Resource" fields={Object.entries(resource)} empty="The sender described no resource." />
-      {entry.traceId && (
+      {mode === "advanced" && (
+        <Fields title="Resource" fields={Object.entries(resource)} empty="The sender described no resource." />
+      )}
+      {mode === "advanced" && entry.traceId && (
         <Fields
           title="Trace"
           fields={[
@@ -93,6 +100,11 @@ export function LogDetail({ entry, onSameTrace, onAround, onClose }: LogDetailPr
       )}
 
       <div className="detail-actions">
+        {entry.traceId && (
+          <Link className="button" to={`/traces/${entry.traceId}?at=${encodeURIComponent(entry.timestamp)}`}>
+            Open trace
+          </Link>
+        )}
         {entry.traceId && (
           <button type="button" className="button" onClick={() => onSameTrace(entry.traceId ?? "")}>
             Same trace

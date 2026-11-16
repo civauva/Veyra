@@ -1,0 +1,9 @@
+namespace Veyra.Core.Traces;
+
+/// <summary>
+/// Why a trace failed, from its deepest failed span: the cause rather than the requests that passed it on.
+/// </summary>
+/// <param name="Service">The service of that span.</param>
+/// <param name="SpanName">Its name.</param>
+/// <param name="Message">Its exception message, or else its status message, or else its name.</param>
+public sealed record TraceFailure(string Service, string SpanName, string Message);

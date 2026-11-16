@@ -152,7 +152,7 @@ function ChartView({ chart, description, onShow, onSplit }: ChartViewProps) {
         </span>
       </div>
       {description && <p className="metric-description">{description}</p>}
-      <div className="chip-row" role="group" aria-label="Show">
+      <div className="metric-chip-row" role="group" aria-label="Show">
         <span>Show</span>
         {shows[chart.kind].map((option) => (
           <button
@@ -166,7 +166,7 @@ function ChartView({ chart, description, onShow, onSplit }: ChartViewProps) {
           </button>
         ))}
       </div>
-      <div className="chip-row" role="group" aria-label="Split by">
+      <div className="metric-chip-row" role="group" aria-label="Split by">
         <span>Split by</span>
         <button
           type="button"

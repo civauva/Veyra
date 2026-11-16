@@ -18,12 +18,12 @@ public sealed class NotificationChannelsController : ControllerBase
 {
     private readonly ChannelService _channels;
 
-    private readonly IOptions<AlertingOptions> _options;
+    private readonly IOptionsMonitor<AlertingOptions> _options;
 
     /// <summary>Creates the controller. The Alerting module builds it, so its service can stay internal.</summary>
     /// <param name="channels">Manages the channels.</param>
     /// <param name="options">The Alerting settings with the SMTP server.</param>
-    internal NotificationChannelsController(ChannelService channels, IOptions<AlertingOptions> options)
+    internal NotificationChannelsController(ChannelService channels, IOptionsMonitor<AlertingOptions> options)
     {
         _channels = channels;
         _options = options;
@@ -35,7 +35,7 @@ public sealed class NotificationChannelsController : ControllerBase
     [HttpGet]
     public async Task<NotificationChannelsResponse> ListAsync(CancellationToken cancellationToken)
     {
-        var smtp = _options.Value.Notifications.Smtp;
+        var smtp = _options.CurrentValue.Notifications.Smtp;
         var channels = await _channels.ListAsync(cancellationToken);
 
         return new NotificationChannelsResponse(

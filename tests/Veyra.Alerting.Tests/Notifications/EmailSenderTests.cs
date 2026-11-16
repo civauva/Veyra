@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using Veyra.Alerting.Notifications;
+using Veyra.Testing;
 
 namespace Veyra.Alerting.Tests.Notifications;
 
@@ -74,8 +75,9 @@ public class EmailSenderTests(MailpitFixture mailpit)
         From = "Veyra <veyra@example.com>",
     };
 
-    private EmailSender Sender(SmtpOptions? smtp = null) => new(Options.Create(new AlertingOptions
-    {
-        Notifications = new NotificationOptions { Smtp = smtp ?? Smtp() },
-    }));
+    private EmailSender Sender(SmtpOptions? smtp = null) => new(
+        new TestOptionsMonitor<AlertingOptions>(new AlertingOptions
+        {
+            Notifications = new NotificationOptions { Smtp = smtp ?? Smtp() },
+        }));
 }

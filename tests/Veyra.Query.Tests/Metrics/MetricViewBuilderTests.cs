@@ -33,6 +33,24 @@ public class MetricViewBuilderTests
         Assert.Equal(0.4, host.Cpu.Latest!.Value, 6);
     }
 
+    [Theory]
+    [InlineData("1h", 60, 60)]
+    [InlineData("6h", 300, 72)]
+    [InlineData("24h", 1800, 48)]
+    [InlineData("7d", 10800, 56)]
+    public async Task OverviewAsync_Range_CardLinesHaveAtMostSeventyTwoPoints(
+        string range,
+        int bucketSeconds,
+        int points)
+    {
+        AddCpu("user", perSecond: 0.3);
+
+        var overview = await Builder().OverviewAsync(range, CancellationToken.None);
+
+        Assert.Equal(bucketSeconds, overview.BucketSeconds);
+        Assert.Equal(points, Assert.Single(overview.Hosts).Cpu.Points.Count);
+    }
+
     [Fact]
     public async Task OverviewAsync_SeveralCpus_CpuShareIsOfAllCpus()
     {

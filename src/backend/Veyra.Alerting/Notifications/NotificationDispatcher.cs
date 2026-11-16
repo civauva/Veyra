@@ -14,7 +14,7 @@ namespace Veyra.Alerting.Notifications;
 internal sealed partial class NotificationDispatcher(
     DeliveryStore deliveries,
     ChannelSender sender,
-    IOptions<AlertingOptions> options,
+    IOptionsMonitor<AlertingOptions> options,
     TimeProvider clock,
     ILogger<NotificationDispatcher> logger)
 {
@@ -36,7 +36,7 @@ internal sealed partial class NotificationDispatcher(
     /// <returns>How many messages were tried.</returns>
     public async Task<int> DispatchAsync(CancellationToken cancellationToken)
     {
-        var settings = options.Value;
+        var settings = options.CurrentValue;
         var now = clock.GetUtcNow();
 
         // The lease covers every try of the batch in turn, with room to spare, so nothing is claimed twice.

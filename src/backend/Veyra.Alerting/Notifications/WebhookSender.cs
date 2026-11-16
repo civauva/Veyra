@@ -8,7 +8,7 @@ namespace Veyra.Alerting.Notifications;
 /// <summary>Posts notifications as JSON to webhook URLs.</summary>
 /// <param name="clients">Provides the <see cref="ClientName"/> client, which follows no redirects.</param>
 /// <param name="options">The Alerting settings with the time limit per try.</param>
-internal sealed class WebhookSender(IHttpClientFactory clients, IOptions<AlertingOptions> options)
+internal sealed class WebhookSender(IHttpClientFactory clients, IOptionsMonitor<AlertingOptions> options)
 {
     /// <summary>The name of the HTTP client registered for webhooks.</summary>
     public const string ClientName = "Veyra.Webhooks";
@@ -20,7 +20,7 @@ internal sealed class WebhookSender(IHttpClientFactory clients, IOptions<Alertin
     /// <returns>How the try ended. Never throws for network or HTTP failures.</returns>
     public async Task<SendResult> SendAsync(Uri url, NotificationMessage message, CancellationToken cancellationToken)
     {
-        var timeout = options.Value.Notifications.SendTimeout;
+        var timeout = options.CurrentValue.Notifications.SendTimeout;
 
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         limit.CancelAfter(timeout);

@@ -31,6 +31,8 @@ builder.Services
     });
 ```
 
+Traces take one more call, `.WithTracing(...)`, and a choice of how much to keep; see [`traces.md`](traces.md).
+
 ## 3. Point it at Veyra
 
 Create an ingestion key in Veyra (`POST /api/v1/ingestion-keys`, Admin), then configure the application through the
@@ -55,7 +57,8 @@ OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=production
 
 Each log call becomes one record with its message, severity, category (`otel.scope.name`), structured parameters
 as attributes, and, for logged exceptions, `exception.type`, `exception.message`, and `exception.stacktrace`. Inside
-a request, the record also carries the trace and span IDs, so it can be linked to the trace once traces exist.
+a request, the record also carries the trace and span IDs, so the Log Explorer opens its trace and the trace view
+lists its records ([traces](traces.md)).
 
 ### Metrics
 

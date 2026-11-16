@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using Veyra.Alerting.Notifications;
+using Veyra.Testing;
 
 namespace Veyra.Alerting.Tests.Notifications;
 
@@ -76,7 +77,7 @@ public sealed class WebhookSenderTests : IDisposable
 
     private WebhookSender Sender(TimeSpan? timeout = null) => new(
         _webhooks,
-        Options.Create(new AlertingOptions
+        new TestOptionsMonitor<AlertingOptions>(new AlertingOptions
         {
             Notifications = new NotificationOptions { SendTimeout = timeout ?? TimeSpan.FromSeconds(10) },
         }));

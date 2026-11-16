@@ -6,8 +6,26 @@ namespace Veyra.Storage.Logs;
 /// Stands in for <see cref="LogStore"/> when no connection string is configured, so Veyra can start and report the
 /// problem through <c>/readyz</c> instead of failing at startup.
 /// </summary>
-internal sealed class UnconfiguredLogStore : ILogWriter, ILogSearch, ILogRates, ILogStorageUsage
+internal sealed class UnconfiguredLogStore : ILogWriter, ILogSearch, ILogRates, ILogStorageUsage, IBlockEvents
 {
+    /// <summary>Always fails: there is no database to read from.</summary>
+    /// <param name="block">Ignored.</param>
+    /// <param name="eventName">Ignored.</param>
+    /// <param name="since">Ignored.</param>
+    /// <param name="until">Ignored.</param>
+    /// <param name="limit">Ignored.</param>
+    /// <param name="cancellationToken">Ignored.</param>
+    /// <returns>Never completes successfully.</returns>
+    /// <exception cref="InvalidOperationException">Always.</exception>
+    public Task<IReadOnlyList<LogRecord>> ListAsync(
+        TelemetryBlock block,
+        string eventName,
+        DateTimeOffset since,
+        DateTimeOffset until,
+        int limit,
+        CancellationToken cancellationToken) =>
+        throw new InvalidOperationException(StorageHealthCheck.NotConfiguredMessage);
+
     /// <summary>Always fails: there is no database to count in.</summary>
     /// <param name="windowStart">Ignored.</param>
     /// <param name="windowEnd">Ignored.</param>

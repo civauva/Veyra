@@ -7,7 +7,9 @@ namespace Veyra.Access.Keys;
 /// <param name="Name">What the key is for, for example <c>web-01 collector</c>.</param>
 /// <param name="DisplayPrefix">The start of the key, safe to show, for example <c>vyk_AbCdEfGh</c>.</param>
 /// <param name="Environments">The environments the key may send data for. <see langword="null"/> means all.</param>
-/// <param name="CreatedBy">The ID of the administrator who created the key.</param>
+/// <param name="CreatedBy">
+/// The ID of the administrator who created the key, or <see langword="null"/> for a key Veyra issued for itself.
+/// </param>
 /// <param name="CreatedAt">When the key was created.</param>
 /// <param name="ExpiresAt">When the key stops working by itself, or <see langword="null"/> for never.</param>
 /// <param name="RevokedAt">When the key was revoked, or <see langword="null"/> while it is active.</param>
@@ -17,7 +19,7 @@ internal sealed record IngestionKey(
     string Name,
     string DisplayPrefix,
     IReadOnlyList<string>? Environments,
-    Guid CreatedBy,
+    Guid? CreatedBy,
     DateTimeOffset CreatedAt,
     DateTimeOffset? ExpiresAt,
     DateTimeOffset? RevokedAt,

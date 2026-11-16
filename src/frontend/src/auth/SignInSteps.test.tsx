@@ -27,7 +27,13 @@ vi.mock("../api/client", async (importOriginal) => {
   };
 });
 
-const lena = { id: "2", email: "lena@example.com", displayName: "Lena Hoffmann", role: "Editor" as const };
+const lena = {
+  id: "2",
+  email: "lena@example.com",
+  displayName: "Lena Hoffmann",
+  role: "Editor" as const,
+  timeZone: null,
+};
 const codes = ["K7QF-29XM", "8D3N-PW4R", "TJ6V-1HQZ", "5MB2-C9LE", "R4XW-7GKA"];
 
 function renderSignIn() {
@@ -50,6 +56,22 @@ beforeEach(() => {
   vi.mocked(api.currentSession).mockResolvedValue(null);
   vi.mocked(api.setupStatus).mockResolvedValue({ required: false });
   vi.mocked(api.home).mockResolvedValue(clearSnapshot);
+});
+
+describe("Signing in over plain HTTP", () => {
+  it("says on the sign-in screen that signing in needs HTTPS", async () => {
+    vi.mocked(api.signIn).mockRejectedValue(
+      new ApiError(400, "Signing in needs HTTPS. Open Veyra at its https:// address."),
+    );
+    const user = userEvent.setup();
+    renderSignIn();
+
+    await typePassword(user);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Signing in needs HTTPS");
+    expect(screen.getByRole("heading", { name: "Sign in to Veyra" })).toBeVisible();
+    expect(screen.queryByText(/could not be reached/)).toBeNull();
+  });
 });
 
 describe("Signing in with a second factor", () => {

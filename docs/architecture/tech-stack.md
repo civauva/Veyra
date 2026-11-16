@@ -36,8 +36,12 @@ Status: agreed. A choice that is hard to reverse has an ADR in
 - **Email.** MailKit sends alert emails over SMTP. `System.Net.Mail.SmtpClient` is not recommended for new code
   and lacks modern authentication.
 - **Outgoing HTTP.** `IHttpClientFactory` with a named client for webhooks that follows no redirects.
-- **Secrets at rest.** Webhook URLs are encrypted with ASP.NET Data Protection, the same key ring as session
-  cookies.
+- **Secrets at rest.** Webhook URLs and the passwords of monitored SQL Servers are encrypted with ASP.NET Data
+  Protection, the same key ring as session cookies.
+- **Agents (ADR 0019).** Veyra speaks OpAMP over plain HTTP to its agents, with the official `.proto` files compiled by
+  `Google.Protobuf` and `Grpc.Tools`, the versions Ingestion already uses. Each agent's Collector configuration is
+  built from the tested templates in `integrations/`, read and written with `YamlDotNet` (MIT): .NET has no YAML
+  reader of its own. The agent itself is the official Collector and OpAMP supervisor images, unchanged.
 
 ## Security
 

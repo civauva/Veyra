@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Veyra.Access;
+using Veyra.Agents;
 using Veyra.Alerting;
 using Veyra.Ingestion;
 using Veyra.Query;
@@ -10,12 +11,17 @@ using Veyra.Storage;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Settings saved on the Settings screen win over appsettings.json and the environment, which give the first values
+// (ADR 0017). Added last, before any module reads its section.
+builder.Configuration.AddVeyraSavedSettings();
+
 builder.Services
     .AddVeyraIngestion(builder.Configuration)
     .AddVeyraStorage(builder.Configuration)
     .AddVeyraQuery(builder.Configuration)
     .AddVeyraAlerting(builder.Configuration)
-    .AddVeyraAccess(builder.Configuration);
+    .AddVeyraAccess(builder.Configuration)
+    .AddVeyraAgents(builder.Configuration);
 
 // Errors are answered as problem details (RFC 9457).
 builder.Services.AddProblemDetails();
@@ -28,6 +34,7 @@ builder.Services
     .AddApplicationPart(typeof(AccessServiceCollectionExtensions).Assembly)
     .AddApplicationPart(typeof(AlertingServiceCollectionExtensions).Assembly)
     .AddApplicationPart(typeof(QueryServiceCollectionExtensions).Assembly)
+    .AddApplicationPart(typeof(AgentsServiceCollectionExtensions).Assembly)
     .AddControllersAsServices()
     .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
@@ -50,6 +57,9 @@ var app = builder.Build();
 if (await app.Services.MigrateVeyraStorageAsync(app.Lifetime.ApplicationStopping))
 {
     await app.Services.PrepareVeyraAccessAsync(app.Lifetime.ApplicationStopping);
+
+    // Ingestion keys can be issued now, so the built-in agent gets its own.
+    await app.Services.PrepareVeyraAgentsAsync(app.Lifetime.ApplicationStopping);
 }
 
 app.UseForwardedHeaders();
@@ -93,6 +103,9 @@ app.MapControllers();
 
 // OTLP receivers. They check ingestion keys themselves (ADR 0008).
 app.MapVeyraOtlp();
+
+// OpAMP, where Veyra's agents poll for their configuration. It checks agent keys itself (ADR 0019).
+app.MapVeyraAgents();
 
 // Every other path is a route of the single-page app, except the API and OTLP, which answer 404 for unknown paths.
 // nonfile keeps paths with a file extension out: they belong to UseStaticFiles, and a missing file is a 404, not

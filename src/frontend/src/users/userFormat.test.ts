@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+
+import { setDisplayZone } from "../time/zone";
 
 import { avatarColor, eventText, formatSince, formatWhen, initialsOf, outcomeText } from "./userFormat";
 import { newPassword } from "./passwords";
@@ -20,6 +22,16 @@ describe("avatarColor", () => {
 });
 
 describe("formatWhen", () => {
+  afterEach(() => setDisplayZone("UTC"));
+
+  it("counts today and yesterday on the person's calendar, with the time in their zone", () => {
+    setDisplayZone("Europe/Berlin");
+
+    // 23:30 UTC on Nov 9 is already Nov 10 in Berlin, so it happened today.
+    expect(formatWhen("2026-11-09T23:30:00Z", now)).toBe("Today 00:30");
+    expect(formatWhen("2026-11-09T18:02:00Z", now)).toBe("Yesterday 19:02");
+  });
+
   it("says today and yesterday with the time in UTC, and days ago after that", () => {
     expect(formatWhen("2026-11-10T07:41:00Z", now)).toBe("Today 07:41");
     expect(formatWhen("2026-11-09T18:02:00Z", now)).toBe("Yesterday 18:02");

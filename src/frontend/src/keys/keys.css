@@ -176,12 +176,6 @@
   gap: 8px;
 }
 
-.button.danger {
-  border-color: var(--error-fg);
-  background: var(--error-bg);
-  color: var(--error-fg);
-}
-
 /* Phones: each key becomes a card with labelled fields. */
 @media (max-width: 767px) {
   .keys-table,

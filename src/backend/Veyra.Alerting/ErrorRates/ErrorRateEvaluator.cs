@@ -17,7 +17,7 @@ internal sealed class ErrorRateEvaluator(
     ILogRates rates,
     AlertStore store,
     AlertTransitions transitions,
-    IOptions<AlertingOptions> options,
+    IOptionsMonitor<AlertingOptions> options,
     TimeProvider clock)
 {
     /// <summary>Evaluates the rule as of now.</summary>
@@ -25,7 +25,7 @@ internal sealed class ErrorRateEvaluator(
     /// <returns>A task that completes when every alert is up to date.</returns>
     public async Task EvaluateAsync(CancellationToken cancellationToken)
     {
-        var rule = options.Value.ErrorRate;
+        var rule = options.CurrentValue.ErrorRate;
 
         if (!rule.Enabled)
         {

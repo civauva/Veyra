@@ -6,8 +6,8 @@ using Veyra.Storage.Schema;
 namespace Veyra.Storage.Metrics;
 
 /// <summary>
-/// Removes old metrics: whole daily partitions of points older than the retention, old rows of the default partition,
-/// and series that had no point for longer than the retention (ADR 0010).
+/// Removes old metrics: whole daily partitions of points and their rollups older than the retention, old rows of the
+/// default partitions, and series that had no point for longer than the retention (ADR 0010, ADR 0015).
 /// </summary>
 /// <param name="dataSource">The PostgreSQL connection pool.</param>
 /// <param name="store">The metric store, whose series cache is cleared when series are deleted.</param>
@@ -17,7 +17,7 @@ namespace Veyra.Storage.Metrics;
 internal sealed partial class MetricRetention(
     NpgsqlDataSource dataSource,
     MetricStore store,
-    IOptions<StorageOptions> options,
+    IOptionsMonitor<StorageOptions> options,
     TimeProvider clock,
     ILogger<MetricRetention> logger)
 {
@@ -35,33 +35,49 @@ internal sealed partial class MetricRetention(
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
-        var days = options.Value.MetricRetentionDays;
+        var days = options.CurrentValue.MetricRetentionDays;
         var firstDayKept = DateOnly.FromDateTime(now.UtcDateTime).AddDays(-days);
         var cutoff = new DateTimeOffset(firstDayKept.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
         var dropped = new List<string>();
 
-        var partitions = await DailyPartitions.ListAsync(dataSource, MetricPartitions.Table, cancellationToken);
-
-        foreach (var partition in partitions)
+        foreach (var table in MetricPartitions.Tables)
         {
-            if (partition.Day >= firstDayKept)
+            foreach (var partition in await DailyPartitions.ListAsync(dataSource, table, cancellationToken))
             {
-                continue;
+                if (partition.Day >= firstDayKept)
+                {
+                    continue;
+                }
+
+                // The name comes from pg_class and was checked to be the table, "_", and a date: safe to inline.
+                await using var drop = dataSource.CreateCommand($"DROP TABLE IF EXISTS storage.{partition.Name}");
+                await drop.ExecuteNonQueryAsync(cancellationToken);
+
+                if (table == MetricPartitions.Table)
+                {
+                    dropped.Add(partition.Name);
+                    LogDropped(partition.Name, days);
+                }
             }
-
-            // The name comes from pg_class and was checked to be metric_point_ followed by a date: safe to inline.
-            await using var drop = dataSource.CreateCommand($"DROP TABLE IF EXISTS storage.{partition.Name}");
-            await drop.ExecuteNonQueryAsync(cancellationToken);
-
-            dropped.Add(partition.Name);
-            LogDropped(partition.Name, days);
         }
 
-        await using (var command = dataSource.CreateCommand(
-            "DELETE FROM storage.metric_point_default WHERE timestamp < $1"))
+        await using (var batch = dataSource.CreateBatch())
         {
-            command.Parameters.AddWithValue(cutoff);
-            await command.ExecuteNonQueryAsync(cancellationToken);
+            foreach (var (sql, value) in new (string, object)[]
+            {
+                ("DELETE FROM storage.metric_point_default WHERE timestamp < $1", cutoff),
+                ("DELETE FROM storage.metric_rollup_5m_default WHERE bucket < $1", cutoff),
+                ("DELETE FROM storage.metric_rollup_1h_default WHERE bucket < $1", cutoff),
+                ("DELETE FROM storage.metric_rollup_dirty WHERE hour < $1", cutoff),
+                ("DELETE FROM storage.metric_rollup_backfill WHERE day < $1", firstDayKept),
+            })
+            {
+                var command = new NpgsqlBatchCommand(sql);
+                command.Parameters.Add(new NpgsqlParameter { Value = value });
+                batch.BatchCommands.Add(command);
+            }
+
+            await batch.ExecuteNonQueryAsync(cancellationToken);
         }
 
         int deleted;

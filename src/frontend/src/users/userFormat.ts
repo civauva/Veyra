@@ -1,4 +1,6 @@
 import type { Role, SignInOutcome, UserEvent } from "../api/types";
+import { formatClock } from "../logs/format";
+import { localDay, shortDate } from "../time/zone";
 
 /** Colours for avatars, picked from the person's ID so a person keeps theirs. Light enough for white initials. */
 const avatarColors = [
@@ -45,10 +47,8 @@ export function avatarColor(id: string): string {
   return avatarColors[hash % avatarColors.length] ?? "#2F6FD6";
 }
 
-const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
 /**
- * When something happened, the way the Users screen says it. Times are UTC, like everywhere in Veyra.
+ * When something happened, the way the Users screen says it, on the person's clock and calendar (VEY-22).
  *
  * @param iso - The time, or null.
  * @param now - The current time.
@@ -60,8 +60,8 @@ export function formatWhen(iso: string | null, now: Date): string {
   }
 
   const at = new Date(iso);
-  const days = Math.floor((startOfDay(now) - startOfDay(at)) / 86_400_000);
-  const time = `${String(at.getUTCHours()).padStart(2, "0")}:${String(at.getUTCMinutes()).padStart(2, "0")}`;
+  const days = Math.round((startOfDay(now) - startOfDay(at)) / 86_400_000);
+  const time = formatClock(at);
 
   if (days <= 0) {
     return `Today ${time}`;
@@ -75,7 +75,7 @@ export function formatWhen(iso: string | null, now: Date): string {
     return `${days} days ago`;
   }
 
-  return `${months[at.getUTCMonth()] ?? ""} ${at.getUTCDate()}`;
+  return shortDate(at);
 }
 
 /**
@@ -92,9 +92,7 @@ export function formatSince(iso: string, now: Date): string {
     return when.replace(/^(Today|Yesterday)/, (word) => word.toLowerCase());
   }
 
-  const at = new Date(iso);
-
-  return `${months[at.getUTCMonth()] ?? ""} ${at.getUTCDate()}`;
+  return shortDate(iso);
 }
 
 /**
@@ -108,8 +106,9 @@ export function daysSince(iso: string | null, now: Date): number | null {
   return iso ? Math.max(0, Math.floor((now.getTime() - new Date(iso).getTime()) / 86_400_000)) : null;
 }
 
+// The day as a number of days, so two days a daylight saving change apart are still one day apart.
 function startOfDay(date: Date): number {
-  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+  return Date.parse(`${localDay(date)}T00:00:00Z`);
 }
 
 /** How a sign-in reads in a list, and how it is marked. */

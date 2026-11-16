@@ -108,7 +108,7 @@ public class IngestionKeyServiceTests(PostgresFixture postgres)
         new(new IngestionKeyStore(database), _clock, NullLogger<IngestionKeyService>.Instance);
 
     private IngestionKeyValidator Validator(NpgsqlDataSource database) =>
-        new(new IngestionKeyStore(database), _clock, Options.Create(new AccessOptions()));
+        new(new IngestionKeyStore(database), _clock, new TestOptionsMonitor<AccessOptions>(new AccessOptions()));
 
     // Proves the secret is not stored anywhere in the key table, in any text form.
     private static async Task<bool> AnyColumnContainsAsync(NpgsqlDataSource database, string secret)

@@ -5,7 +5,7 @@ using Veyra.Storage.Schema;
 namespace Veyra.Storage.Logs;
 
 /// <summary>
-/// Creates the daily partitions of <c>storage.log_record</c> ahead of time.
+/// Creates the daily partitions of <c>storage.log_record</c> and of its counts (ADR 0015) ahead of time.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -50,14 +50,18 @@ internal sealed partial class LogPartitions(
 
     private async Task EnsureDayAsync(DateOnly day, CancellationToken cancellationToken)
     {
-        if (!await DailyPartitions.EnsureDayAsync(dataSource, "log_record", day, cancellationToken))
+        // The counts get the same days as the records, so retention drops a day's records and counts together.
+        foreach (var table in new[] { "log_record", "log_count_minute", "log_count_hour" })
         {
-            LogDayStaysInDefault(day);
+            if (!await DailyPartitions.EnsureDayAsync(dataSource, table, day, cancellationToken))
+            {
+                LogDayStaysInDefault(table, day);
+            }
         }
     }
 
     [LoggerMessage(
         Level = LogLevel.Warning,
-        Message = "Log partition for {Day} not created: the default partition already holds records for that day")]
-    private partial void LogDayStaysInDefault(DateOnly day);
+        Message = "Partition of {Table} for {Day} not created: the default partition already holds rows for that day")]
+    private partial void LogDayStaysInDefault(string table, DateOnly day);
 }

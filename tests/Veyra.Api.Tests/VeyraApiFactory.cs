@@ -11,15 +11,18 @@ namespace Veyra.Api.Tests;
 /// Hosts the whole Veyra API against its own new PostgreSQL database, so a test sees exactly the startup a real
 /// installation goes through: migrations, then first-run setup.
 /// </summary>
-internal sealed class VeyraApiFactory(string connectionString) : WebApplicationFactory<Program>
+internal sealed class VeyraApiFactory(string connectionString, (string Key, string Value)[] settings)
+    : WebApplicationFactory<Program>
 {
     public const string AdminEmail = "root@example.com";
 
     public const string AdminPassword = "correct horse battery";
 
-    /// <summary>Creates a factory with a fresh, empty database.</summary>
-    public static async Task<VeyraApiFactory> CreateAsync(PostgresFixture postgres) =>
-        new(await postgres.CreateDatabaseConnectionStringAsync());
+    /// <summary>Creates a factory with a fresh, empty database and, optionally, settings of its own.</summary>
+    public static async Task<VeyraApiFactory> CreateAsync(
+        PostgresFixture postgres,
+        params (string Key, string Value)[] settings) =>
+        new(await postgres.CreateDatabaseConnectionStringAsync(), settings);
 
     /// <summary>
     /// Returns a client that talks HTTPS, so the <c>Secure</c> session cookie behaves as in production.
@@ -64,6 +67,11 @@ internal sealed class VeyraApiFactory(string connectionString) : WebApplicationF
         // Tests run the alert rules themselves, when their records are in place. The background run at startup
         // finds nothing; a later one must not race a test's own run.
         builder.UseSetting("Veyra:Alerting:EvaluationInterval", "01:00:00");
+
+        foreach (var (key, value) in settings)
+        {
+            builder.UseSetting(key, value);
+        }
     }
 
     private sealed record AntiforgeryResponse(string Token);

@@ -23,7 +23,7 @@ namespace Veyra.Access.Keys;
 internal sealed class IngestionKeyValidator(
     IngestionKeyStore store,
     TimeProvider clock,
-    IOptions<AccessOptions> options) : IIngestionKeyValidator
+    IOptionsMonitor<AccessOptions> options) : IIngestionKeyValidator
 {
     private readonly ConcurrentDictionary<string, CachedKey> _cache = new(StringComparer.Ordinal);
 
@@ -58,7 +58,7 @@ internal sealed class IngestionKeyValidator(
         // Recording use once per cache period keeps the last-used time useful without a write per request.
         await store.TouchAsync(key.Id, now, cancellationToken);
 
-        _cache[cacheKey] = new CachedKey(key, now + options.Value.KeyCacheDuration);
+        _cache[cacheKey] = new CachedKey(key, now + options.CurrentValue.KeyCacheDuration);
 
         return ToCheck(key);
     }

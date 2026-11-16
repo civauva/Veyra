@@ -18,7 +18,7 @@ public class MetricRetentionTests(PostgresFixture postgres)
     {
         await using var database = await postgres.CreateMigratedDatabaseAsync(new StorageMigrations());
         var clock = new FakeTimeProvider(_noon.AddDays(-40));
-        var options = Options.Create(new StorageOptions { MetricRetentionDays = 30 });
+        var options = new TestOptionsMonitor<StorageOptions>(new StorageOptions { MetricRetentionDays = 30 });
         var store = new MetricStore(database, options, clock, NullLogger<MetricStore>.Instance);
         var partitions = new MetricPartitions(database, clock, NullLogger<MetricPartitions>.Instance);
 

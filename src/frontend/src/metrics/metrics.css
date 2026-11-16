@@ -24,7 +24,7 @@
 }
 
 .metrics-head > div:first-child,
-.metrics-detail-head > div:not(.range-picker) {
+.metrics-detail-head > div:first-of-type {
   flex: 1 1 320px;
   min-width: 0;
 }
@@ -341,17 +341,17 @@ div.metrics-empty b {
   text-align: center;
 }
 
-.ring {
+.usage-ring {
   position: relative;
   width: 74px;
   height: 74px;
 }
 
-.ring svg {
+.usage-ring svg {
   display: block;
 }
 
-.ring circle {
+.usage-ring circle {
   fill: none;
   stroke-width: 7;
 }
@@ -365,15 +365,15 @@ div.metrics-empty b {
   stroke: var(--ok-fg);
 }
 
-.ring.warn .ring-fill {
+.usage-ring.warn .ring-fill {
   stroke: var(--warning-fg);
 }
 
-.ring.bad .ring-fill {
+.usage-ring.bad .ring-fill {
   stroke: var(--error-fg);
 }
 
-.ring b {
+.usage-ring b {
   position: absolute;
   inset: 0;
   display: flex;
@@ -384,7 +384,7 @@ div.metrics-empty b {
   font-variant-numeric: tabular-nums;
 }
 
-.ring-label {
+.usage-ring-label {
   color: var(--muted);
   font-size: 12px;
 }
@@ -768,7 +768,7 @@ div.metrics-empty b {
   overflow-wrap: anywhere;
 }
 
-.chip-row {
+.metric-chip-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -777,7 +777,7 @@ div.metrics-empty b {
   font-size: 13px;
 }
 
-.chip-row > span {
+.metric-chip-row > span {
   margin-right: 4px;
 }
 
@@ -899,4 +899,199 @@ div.metrics-empty b {
   .metrics-tabs button {
     min-height: 44px;
   }
+}
+
+/* ---- Simple and Advanced (VEY-37) ---- */
+
+.block-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--ok-fg) 35%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--ok-fg) 10%, transparent);
+}
+
+.block-status > i {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ok-fg);
+  box-shadow: 0 0 10px var(--ok-fg);
+}
+
+.block-status.caution {
+  border-color: color-mix(in srgb, var(--warning-fg) 45%, transparent);
+  background: color-mix(in srgb, var(--warning-fg) 12%, transparent);
+}
+
+.block-status.caution > i {
+  background: var(--warning-fg);
+  box-shadow: 0 0 10px var(--warning-fg);
+}
+
+.block-status.warning {
+  border-color: color-mix(in srgb, var(--error-fg) 45%, transparent);
+  background: color-mix(in srgb, var(--error-fg) 12%, transparent);
+}
+
+.block-status.warning > i {
+  background: var(--error-fg);
+  box-shadow: 0 0 10px var(--error-fg);
+}
+
+.block-status a {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.metric-now .rings {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-around;
+  gap: 18px;
+}
+
+.metric-more {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 12px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* ---- Database servers (VEY-34, ADR 0018) ---- */
+
+.metric-icon.database {
+  background: color-mix(in srgb, var(--metric-teal) 16%, transparent);
+  color: var(--metric-teal);
+}
+
+.database-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.database-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px 14px 8px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+}
+
+.database-tile.warn {
+  border-color: color-mix(in srgb, var(--warning-fg) 55%, var(--line));
+}
+
+.database-tile span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.database-tile b {
+  font-size: 24px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.database-tile.warn b {
+  color: var(--warning-fg);
+}
+
+.database-tile b small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.database-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.database-badge.ok {
+  background: color-mix(in srgb, var(--ok-fg) 16%, transparent);
+  color: var(--ok-fg);
+}
+
+.database-badge.late {
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+}
+
+.database-badge.none {
+  background: var(--chip);
+  color: var(--muted);
+}
+
+.database-queries {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.database-queries li {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.database-queries li:last-child {
+  border-bottom: 0;
+}
+
+/* Veyra's agent's own statements, summed under the list instead of ranked in it. */
+.database-agent-work {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.database-queries b {
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.database-queries b.warn {
+  color: var(--warning-fg);
+}
+
+.database-queries small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.database-queries code {
+  display: block;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

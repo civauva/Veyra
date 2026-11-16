@@ -19,6 +19,9 @@ internal sealed partial class MetricPartitions(
     /// <summary>The partitioned table.</summary>
     public const string Table = "metric_point";
 
+    /// <summary>The tables split into daily partitions: the points and their rollups.</summary>
+    public static readonly IReadOnlyList<string> Tables = [Table, "metric_rollup_5m", "metric_rollup_1h"];
+
     /// <summary>Makes sure the partitions around the current time exist.</summary>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>A task that completes when the partitions exist.</returns>
@@ -36,15 +39,19 @@ internal sealed partial class MetricPartitions(
         {
             var day = today.AddDays(offset);
 
-            if (!await DailyPartitions.EnsureDayAsync(dataSource, Table, day, cancellationToken))
+            // The rollups (ADR 0015) get the same days as the points, so retention drops them together.
+            foreach (var table in Tables)
             {
-                LogDayStaysInDefault(day);
+                if (!await DailyPartitions.EnsureDayAsync(dataSource, table, day, cancellationToken))
+                {
+                    LogDayStaysInDefault(table, day);
+                }
             }
         }
     }
 
     [LoggerMessage(
         Level = LogLevel.Warning,
-        Message = "Metric partition for {Day} not created: the default partition already holds points for that day")]
-    private partial void LogDayStaysInDefault(DateOnly day);
+        Message = "Partition of {Table} for {Day} not created: the default partition already holds rows for that day")]
+    private partial void LogDayStaysInDefault(string table, DateOnly day);
 }

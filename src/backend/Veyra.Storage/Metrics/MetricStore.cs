@@ -6,7 +6,10 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using NpgsqlTypes;
+using Veyra.Core.Alerts;
 using Veyra.Core.Metrics;
+using Veyra.Core.Telemetry;
+using Veyra.Storage.Schema;
 
 namespace Veyra.Storage.Metrics;
 
@@ -15,8 +18,15 @@ namespace Veyra.Storage.Metrics;
 /// (ADR 0010).
 /// </summary>
 /// <remarks>
+/// <para>
 /// Series IDs are cached in memory, so a steady stream of points needs no series lookups at all. The cache holds at
 /// most the series limit. Retention clears it after deleting series, so no point is ever written for a deleted one.
+/// </para>
+/// <para>
+/// Reads take each part of their window from the coarsest level that gives their buckets (ADR 0015): hourly or
+/// 5-minute rollups, and the points where nothing is rolled up yet. A point that arrives for a time already rolled up
+/// marks its hour, which is read from the points until <see cref="MetricRollups"/> rolls it up again.
+/// </para>
 /// </remarks>
 /// <param name="dataSource">The PostgreSQL connection pool.</param>
 /// <param name="options">The Storage settings with the series limit and retention.</param>
@@ -24,7 +34,7 @@ namespace Veyra.Storage.Metrics;
 /// <param name="logger">Receives a warning when points are dropped at the series limit.</param>
 internal sealed partial class MetricStore(
     NpgsqlDataSource dataSource,
-    IOptions<StorageOptions> options,
+    IOptionsMonitor<StorageOptions> options,
     TimeProvider clock,
     ILogger<MetricStore> logger) : IMetricWriter, IMetricSearch
 {
@@ -37,13 +47,15 @@ internal sealed partial class MetricStore(
 
     private const string _seriesColumns =
         "id, name, kind, unit, description, temporality, monotonic, service_name, environment, host_name, "
-        + "resource_attributes::text, attributes::text, first_seen, last_seen";
+        + "resource_attributes::text, attributes::text, first_seen, last_seen, block_kind, block_name";
 
     // How often a series' last-seen time is refreshed while points keep arriving.
     private static readonly TimeSpan _lastSeenRefresh = TimeSpan.FromMinutes(1);
 
     // How often the warning about dropped points may repeat.
     private static readonly TimeSpan _dropWarningInterval = TimeSpan.FromMinutes(5);
+
+    private static readonly TimeSpan _hour = TimeSpan.FromHours(1);
 
     // The point rate covers this much time.
     private static readonly TimeSpan _rateWindow = TimeSpan.FromMinutes(5);
@@ -79,8 +91,11 @@ internal sealed partial class MetricStore(
         await ResolveSeriesAsync(connection, points, hashes, keys, now, cancellationToken);
         await RefreshLastSeenAsync(connection, keys, now, cancellationToken);
 
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var rolledUpTo = await LockRollupStateAsync(connection, cancellationToken);
         var stored = 0;
         var droppedNames = new SortedSet<string>(StringComparer.Ordinal);
+        var lateHours = new SortedSet<DateTimeOffset>();
 
         await using (var writer = await connection.BeginBinaryImportAsync(_copyCommand, cancellationToken))
         {
@@ -95,10 +110,18 @@ internal sealed partial class MetricStore(
 
                 await WritePointAsync(writer, series.Id, points[index], cancellationToken);
                 stored++;
+
+                if (points[index].Timestamp < rolledUpTo)
+                {
+                    lateHours.Add(TimeBins.Floor(points[index].Timestamp, _hour));
+                }
             }
 
             await writer.CompleteAsync(cancellationToken);
         }
+
+        await MarkLateHoursAsync(connection, lateHours, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
 
         _written.Enqueue((now, stored));
 
@@ -119,24 +142,9 @@ internal sealed partial class MetricStore(
     {
         ArgumentNullException.ThrowIfNull(query);
 
-        await using var command = dataSource.CreateCommand();
-        command.Parameters.AddWithValue(query.SeenSince);
-
-        var sql = new StringBuilder($"SELECT {_seriesColumns} FROM storage.metric_series WHERE last_seen >= $1");
-
-        if (query.Names is { Count: > 0 } names)
-        {
-            command.Parameters.AddWithValue(names.ToArray());
-            sql.Append(CultureInfo.InvariantCulture, $" AND name = ANY(${command.Parameters.Count})");
-        }
-
-        AppendEquals(sql, command, "service_name", query.ServiceName);
-        AppendEquals(sql, command, "environment", query.Environment);
-        AppendEquals(sql, command, "host_name", query.HostName);
-
-        command.Parameters.AddWithValue(query.Limit);
-        sql.Append(CultureInfo.InvariantCulture, $" ORDER BY name, id LIMIT ${command.Parameters.Count}");
-        command.CommandText = sql.ToString();
+        await using var command = CreateFindCommand(query);
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        command.Connection = connection;
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
 
@@ -158,10 +166,45 @@ internal sealed partial class MetricStore(
                 ResourceAttributes: Deserialize(reader.GetString(10)),
                 Attributes: Deserialize(reader.GetString(11)),
                 FirstSeen: reader.GetFieldValue<DateTimeOffset>(12),
-                LastSeen: reader.GetFieldValue<DateTimeOffset>(13)));
+                LastSeen: reader.GetFieldValue<DateTimeOffset>(13),
+                Block: new TelemetryBlock((AlertBlockKind)reader.GetInt16(14), reader.GetString(15))));
         }
 
         return series;
+    }
+
+    /// <summary>Builds the statement that finds series. The plan tests explain it.</summary>
+    /// <param name="query">Which series to find.</param>
+    /// <returns>The command, without a connection, which the caller disposes.</returns>
+    internal static NpgsqlCommand CreateFindCommand(MetricSeriesQuery query)
+    {
+        var command = new NpgsqlCommand();
+        command.Parameters.AddWithValue(query.SeenSince);
+
+        var sql = new StringBuilder($"SELECT {_seriesColumns} FROM storage.metric_series WHERE last_seen >= $1");
+
+        if (query.Names is { Count: > 0 } names)
+        {
+            command.Parameters.AddWithValue(names.ToArray());
+            sql.Append(CultureInfo.InvariantCulture, $" AND name = ANY(${command.Parameters.Count})");
+        }
+
+        AppendEquals(sql, command, "service_name", query.ServiceName);
+        AppendEquals(sql, command, "environment", query.Environment);
+        AppendEquals(sql, command, "host_name", query.HostName);
+
+        if (query.Block is { } block)
+        {
+            command.Parameters.AddWithValue((short)block.Kind);
+            sql.Append(CultureInfo.InvariantCulture, $" AND block_kind = ${command.Parameters.Count}");
+            AppendEquals(sql, command, "block_name", block.Name);
+        }
+
+        command.Parameters.AddWithValue(query.Limit);
+        sql.Append(CultureInfo.InvariantCulture, $" ORDER BY name, id LIMIT ${command.Parameters.Count}");
+        command.CommandText = sql.ToString();
+
+        return command;
     }
 
     /// <inheritdoc />
@@ -179,57 +222,78 @@ internal sealed partial class MetricStore(
             return [];
         }
 
-        // One row per series and bucket: the last point as stored, with the average and total of all its points.
-        // date_bin aligns the buckets to the start of the window, so they line up with the chart's axis.
-        await using var command = dataSource.CreateCommand(
-            """
-            WITH binned AS (
-                SELECT series_id, date_bin($4, timestamp, $2) AS bucket, timestamp, start_timestamp, value, count, sum,
-                       min, max, bounds, bucket_counts
-                FROM storage.metric_point
-                WHERE series_id = ANY($1) AND timestamp >= $2 AND timestamp < $3)
-            SELECT DISTINCT ON (series_id, bucket)
-                   series_id, bucket,
-                   count(*) OVER whole, avg(value) OVER whole, sum(value) OVER whole,
-                   timestamp, start_timestamp, value, count, sum, min, max, bounds, bucket_counts
-            FROM binned
-            WINDOW whole AS (PARTITION BY series_id, bucket)
-            ORDER BY series_id, bucket, timestamp DESC
-            """);
-        command.Parameters.AddWithValue(seriesIds.ToArray());
-        command.Parameters.AddWithValue(windowStart);
-        command.Parameters.AddWithValue(windowEnd);
-        command.Parameters.AddWithValue(bucketSize);
+        var (fiveMinutes, hours, unrolled) = await ReadRollupStateAsync(windowStart, windowEnd, cancellationToken);
+        var segments = MetricReadPlan.Split(windowStart, windowEnd, bucketSize, fiveMinutes, hours, unrolled);
 
+        if (segments.Count == 0)
+        {
+            return [];
+        }
+
+        await using var command = CreateReadCommand(dataSource, seriesIds, bucketSize, segments);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
 
-        var buckets = new List<MetricBucket>();
+        // A bucket can take its rows from several levels, for example its first 40 minutes rolled up and the rest
+        // from the points: the parts are added up and the latest last point wins.
+        var parts = new Dictionary<(long Series, DateTimeOffset Start), Part>();
 
         while (await reader.ReadAsync(cancellationToken))
         {
-            HistogramValue? histogram = reader.IsDBNull(13)
-                ? null
-                : new HistogramValue(
-                    reader.IsDBNull(8) ? 0 : reader.GetInt64(8),
-                    reader.IsDBNull(9) ? null : reader.GetDouble(9),
-                    reader.IsDBNull(10) ? null : reader.GetDouble(10),
-                    reader.IsDBNull(11) ? null : reader.GetDouble(11),
-                    reader.IsDBNull(12) ? [] : reader.GetFieldValue<double[]>(12),
-                    reader.GetFieldValue<long[]>(13));
+            var part = ReadPart(reader);
+            var key = (part.SeriesId, part.Start);
 
-            buckets.Add(new MetricBucket(
-                SeriesId: reader.GetInt64(0),
-                Start: reader.GetFieldValue<DateTimeOffset>(1),
-                Points: (int)reader.GetInt64(2),
-                Average: reader.IsDBNull(3) ? null : reader.GetDouble(3),
-                Total: reader.IsDBNull(4) ? null : reader.GetDouble(4),
-                LastTimestamp: reader.GetFieldValue<DateTimeOffset>(5),
-                LastStart: reader.IsDBNull(6) ? null : reader.GetFieldValue<DateTimeOffset>(6),
-                LastValue: reader.IsDBNull(7) ? null : reader.GetDouble(7),
-                LastHistogram: histogram));
+            parts[key] = parts.TryGetValue(key, out var earlier) ? earlier.Add(part) : part;
         }
 
-        return buckets;
+        return parts.Values
+            .OrderBy(part => part.SeriesId)
+            .ThenBy(part => part.Start)
+            .Select(part => part.ToBucket())
+            .ToList();
+    }
+
+    /// <summary>
+    /// Builds the one statement that reads a window, segment by segment, each grouped into the read's buckets. The plan
+    /// tests explain it.
+    /// </summary>
+    /// <param name="dataSource">The PostgreSQL connection pool.</param>
+    /// <param name="seriesIds">The series.</param>
+    /// <param name="bucketSize">The bucket width; buckets are aligned to the start of the first segment.</param>
+    /// <param name="segments">The parts of the window and their levels, from <see cref="MetricReadPlan"/>.</param>
+    /// <returns>The command, which the caller disposes.</returns>
+    internal static NpgsqlCommand CreateReadCommand(
+        NpgsqlDataSource dataSource,
+        IReadOnlyList<long> seriesIds,
+        TimeSpan bucketSize,
+        IReadOnlyList<MetricReadSegment> segments)
+    {
+        ArgumentNullException.ThrowIfNull(seriesIds);
+        ArgumentNullException.ThrowIfNull(segments);
+
+        var command = dataSource.CreateCommand();
+        command.Parameters.AddWithValue(seriesIds.ToArray());
+        command.Parameters.AddWithValue(bucketSize);
+        command.Parameters.AddWithValue(segments[0].From);
+
+        var sql = new StringBuilder();
+
+        foreach (var segment in segments)
+        {
+            command.Parameters.AddWithValue(segment.From);
+            command.Parameters.AddWithValue(segment.To);
+            var to = command.Parameters.Count;
+
+            if (sql.Length > 0)
+            {
+                sql.Append(" UNION ALL ");
+            }
+
+            sql.Append(SegmentSql(segment.Source, bucketSize, $"${to - 1}", $"${to}"));
+        }
+
+        command.CommandText = sql.ToString();
+
+        return command;
     }
 
     /// <inheritdoc />
@@ -294,7 +358,7 @@ internal sealed partial class MetricStore(
         }
 
         var recent = _written.Where(entry => entry.At <= now).Sum(entry => entry.Points);
-        var settings = options.Value;
+        var settings = options.CurrentValue;
 
         return new MetricStorageUsage(
             series,
@@ -390,7 +454,7 @@ internal sealed partial class MetricStore(
         {
             _seriesCount ??= count;
 
-            if (_seriesCount >= options.Value.MaxMetricSeries)
+            if (_seriesCount >= options.CurrentValue.MaxMetricSeries)
             {
                 return false;
             }
@@ -413,8 +477,8 @@ internal sealed partial class MetricStore(
             """
             INSERT INTO storage.metric_series
                 (hash, name, kind, unit, description, temporality, monotonic, service_name, environment, host_name,
-                 resource_attributes, attributes, first_seen, last_seen)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
+                 resource_attributes, attributes, first_seen, last_seen, block_kind, block_name)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13, $14, $15)
             ON CONFLICT (hash) DO UPDATE SET last_seen = greatest(storage.metric_series.last_seen, EXCLUDED.last_seen)
             RETURNING id
             """,
@@ -432,6 +496,14 @@ internal sealed partial class MetricStore(
         command.Parameters.AddWithValue(NpgsqlDbType.Jsonb, JsonSerializer.Serialize(point.ResourceAttributes));
         command.Parameters.AddWithValue(NpgsqlDbType.Jsonb, JsonSerializer.Serialize(point.Attributes));
         command.Parameters.AddWithValue(now);
+
+        // A point mapped from OTLP always knows its block; one built without it is filed as the migration filed the
+        // series stored before blocks existed.
+        var block = point.Block ?? (point.ServiceName is null && point.HostName is { } host
+            ? new TelemetryBlock(AlertBlockKind.Host, host)
+            : new TelemetryBlock(AlertBlockKind.Service, point.ServiceName ?? TelemetryBlock.UnknownService));
+        command.Parameters.AddWithValue((short)block.Kind);
+        command.Parameters.AddWithValue(block.Name);
 
         return (long)(await command.ExecuteScalarAsync(cancellationToken))!;
     }
@@ -515,7 +587,7 @@ internal sealed partial class MetricStore(
             _lastDropWarning = now;
         }
 
-        LogDroppedAtLimit(dropped, options.Value.MaxMetricSeries, string.Join(", ", names.Take(5)));
+        LogDroppedAtLimit(dropped, options.CurrentValue.MaxMetricSeries, string.Join(", ", names.Take(5)));
     }
 
     private static void AppendEquals(StringBuilder sql, NpgsqlCommand command, string column, string? value)
@@ -544,4 +616,192 @@ internal sealed partial class MetricStore(
     private partial void LogDroppedAtLimit(int count, int limit, string names);
 
     private sealed record CachedSeries(long Id, DateTimeOffset LastSeen);
+
+    /// <summary>
+    /// One segment's rows: per series and bucket the number of points, the number and sum of their values, the bucket's
+    /// last point.
+    /// </summary>
+    /// <remarks>
+    /// Rollup rows of the bucket's own width are the buckets already and are read as they are, without sorting
+    /// (ADR 0015). Otherwise each bucket's rows are summed and its last row kept with one window over them.
+    /// </remarks>
+    private static string SegmentSql(MetricReadSource source, TimeSpan bucketSize, string from, string to)
+    {
+        if (source == MetricReadSource.Points)
+        {
+            return string.Create(
+                CultureInfo.InvariantCulture,
+                $"""
+                (SELECT DISTINCT ON (series_id, bin)
+                        series_id, bin, count(*) OVER whole, count(value) OVER whole, sum(value) OVER whole,
+                        timestamp, start_timestamp, value, count, sum, min, max, bounds, bucket_counts
+                FROM (SELECT point.*, date_bin($2, timestamp, $3) AS bin
+                      FROM storage.metric_point AS point
+                      WHERE series_id = ANY($1) AND timestamp >= {from} AND timestamp < {to}) AS binned
+                WINDOW whole AS (PARTITION BY series_id, bin)
+                ORDER BY series_id, bin, timestamp DESC)
+                """);
+        }
+
+        var (table, width) = source == MetricReadSource.Hours
+            ? ("storage.metric_rollup_1h", TimeSpan.FromHours(1))
+            : ("storage.metric_rollup_5m", TimeSpan.FromMinutes(5));
+        const string last =
+            "last_timestamp, last_start, last_value, last_count, last_sum, last_min, last_max, last_bounds, "
+            + "last_bucket_counts";
+
+        if (bucketSize == width)
+        {
+            return string.Create(
+                CultureInfo.InvariantCulture,
+                $"""
+                (SELECT series_id, bucket, points::bigint, value_count::bigint, value_sum, {last}
+                FROM {table}
+                WHERE series_id = ANY($1) AND bucket >= {from} AND bucket < {to})
+                """);
+        }
+
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"""
+            (SELECT DISTINCT ON (series_id, bin)
+                    series_id, bin, sum(points) OVER whole, sum(value_count) OVER whole, sum(value_sum) OVER whole,
+                    {last}
+            FROM (SELECT rollup.*, date_bin($2, bucket, $3) AS bin
+                  FROM {table} AS rollup
+                  WHERE series_id = ANY($1) AND bucket >= {from} AND bucket < {to}) AS binned
+            WINDOW whole AS (PARTITION BY series_id, bin)
+            ORDER BY series_id, bin, last_timestamp DESC)
+            """);
+    }
+
+    /// <summary>
+    /// Takes a share lock on the rollup state for the batch's transaction and returns how far rollups go. The rollup
+    /// job waits for the lock, so it never rolls up a bucket while a batch for it is being written.
+    /// </summary>
+    private static async Task<DateTimeOffset> LockRollupStateAsync(
+        NpgsqlConnection connection,
+        CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(
+            "SELECT five_minutes FROM storage.metric_rollup_state FOR SHARE",
+            connection);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        await reader.ReadAsync(cancellationToken);
+
+        return reader.GetFieldValue<DateTimeOffset>(0);
+    }
+
+    /// <summary>Marks the hours that received points after they were rolled up, so they are rolled up again.</summary>
+    private static async Task MarkLateHoursAsync(
+        NpgsqlConnection connection,
+        SortedSet<DateTimeOffset> hours,
+        CancellationToken cancellationToken)
+    {
+        if (hours.Count == 0)
+        {
+            return;
+        }
+
+        // A new version on every mark tells the job whether a point arrived while it was rolling the hour up.
+        await using var command = new NpgsqlCommand(
+            """
+            INSERT INTO storage.metric_rollup_dirty (hour, version)
+            SELECT hour, nextval('storage.metric_rollup_dirty_version') FROM unnest($1::timestamptz[]) AS hour
+            ON CONFLICT (hour) DO UPDATE SET version = excluded.version
+            """,
+            connection);
+        command.Parameters.AddWithValue(hours.ToArray());
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>How far rollups go, and the times inside the window they do not cover yet.</summary>
+    private async Task<(DateTimeOffset FiveMinutes, DateTimeOffset Hours, List<(DateTimeOffset, DateTimeOffset)>)>
+        ReadRollupStateAsync(DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(
+            """
+            SELECT five_minutes, hours,
+                   ARRAY(SELECT day FROM storage.metric_rollup_backfill WHERE day >= $1 AND day <= $2),
+                   ARRAY(SELECT hour FROM storage.metric_rollup_dirty WHERE hour > $3 AND hour < $4)
+            FROM storage.metric_rollup_state
+            """);
+        command.Parameters.AddWithValue(DateOnly.FromDateTime(from.UtcDateTime));
+        command.Parameters.AddWithValue(DateOnly.FromDateTime(to.UtcDateTime));
+        command.Parameters.AddWithValue(from - _hour);
+        command.Parameters.AddWithValue(to);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        await reader.ReadAsync(cancellationToken);
+
+        var unrolled = reader.GetFieldValue<DateOnly[]>(2)
+            .Select(day => new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero))
+            .Select(day => (day, day.AddDays(1)))
+            .Concat(reader.GetFieldValue<DateTimeOffset[]>(3).Select(hour => (hour, hour + _hour)))
+            .ToList();
+
+        return (reader.GetFieldValue<DateTimeOffset>(0), reader.GetFieldValue<DateTimeOffset>(1), unrolled);
+    }
+
+    private static Part ReadPart(NpgsqlDataReader reader)
+    {
+        HistogramValue? histogram = reader.IsDBNull(13)
+            ? null
+            : new HistogramValue(
+                reader.IsDBNull(8) ? 0 : reader.GetInt64(8),
+                reader.IsDBNull(9) ? null : reader.GetDouble(9),
+                reader.IsDBNull(10) ? null : reader.GetDouble(10),
+                reader.IsDBNull(11) ? null : reader.GetDouble(11),
+                reader.IsDBNull(12) ? [] : reader.GetFieldValue<double[]>(12),
+                reader.GetFieldValue<long[]>(13));
+
+        return new Part(
+            SeriesId: reader.GetInt64(0),
+            Start: reader.GetFieldValue<DateTimeOffset>(1),
+            Points: reader.GetInt64(2),
+            ValueCount: reader.GetInt64(3),
+            ValueSum: reader.IsDBNull(4) ? 0 : reader.GetDouble(4),
+            LastTimestamp: reader.GetFieldValue<DateTimeOffset>(5),
+            LastStart: reader.IsDBNull(6) ? null : reader.GetFieldValue<DateTimeOffset>(6),
+            LastValue: reader.IsDBNull(7) ? null : reader.GetDouble(7),
+            LastHistogram: histogram);
+    }
+
+    /// <summary>What one level gave for a series and bucket, before the levels are added up.</summary>
+    private sealed record Part(
+        long SeriesId,
+        DateTimeOffset Start,
+        long Points,
+        long ValueCount,
+        double ValueSum,
+        DateTimeOffset LastTimestamp,
+        DateTimeOffset? LastStart,
+        double? LastValue,
+        HistogramValue? LastHistogram)
+    {
+        public Part Add(Part other)
+        {
+            var latest = other.LastTimestamp > LastTimestamp ? other : this;
+
+            return latest with
+            {
+                Points = Points + other.Points,
+                ValueCount = ValueCount + other.ValueCount,
+                ValueSum = ValueSum + other.ValueSum,
+            };
+        }
+
+        public MetricBucket ToBucket() => new(
+            SeriesId,
+            Start,
+            (int)Points,
+            ValueCount == 0 ? null : ValueSum / ValueCount,
+            ValueCount == 0 ? null : ValueSum,
+            LastTimestamp,
+            LastStart,
+            LastValue,
+            LastHistogram);
+    }
 }

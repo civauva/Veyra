@@ -35,6 +35,15 @@
   --metric-violet: #7c5cd6;
   --metric-teal: #0f8f8a;
   --metric-pink: #c2417a;
+  /* The sidebar (VEY-26): a solid panel for menus and the drawer, and one colour per screen, as r, g, b, kept clear of
+     the warning red and caution amber. */
+  --popover: #ffffff;
+  --nav-home: 61, 99, 214;
+  --nav-logs: 14, 132, 158;
+  --nav-traces: 196, 64, 140;
+  --nav-metrics: 23, 133, 84;
+  --nav-alerts: 124, 79, 214;
+  --nav-settings: 74, 88, 120;
 
   color-scheme: light;
 }
@@ -69,6 +78,13 @@
     --metric-violet: #a58cf0;
     --metric-teal: #4fd1c5;
     --metric-pink: #f07aaa;
+    --popover: #151d3b;
+    --nav-home: 159, 183, 255;
+    --nav-logs: 111, 214, 232;
+    --nav-traces: 255, 140, 200;
+    --nav-metrics: 91, 214, 160;
+    --nav-alerts: 197, 155, 255;
+    --nav-settings: 220, 226, 255;
 
     color-scheme: dark;
   }
@@ -102,6 +118,13 @@
   --metric-violet: #a58cf0;
   --metric-teal: #4fd1c5;
   --metric-pink: #f07aaa;
+  --popover: #151d3b;
+  --nav-home: 159, 183, 255;
+  --nav-logs: 111, 214, 232;
+  --nav-traces: 255, 140, 200;
+  --nav-metrics: 91, 214, 160;
+  --nav-alerts: 197, 155, 255;
+  --nav-settings: 220, 226, 255;
 
   color-scheme: dark;
 }
@@ -174,6 +197,138 @@ select {
   cursor: default;
 }
 
+.button.small {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 9px;
+  font-size: 13px;
+}
+
+/* A button that steps back: cancel, close, not now. */
+.button.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+/* A button that removes or revokes something. Tinted, so its words stay readable in both themes. */
+.button.danger {
+  border-color: var(--error-fg);
+  background: var(--error-bg);
+  color: var(--error-fg);
+}
+
+/* Simple or Advanced, in the header of Settings and the monitoring screens (VEY-37): a pair of pressed buttons,
+   the chosen one raised. */
+.view-toggle {
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--chip);
+}
+
+.view-toggle button {
+  min-height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.view-toggle button[aria-pressed="true"] {
+  background: var(--panel);
+  color: var(--fg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+/* A button that reads as a link, for small actions inside text such as Undo or Revert. */
+.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.link-button:disabled {
+  color: var(--faint);
+  cursor: default;
+}
+
+/* A round toggle button in a row of choices, pressed when chosen. */
+.chip-button {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--chip);
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.chip-button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--selected);
+  color: var(--fg);
+  font-weight: 600;
+}
+
+/* An on/off switch (role="switch" with aria-checked). Styled once, here: two screens each styling it once pushed
+   a switched-on knob off its track. */
+.switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--chip);
+  box-shadow: inset 0 0 0 1px var(--line);
+  cursor: pointer;
+}
+
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--panel);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 0.15s ease;
+}
+
+.switch[aria-checked="true"] {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.switch[aria-checked="true"]::after {
+  transform: translateX(18px);
+}
+
+.switch:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .switch::after {
+    transition: none;
+  }
+}
+
 .mono {
   font-family: var(--mono);
 }
@@ -191,6 +346,7 @@ select {
 /* Touch targets of at least 44 px on touch screens (home dashboards design, screen sizes). */
 @media (pointer: coarse) {
   .button,
+  .button.small,
   input,
   select {
     min-height: 44px;

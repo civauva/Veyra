@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { setDisplayZone } from "../time/zone";
 import { api, ApiError, resetAntiforgeryForTests } from "./client";
 
 /** Replaces fetch with a queue of canned responses and records every call. */
@@ -68,7 +69,7 @@ describe("api.signIn", () => {
     mockFetch(json({ title: "The email or password is wrong." }, 401));
 
     await expect(api.signIn("ana@example.com", "wrong")).rejects.toEqual(
-      new ApiError(401, "The email or password is wrong."),
+      new ApiError(401, "The email or password is wrong.", { title: "The email or password is wrong." }),
     );
   });
 });
@@ -103,5 +104,30 @@ describe("requests", () => {
     mockFetch(new Response("oops", { status: 500 }));
 
     await expect(api.setupStatus()).rejects.toEqual(new ApiError(500, "Veyra answered with status 500."));
+  });
+});
+
+describe("times in the person's zone (VEY-22)", () => {
+  afterEach(() => setDisplayZone("UTC"));
+
+  it("asks for the alert summary and list with days in the display zone", async () => {
+    setDisplayZone("Asia/Tokyo");
+    const fetchMock = mockFetch(json({ days: [] }), json({ items: [], next: null }));
+
+    await api.alertSummary(30, null);
+    await api.alerts({ days: 30, state: "all", rules: [], text: "", environment: null }, null);
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("timeZone=Asia%2FTokyo");
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("timeZone=Asia%2FTokyo");
+  });
+
+  it("keeps the zone on the account, or clears it with null", async () => {
+    const fetchMock = mockFetch(new Response(null, { status: 204 }));
+
+    await api.setTimeZone("Europe/Berlin");
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/api/v1/account/time-zone");
+    expect(initOf(fetchMock, 0)?.method).toBe("PUT");
+    expect(initOf(fetchMock, 0)?.body).toBe(JSON.stringify({ timeZone: "Europe/Berlin" }));
   });
 });

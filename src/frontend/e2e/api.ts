@@ -4,12 +4,35 @@ import { historyItems, historySummary } from "../src/alerts/testAlertHistory";
 import { openDiskFilling, openWarning, resolvedLatency } from "../src/alerts/testAlerts";
 import type { AlertDetails, HomeSnapshot, IngestionKey, LogEntry, LogSummary } from "../src/api/types";
 import { stormSnapshot } from "../src/home/testSnapshots";
-import { durationChart, hostMetrics, names, overview, serviceMetrics } from "../src/metrics/testMetrics";
+import {
+  availabilityView,
+  blockingView,
+  configurationView,
+  eventsView,
+  indexesView,
+  jobsView,
+  liveView,
+  queriesView,
+  queryView,
+  serverView,
+  storageView,
+} from "../src/metrics/database/testDatabase";
+import {
+  databaseMetrics,
+  durationChart,
+  hostMetrics,
+  names,
+  overview,
+  serviceMetrics,
+} from "../src/metrics/testMetrics";
 import { channels, emailServer } from "../src/notifications/testChannels";
+import { builtInAgent, sqlServers } from "../src/settings/testMonitoring";
+import { settingsHistory, settingsPage } from "../src/settings/testSettings";
+import { checkoutTrace, durations, pspLog, tracesPage } from "../src/traces/testTraces";
 import { lenaAccount, people, tomDetail } from "../src/users/testUsers";
 
 /** A signed-in administrator. */
-const session = { id: "u1", email: "ana@example.com", displayName: "Ana Admin", role: "Admin" };
+const session = { id: "u1", email: "ana@example.com", displayName: "Ana Admin", role: "Admin", timeZone: null };
 
 /** 150 records, newest first: a payment incident among ordinary traffic. Enough for two pages of 100. */
 const records: LogEntry[] = Array.from({ length: 150 }, (_, index): LogEntry => {
@@ -65,6 +88,42 @@ const keys: IngestionKey[] = [
   },
 ];
 
+/** A path under `/api/v1/metrics/databases/`: the engine, the server, then the tab's name and what follows it. */
+const databasePath = /^\/api\/v1\/metrics\/databases\/[^/]+\/[^/]+(?:\/([^/]+)(?:\/(.+))?)?$/;
+
+/**
+ * The answer for one path under `/api/v1/metrics/databases/`, by what follows the engine and the server: the
+ * server's own metrics for nothing, otherwise the tab's view (ADR 0020).
+ */
+function databaseAnswer(pathname: string): unknown {
+  const [, tab = "", statement = ""] = databasePath.exec(pathname) ?? [];
+
+  switch (tab) {
+    case "live":
+      return liveView;
+    case "queries":
+      return statement === "" ? queriesView : queryView;
+    case "blocking":
+      return blockingView;
+    case "storage":
+      return storageView;
+    case "indexes":
+      return indexesView;
+    case "server":
+      return serverView;
+    case "jobs":
+      return jobsView;
+    case "events":
+      return eventsView;
+    case "availability":
+      return availabilityView;
+    case "configuration":
+      return configurationView;
+    default:
+      return databaseMetrics;
+  }
+}
+
 /**
  * Answers the REST API inside the browser, as a signed-in administrator would see it.
  *
@@ -73,13 +132,22 @@ const keys: IngestionKey[] = [
  * @param options.home - The home snapshot; the storm from the VEY-17 mockups when left out.
  * @param options.alert - The alert every `/api/v1/alerts/{id}` answers with; the open warning of VEY-18 when left out.
  * @param options.signIn - `code` to start signed out, with a password step that asks for a code (VEY-20).
+ * @param options.view - The Simple or Advanced view the browser starts in (VEY-37). Advanced when left out, so a test
+ *   sees every part of a screen; a choice the page makes later is kept across reloads.
  * @returns The log searches the page made, newest last, so tests can check the filters it sent.
  */
 export async function answerApi(
   page: Page,
-  options: { home?: HomeSnapshot; alert?: AlertDetails; signIn?: "code" } = {},
+  options: { home?: HomeSnapshot; alert?: AlertDetails; signIn?: "code"; view?: "simple" | "advanced" } = {},
 ): Promise<Request[]> {
   const searches: Request[] = [];
+
+  // Only when the browser has no choice yet, so a test that switches the view and reloads keeps its own.
+  await page.addInitScript((view) => {
+    if (localStorage.getItem("veyra.view") === null) {
+      localStorage.setItem("veyra.view", view);
+    }
+  }, options.view ?? "advanced");
   let signedIn = options.signIn === undefined;
 
   await page.route("**/api/v1/**", async (route) => {
@@ -105,12 +173,19 @@ export async function answerApi(
         return route.fulfill({ json: { requiredFor: "Admins" } });
       case "/api/v1/account":
         return route.fulfill({ json: lenaAccount });
+      case "/api/v1/account/time-zone":
+        return route.fulfill({ status: 204 });
       case "/api/v1/session/antiforgery":
         return route.fulfill({ json: { token: "e2e" } });
       case "/api/v1/logs/summary":
         return route.fulfill({ json: summary });
       case "/api/v1/logs": {
         searches.push(request);
+
+        if (url.searchParams.get("traceId") === checkoutTrace.traceId) {
+          return route.fulfill({ json: { items: [pspLog], nextCursor: null } });
+        }
+
         const start = url.searchParams.get("cursor") === "page-2" ? 100 : 0;
         const page = records.slice(start, start + 100);
 
@@ -120,6 +195,19 @@ export async function answerApi(
         return route.fulfill({ json: keys });
       case "/api/v1/home":
         return route.fulfill({ json: options.home ?? stormSnapshot });
+      case "/api/v1/traces":
+        return route.fulfill({ json: tracesPage });
+      case "/api/v1/traces/durations":
+        return route.fulfill({ json: durations });
+      case "/api/v1/traces/services":
+        return route.fulfill({
+          json: [
+            { service: "checkout-web", traces: 1 },
+            { service: "orders-api", traces: 1 },
+          ],
+        });
+      case `/api/v1/traces/${checkoutTrace.traceId}`:
+        return route.fulfill({ json: checkoutTrace });
       case "/api/v1/metrics/overview":
         return route.fulfill({ json: overview });
       case "/api/v1/metrics/names":
@@ -128,6 +216,48 @@ export async function answerApi(
         return route.fulfill({ json: durationChart });
       case "/api/v1/notification-channels":
         return route.fulfill({ json: { emailServer, channels } });
+      case "/api/v1/settings":
+        return route.fulfill({ json: settingsPage });
+      case "/api/v1/settings/review": {
+        // Every change passes and says nothing, from the value in effect to the one sent.
+        const { changes } = request.postDataJSON() as { changes: { key: string; value: string | null }[] };
+        const reviewed = changes.map((change) => ({
+          key: change.key,
+          from: settingsPage.settings.find((setting) => setting.key === change.key)?.value ?? null,
+          to: change.value,
+        }));
+
+        return route.fulfill({ json: { problems: [], notes: [], changes: reviewed, confirmationRequired: false } });
+      }
+      case "/api/v1/settings/history":
+        return route.fulfill({ json: settingsHistory });
+      case "/api/v1/agents": {
+        if (request.method() === "POST") {
+          const input = request.postDataJSON() as { name: string };
+          const agent = { ...builtInAgent, id: "a2", name: input.name, placement: "Remote", state: "NotConnected" };
+
+          return route.fulfill({
+            status: 201,
+            json: { agent: { ...agent, installed: false }, code: "K7QM-4TWX-9PRA", expiresAt: "2026-11-13T19:23:00Z" },
+          });
+        }
+
+        return route.fulfill({ json: [builtInAgent] });
+      }
+      case "/api/v1/sql-servers": {
+        if (request.method() === "POST") {
+          const input = request.postDataJSON() as { name: string; address: string };
+
+          return route.fulfill({
+            status: 201,
+            json: { ...sqlServers[2], id: "s4", name: input.name, address: input.address },
+          });
+        }
+
+        return route.fulfill({ json: sqlServers });
+      }
+      case "/api/v1/alerts/catalog":
+        return route.fulfill({ json: [] });
       case "/api/v1/alerts":
         return route.fulfill({ json: { items: historyItems, next: null } });
       case "/api/v1/alerts/summary":
@@ -139,6 +269,10 @@ export async function answerApi(
       default:
         if (url.pathname.startsWith("/api/v1/metrics/hosts/")) {
           return route.fulfill({ json: hostMetrics });
+        }
+
+        if (url.pathname.startsWith("/api/v1/metrics/databases/")) {
+          return route.fulfill({ json: databaseAnswer(url.pathname) });
         }
 
         if (url.pathname.startsWith("/api/v1/metrics/services/")) {

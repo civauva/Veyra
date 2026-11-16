@@ -33,8 +33,9 @@ interfaces to their implementations.
 
 ## What an alert is about
 
-An alert belongs to a **block** (ADR 0007): a **service**, named by `service.name`, or a **host**, named by
-`host.name`. It can also name a **part** of its block: the mount point of a disk. Every environment counts
+An alert belongs to a **block** (ADR 0007, ADR 0018): a **service**, named by `service.name`, a **host**, named by
+`host.name`, or a **database server**, named by its engine and server, such as `microsoft.sql_server sql-prod-01`.
+It can also name a **part** of its block: the mount point of a disk, a database, or a SQL Agent job. Every environment counts
 separately, so `orders` in production and `orders` in staging are two services with two alerts, and every disk of a
 host has alerts of its own. At most one alert per rule and subject is open at a time; a unique index enforces it.
 
@@ -50,6 +51,11 @@ close an alert every 30 seconds.
 | `latency-p95` | 95th percentile of a service's HTTP request durations, last 5 minutes | 1 s | 3 s | Below 80 % of its threshold |
 | `disk-space` | Share of a disk in use, now | 90 % | 95 % | 5 points below its threshold |
 | `disk-filling` | Days until a disk is full at the pace of the last day | 14 days | 3 days | Past 1.5 times its threshold, or not filling |
+| `db-blocking` | Sessions of a database server blocked throughout the last 5 minutes | 1 | 5 | No session blocked for 5 minutes |
+| `db-deadlocks` | Deadlocks on a database server in the last 15 minutes | 1 | 5 | No deadlock for 30 minutes |
+| `db-long-query` | The longest running query of a database, now | 5 min | 30 min | No query past caution for 5 minutes |
+| `db-backup-age` | Time since a database's last full backup | 26 h | 50 h | A new full backup |
+| `db-agent-job` | The last run of a SQL Agent job failed | failed | | The next run succeeds |
 
 - **Too little to judge by.** With fewer than 20 records (error rate) or 20 requests (latency) in the window, nothing
   changes: no alert opens, and an open one keeps its last measurement. One error in a quiet service is not a 100 %
@@ -64,6 +70,18 @@ close an alert every 30 seconds.
   less than 0.05 points a day, or would be full only in more than a year, is not filling; Veyra records 365 days for
   it. An open `disk-filling` alert clears when its disk stops filling. A full disk that stopped growing still has
   its `disk-space` alert, which is why there are two disk rules.
+- **Database servers (ADR 0018).** The five `db-` rules read the metrics of the tested SQL Server configuration
+  ([docs/integrations/sqlserver.md](../integrations/sqlserver.md)). Blocking counts only when sessions were blocked
+  in every minute of the five, so a server that just started sending is not judged yet. The backup rule leaves
+  `tempdb` alone, every database never backed up, and the databases listed in `DatabaseBackupAge:IgnoredDatabases`.
+  Their alerts read like "SQL Server sql-prod-01: shop has no full backup for 1 d 7 h".
+- **Catalog rules (ADR 0020).** Most of what a DBA watches is a figure with two levels, so these rules are entries
+  of one catalog in the Alerting module rather than classes of their own: an ID, the measure the Query module
+  reports for each database server (`IMetricHealth.ListDatabaseMeasuresAsync`), its unit, its default levels, and
+  its words. They all judge alike: at or above the warning level a warning, at or above the caution level a
+  caution, below it they clear. Their settings live under `Veyra:Alerting:Catalog:{Setting}` (`Enabled`,
+  `Caution`, `Warning`), and screens word their alerts from `GET /api/v1/alerts/catalog`. The first are
+  `db-head-blocker`, `db-open-transaction`, and `db-tempdb-session`, from the live view.
 - **One alert per episode.** An alert keeps its identity and its opening time while its severity rises and falls.
   It records the latest and the worst measurement, and when the worst was measured: the highest, or for days until
   full the fewest.
@@ -85,11 +103,11 @@ and changes and at Information for resolutions.
 ## The Alerts screen
 
 The Alerts screen (`/alerts`) shows the alerts of the last 30 or 90 days, newest first: every alert that was open at
-some time in the period. A weather log draws one cell per UTC day with the worst alert that opened that day and how
+some time in the period. A weather log draws one cell per day with the worst alert that opened that day and how
 many opened; alerts opened before the period count on its first day. The list can be narrowed to open or resolved
 alerts, to some rules, and to a service, host, or disk by name, and the filters stay in the address. The built-in
-rules stand beside it with their thresholds as this installation sets them. Days are UTC days until Veyra knows the
-viewer's time zone.
+rules stand beside it with their thresholds as this installation sets them. Days are the viewer's days: they start at
+midnight in the zone the person sees times in (VEY-22).
 
 ## Notifications
 
@@ -196,6 +214,9 @@ from every message. It holds the alert, its events with their deliveries, and th
   resolved (or to now), its figures now with the days until full, and every disk of the host. The screen draws the
   forecast to full from now at the pace of the last day.
 
+A service's alert links to its traces (ADR 0014) from ten minutes before the alert opened to five minutes after its
+last check or its end: an error-rate alert to the failed traces, a latency alert to the slow ones.
+
 ## Failures
 
 When the database cannot be reached, or storage is not configured, the rule run and dispatching fail. The first
@@ -205,10 +226,11 @@ so a failing metric read does not hold it back.
 
 ## Configuration
 
-Settings live in the `Veyra:Alerting` section. In environment variables the colon becomes a double underscore, for
-example `Veyra__Alerting__DiskFilling__CautionDays=7`. The Compose file passes through the public address and the
-SMTP server (`VEYRA_PUBLIC_URL`, `VEYRA_SMTP_*` in `deploy/.env`); add other settings to the `veyra` service's
-environment to change them.
+Settings live in the `Veyra:Alerting` section. Admins change them on the Settings screen, under Alert rules and
+Notifications and email, and a change applies at the next rule run (ADR 0017). `appsettings.json` and environment
+variables give the first values; in environment variables the colon becomes a double underscore, for example
+`Veyra__Alerting__DiskFilling__CautionDays=7`. The Compose file passes through the public address and the
+SMTP server (`VEYRA_PUBLIC_URL`, `VEYRA_SMTP_*` in `deploy/.env`) as first values.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
@@ -233,6 +255,20 @@ environment to change them.
 | `Veyra:Alerting:DiskFilling:CautionDays` | `14` | A disk full within this many days opens a caution |
 | `Veyra:Alerting:DiskFilling:WarningDays` | `3` | A disk full within this many days opens a warning |
 | `Veyra:Alerting:DiskFilling:ClearFactor` | `1.5` | A held severity ends past its threshold times this |
+| `Veyra:Alerting:DatabaseBlocking:Enabled` | `true` | Whether the blocking rule for database servers runs |
+| `Veyra:Alerting:DatabaseBlocking:CautionSessions` | `1` | Sessions blocked throughout 5 minutes that open a caution |
+| `Veyra:Alerting:DatabaseBlocking:WarningSessions` | `5` | Sessions blocked throughout 5 minutes that open a warning |
+| `Veyra:Alerting:DatabaseDeadlocks:Enabled` | `true` | Whether the deadlock rule runs |
+| `Veyra:Alerting:DatabaseDeadlocks:CautionDeadlocks` | `1` | Deadlocks in 15 minutes that open a caution |
+| `Veyra:Alerting:DatabaseDeadlocks:WarningDeadlocks` | `5` | Deadlocks in 15 minutes that open a warning |
+| `Veyra:Alerting:DatabaseLongQuery:Enabled` | `true` | Whether the long-query rule runs |
+| `Veyra:Alerting:DatabaseLongQuery:CautionMinutes` | `5` | Minutes a query has run that open a caution |
+| `Veyra:Alerting:DatabaseLongQuery:WarningMinutes` | `30` | Minutes a query has run that open a warning |
+| `Veyra:Alerting:DatabaseBackupAge:Enabled` | `true` | Whether the backup-age rule runs |
+| `Veyra:Alerting:DatabaseBackupAge:CautionHours` | `26` | Hours without a full backup that open a caution |
+| `Veyra:Alerting:DatabaseBackupAge:WarningHours` | `50` | Hours without a full backup that open a warning |
+| `Veyra:Alerting:DatabaseBackupAge:IgnoredDatabases` | empty | Databases not backed up on purpose, separated by commas |
+| `Veyra:Alerting:DatabaseAgentJob:Enabled` | `true` | Whether the SQL Agent job rule runs |
 | `Veyra:Alerting:Notifications:DispatchInterval` | `00:00:05` | How often the dispatcher looks for messages |
 | `Veyra:Alerting:Notifications:BatchSize` | `10` | The most messages one dispatcher run sends |
 | `Veyra:Alerting:Notifications:SendTimeout` | `00:00:10` | How long one try may take |
@@ -247,7 +283,8 @@ Veyra refuses to start when a setting is out of range: a window or interval that
 1, error-rate or disk-space ratios that do not satisfy `0 < CautionRatio <= WarningRatio <= 1`, a disk-space clear
 margin that is negative or not below the caution ratio, disk-filling days that do not satisfy
 `0 < WarningDays <= CautionDays` or a clear factor below 1, latency seconds that do not satisfy
-`0 < CautionSeconds <= WarningSeconds` or a clear factor outside `(0, 1]`, a history shorter than one day, a public
+`0 < CautionSeconds <= WarningSeconds` or a clear factor outside `(0, 1]`, database levels where the warning is
+below the caution or the caution is below 1 session, 1 deadlock, or above 0 minutes or hours, a history shorter than one day, a public
 address that is not a full http or https address, a dispatcher batch size below 1, a port outside 1 to 65535, or an
 SMTP host without a valid sender address.
 

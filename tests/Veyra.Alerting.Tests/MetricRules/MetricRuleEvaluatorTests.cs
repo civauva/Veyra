@@ -6,6 +6,7 @@ using Veyra.Alerting.Alerts;
 using Veyra.Alerting.MetricRules;
 using Veyra.Core.Alerts;
 using Veyra.Core.Metrics.Health;
+using Veyra.Core.Telemetry;
 using Veyra.Testing;
 
 namespace Veyra.Alerting.Tests.MetricRules;
@@ -137,6 +138,11 @@ public class MetricRuleEvaluatorTests(PostgresFixture postgres)
         options.DiskSpace.Enabled = false;
         options.DiskFilling.Enabled = false;
         options.Latency.Enabled = false;
+        options.DatabaseBlocking.Enabled = false;
+        options.DatabaseDeadlocks.Enabled = false;
+        options.DatabaseLongQuery.Enabled = false;
+        options.DatabaseBackupAge.Enabled = false;
+        options.DatabaseAgentJob.Enabled = false;
 
         await Evaluator(database, options).EvaluateAsync(CancellationToken.None);
 
@@ -147,11 +153,143 @@ public class MetricRuleEvaluatorTests(PostgresFixture postgres)
     private static DiskHealth Disk(string mountpoint, double ratio, double? days) =>
         new("web-01", "production", mountpoint, ratio * 100, 100, ratio, days);
 
+    [Fact]
+    public async Task EvaluateAsync_SqlServerTrouble_OpensAnAlertPerRuleOnTheServerOrItsPart()
+    {
+        await using var database = await AlertingDatabase.CreateAsync(postgres);
+        _health.Databases =
+        [
+            SqlServer(
+                blockedLeast: 2,
+                deadlocks: 3,
+                databases:
+                [
+                    new DatabasePartHealth("shop", 840, 840, 31 * 3600),
+                    new DatabasePartHealth("reporting", 0, 0, 3600),
+                ],
+                jobs:
+                [
+                    new AgentJobHealth("Nightly full backup - shop", true),
+                    new AgentJobHealth("Purge sessions", false),
+                ]),
+        ];
+
+        await Evaluator(database).EvaluateAsync(CancellationToken.None);
+
+        const string server = "microsoft.sql_server sql-prod-01";
+        var blocking = Assert.Single(await OpenAsync(database, AlertRules.DatabaseBlocking));
+        Assert.Equal(
+            (AlertSubject.Database(server), AlertSeverity.Caution, 2d),
+            (blocking.Subject, blocking.Severity, blocking.Value));
+        var deadlocks = Assert.Single(await OpenAsync(database, AlertRules.DatabaseDeadlocks));
+        Assert.Equal(
+            (AlertSubject.Database(server), 3d, TimeSpan.FromMinutes(15)),
+            (deadlocks.Subject, deadlocks.Value, deadlocks.Window));
+        var longQuery = Assert.Single(await OpenAsync(database, AlertRules.DatabaseLongQuery));
+        Assert.Equal(
+            (AlertSubject.Database(server, "shop"), 840d, 300d),
+            (longQuery.Subject, longQuery.Value, longQuery.Threshold));
+        var backup = Assert.Single(await OpenAsync(database, AlertRules.DatabaseBackupAge));
+        Assert.Equal((AlertSubject.Database(server, "shop"), 31d * 3600), (backup.Subject, backup.Value));
+        var job = Assert.Single(await OpenAsync(database, AlertRules.DatabaseAgentJob));
+        Assert.Equal(AlertSubject.Database(server, "Nightly full backup - shop"), job.Subject);
+        Assert.Equal("production", job.Environment);
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_IgnoredDatabase_HasNoBackupAlert()
+    {
+        await using var database = await AlertingDatabase.CreateAsync(postgres);
+        _health.Databases = [SqlServer(databases: [new DatabasePartHealth("scratch", 0, 0, 90 * 3600)])];
+        var options = new AlertingOptions();
+        options.DatabaseBackupAge.IgnoredDatabases = "Scratch";
+
+        await Evaluator(database, options).EvaluateAsync(CancellationToken.None);
+
+        Assert.Empty(await OpenAsync(database, AlertRules.DatabaseBackupAge));
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_JobSucceedsAgain_ResolvesItsAlert()
+    {
+        await using var database = await AlertingDatabase.CreateAsync(postgres);
+        var evaluator = Evaluator(database);
+        _health.Databases = [SqlServer(jobs: [new AgentJobHealth("Purge sessions", true)])];
+        await evaluator.EvaluateAsync(CancellationToken.None);
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        _health.Databases = [SqlServer(jobs: [new AgentJobHealth("Purge sessions", false)])];
+        await evaluator.EvaluateAsync(CancellationToken.None);
+
+        Assert.Empty(await OpenAsync(database, AlertRules.DatabaseAgentJob));
+    }
+
+    private static DatabaseHealth SqlServer(
+        double blockedLeast = 0,
+        double deadlocks = 0,
+        IReadOnlyList<DatabasePartHealth>? databases = null,
+        IReadOnlyList<AgentJobHealth>? jobs = null) => new(
+            TelemetryBlock.Database("microsoft.sql_server", "sql-prod-01"),
+            "production",
+            blockedLeast,
+            blockedLeast,
+            deadlocks,
+            deadlocks,
+            databases ?? [],
+            jobs ?? []);
+
+    [Fact]
+    public async Task EvaluateAsync_CatalogMeasures_OpenEscalateAndResolveTheirAlerts()
+    {
+        await using var database = await AlertingDatabase.CreateAsync(postgres);
+        var server = TelemetryBlock.Database("microsoft.sql_server", "sql-prod-01");
+        _health.Measures =
+        [
+            new DatabaseMeasure(server, "production", "head-blocker-seconds", null, 90),
+            new DatabaseMeasure(server, "production", "open-transaction-seconds", null, 2_000),
+            new DatabaseMeasure(server, "production", "tempdb-session-share", null, 0.1),
+        ];
+
+        await Evaluator(database).EvaluateAsync(CancellationToken.None);
+
+        var blocker = Assert.Single(await OpenAsync(database, "db-head-blocker"));
+        Assert.Equal((AlertSeverity.Caution, 60d), (blocker.Severity, blocker.Threshold));
+        Assert.Equal(AlertSubject.Database(server.Name), blocker.Subject);
+        Assert.Equal(AlertSeverity.Warning, Assert.Single(await OpenAsync(database, "db-open-transaction")).Severity);
+        Assert.Empty(await OpenAsync(database, "db-tempdb-session"));
+
+        _health.Measures = [new DatabaseMeasure(server, "production", "head-blocker-seconds", null, 0)];
+        _clock.Advance(TimeSpan.FromMinutes(1));
+        await Evaluator(database).EvaluateAsync(CancellationToken.None);
+
+        Assert.Empty(await OpenAsync(database, "db-head-blocker"));
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_CatalogRuleSwitchedOffOrLevelsChanged_FollowsTheSettings()
+    {
+        await using var database = await AlertingDatabase.CreateAsync(postgres);
+        var server = TelemetryBlock.Database("microsoft.sql_server", "sql-prod-01");
+        _health.Measures =
+        [
+            new DatabaseMeasure(server, null, "head-blocker-seconds", null, 90),
+            new DatabaseMeasure(server, null, "open-transaction-seconds", null, 400),
+        ];
+        var options = new AlertingOptions();
+        options.Catalog["HeadBlocker"] = new() { Enabled = false };
+        options.Catalog["OpenTransaction"] = new() { Caution = 5, Warning = 6 };
+
+        await Evaluator(database, options).EvaluateAsync(CancellationToken.None);
+
+        Assert.Empty(await OpenAsync(database, "db-head-blocker"));
+        Assert.Equal(AlertSeverity.Warning, Assert.Single(await OpenAsync(database, "db-open-transaction")).Severity);
+    }
+
     private MetricRuleEvaluator Evaluator(NpgsqlDataSource database, AlertingOptions? options = null) => new(
         _health,
         new AlertStore(database),
         new AlertTransitions(new AlertStore(database), NullLogger<AlertTransitions>.Instance),
-        Options.Create(options ?? new AlertingOptions()),
+        new TestOptionsMonitor<AlertingOptions>(options ?? new AlertingOptions()),
         _clock);
 
     private static Task<IReadOnlyList<AlertState>> OpenAsync(NpgsqlDataSource database, string rule) =>

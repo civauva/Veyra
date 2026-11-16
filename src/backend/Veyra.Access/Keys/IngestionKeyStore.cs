@@ -32,7 +32,7 @@ internal sealed class IngestionKeyStore(NpgsqlDataSource dataSource)
         command.Parameters.AddWithValue(
             NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Text,
             (object?)key.Environments?.ToArray() ?? DBNull.Value);
-        command.Parameters.AddWithValue(key.CreatedBy);
+        command.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Uuid, (object?)key.CreatedBy ?? DBNull.Value);
         command.Parameters.AddWithValue(key.CreatedAt);
         command.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.TimestampTz, (object?)key.ExpiresAt ?? DBNull.Value);
 
@@ -110,7 +110,7 @@ internal sealed class IngestionKeyStore(NpgsqlDataSource dataSource)
                 Name: reader.GetString(1),
                 DisplayPrefix: reader.GetString(2),
                 Environments: reader.IsDBNull(3) ? null : reader.GetFieldValue<string[]>(3),
-                CreatedBy: reader.GetGuid(4),
+                CreatedBy: reader.IsDBNull(4) ? null : reader.GetGuid(4),
                 CreatedAt: reader.GetFieldValue<DateTimeOffset>(5),
                 ExpiresAt: reader.IsDBNull(6) ? null : reader.GetFieldValue<DateTimeOffset>(6),
                 RevokedAt: reader.IsDBNull(7) ? null : reader.GetFieldValue<DateTimeOffset>(7),

@@ -2,8 +2,9 @@ import { useSearchParams } from "react-router";
 
 import { api } from "../api/client";
 import { useShell } from "../app/shellContext";
+import { useViewMode, ViewToggle } from "../app/ViewToggle";
 import type { MetricsOverview, MetricRange } from "../api/types";
-import { HostCardView, ServiceCardView } from "./MetricCards";
+import { DatabaseCardView, HostCardView, ServiceCardView } from "./MetricCards";
 import { MetricBrowser } from "./MetricBrowser";
 import { formatAmount, formatRate } from "./metricFormat";
 import { RangePicker, rangeFrom } from "./RangePicker";
@@ -18,6 +19,7 @@ export function MetricsScreen() {
   const [params, setParams] = useSearchParams();
   const range = rangeFrom(params.get("range"));
   const tab = params.get("tab") === "all" ? "all" : "overview";
+  const [mode] = useViewMode();
   const search = params.get("search") ?? "";
   const { status } = useShell();
   const { data, error } = useMetricData(`overview-${range}`, (signal) => api.metricsOverview(range, signal));
@@ -47,6 +49,7 @@ export function MetricsScreen() {
               : `Hosts and services that send metrics over OTLP. Numbers are the last 5 minutes; lines are the last ${range}.`}
           </p>
         </div>
+        <ViewToggle />
         <RangePicker value={range} onChange={(next) => update({ range: next === "6h" ? null : next })} />
         {tab === "overview" && (
           <label className="metrics-search">
@@ -61,19 +64,21 @@ export function MetricsScreen() {
         )}
       </div>
 
-      <div className="metrics-tabs" role="tablist" aria-label="Views">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "overview"}
-          onClick={() => update({ tab: null, metric: null })}
-        >
-          Overview
-        </button>
-        <button type="button" role="tab" aria-selected={tab === "all"} onClick={() => update({ tab: "all" })}>
-          All metrics {data && <b>{data.usage.names}</b>}
-        </button>
-      </div>
+      {mode === "advanced" && (
+        <div className="metrics-tabs" role="tablist" aria-label="Views">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "overview"}
+            onClick={() => update({ tab: null, metric: null })}
+          >
+            Overview
+          </button>
+          <button type="button" role="tab" aria-selected={tab === "all"} onClick={() => update({ tab: "all" })}>
+            All metrics {data && <b>{data.usage.names}</b>}
+          </button>
+        </div>
+      )}
 
       {error && (
         <p className="metrics-error" role="alert">
@@ -84,7 +89,13 @@ export function MetricsScreen() {
       {tab === "all" ? (
         <MetricBrowser range={range} />
       ) : data ? (
-        <Overview overview={data} range={range} search={search} environment={status.environment} />
+        <Overview
+          overview={data}
+          range={range}
+          search={search}
+          environment={status.environment}
+          advanced={mode === "advanced"}
+        />
       ) : (
         !error && <p className="metrics-empty">Loading metrics…</p>
       )}
@@ -102,13 +113,15 @@ interface OverviewProps {
   search: string;
   /** The environment chosen in the top bar, or null for all (VEY-23). */
   environment: string | null;
+  /** Whether to show the usage counts of the Advanced view. */
+  advanced: boolean;
 }
 
 /**
  * The usage strip and the host and service cards of the chosen environment. Hosts whose metrics name no environment
  * belong to every environment, as on the home.
  */
-function Overview({ overview, range, search, environment }: OverviewProps) {
+function Overview({ overview, range, search, environment, advanced }: OverviewProps) {
   const now = new Date(overview.at);
   const needle = search.trim().toLowerCase();
   const inEnvironment = (named: string | null, hostLike: boolean) =>
@@ -119,10 +132,13 @@ function Overview({ overview, range, search, environment }: OverviewProps) {
   const services = overview.services.filter(
     (service) => inEnvironment(service.environment, false) && service.name.toLowerCase().includes(needle),
   );
+  const databases = overview.databases.filter(
+    (database) => inEnvironment(database.environment, true) && database.server.toLowerCase().includes(needle),
+  );
   const filling = overview.hosts.filter((host) => host.fillingDisk).length;
   const { usage } = overview;
 
-  if (overview.hosts.length === 0 && overview.services.length === 0) {
+  if (overview.hosts.length === 0 && overview.services.length === 0 && overview.databases.length === 0) {
     return (
       <div className="metrics-empty">
         <b>No metrics yet</b>
@@ -150,24 +166,36 @@ function Overview({ overview, range, search, environment }: OverviewProps) {
             {overview.services.length} <small>with metrics</small>
           </dd>
         </div>
-        <div>
-          <dt>Series</dt>
-          <dd>
-            {usage.series.toLocaleString("en-US")} <small>of {usage.maxSeries.toLocaleString("en-US")}</small>
-          </dd>
-        </div>
-        <div>
-          <dt>Points</dt>
-          <dd>
-            {formatRate(usage.pointsPerSecond)} <small>per second</small>
-          </dd>
-        </div>
-        <div>
-          <dt>Storage</dt>
-          <dd>
-            {formatAmount(usage.usedBytes)} <small>{usage.retentionDays} days kept</small>
-          </dd>
-        </div>
+        {overview.databases.length > 0 && (
+          <div>
+            <dt>Databases</dt>
+            <dd>
+              {overview.databases.length} <small>{overview.databases.length === 1 ? "server" : "servers"}</small>
+            </dd>
+          </div>
+        )}
+        {advanced && (
+          <>
+            <div>
+              <dt>Series</dt>
+              <dd>
+                {usage.series.toLocaleString("en-US")} <small>of {usage.maxSeries.toLocaleString("en-US")}</small>
+              </dd>
+            </div>
+            <div>
+              <dt>Points</dt>
+              <dd>
+                {formatRate(usage.pointsPerSecond)} <small>per second</small>
+              </dd>
+            </div>
+            <div>
+              <dt>Storage</dt>
+              <dd>
+                {formatAmount(usage.usedBytes)} <small>{usage.retentionDays} days kept</small>
+              </dd>
+            </div>
+          </>
+        )}
       </dl>
 
       {hosts.length > 0 && (
@@ -179,6 +207,25 @@ function Overview({ overview, range, search, environment }: OverviewProps) {
           <div className="metric-cards">
             {hosts.map((host) => (
               <HostCardView key={host.name} host={host} range={range} now={now} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {databases.length > 0 && (
+        <section aria-labelledby="metrics-databases">
+          <div className="metrics-section">
+            <h2 id="metrics-databases">Databases</h2>
+            <span>from the Collector&apos;s database receivers</span>
+          </div>
+          <div className="metric-cards">
+            {databases.map((database) => (
+              <DatabaseCardView
+                key={`${database.engine}-${database.server}`}
+                database={database}
+                range={range}
+                now={now}
+              />
             ))}
           </div>
         </section>

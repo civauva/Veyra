@@ -2,7 +2,8 @@ import type { AlertDelivery, AlertDetails, AlertEvent, AlertSeverity } from "../
 import type { ShellScene } from "../app/shellContext";
 import { severityWord, formatRatio } from "../home/homeFormat";
 import { formatClock } from "../logs/format";
-import { alertTitle, formatDays, formatDiskShare, formatMeasure, notFillingDays } from "./ruleWords";
+import { alertTitle, formatDays, formatDiskShare, formatMeasure, notFillingDays, serverName } from "./ruleWords";
+import { isCatalogRule } from "./ruleCatalog";
 
 /** An error-rate alert, which always has its error-rate series. */
 export type ErrorRateAlert = AlertDetails & { series: NonNullable<AlertDetails["series"]> };
@@ -18,7 +19,7 @@ export function isErrorRate(alert: AlertDetails): alert is ErrorRateAlert {
 }
 
 /*
- * Words of the alert details screen. Times are UTC, like everywhere in Veyra. The same severity words as the home:
+ * Words of the alert details screen. Times are in the person's zone, like everywhere in Veyra. The same severity words as the home:
  * warning (red) and caution (amber).
  */
 
@@ -61,6 +62,10 @@ export function headline(alert: AlertDetails): string {
 
   const disk = `Disk ${alert.block.part ?? ""} on ${alert.block.name}`;
 
+  if (isCatalogRule(alert.rule)) {
+    return alertTitle(alert.rule, alert.block, alert.value, true);
+  }
+
   switch (alert.rule) {
     case "latency-p95":
       return `${alert.block.name} is back to p95 ${formatMeasure(alert.rule, alert.value)}`;
@@ -72,6 +77,16 @@ export function headline(alert: AlertDetails): string {
         : `${disk} is full in ${formatDays(alert.value)} now`;
     case "error-rate":
       return `${alert.block.name} is back to ${formatRatio(alert.value)} errors`;
+    case "db-blocking":
+      return `${serverName(alert.block.name)} has no blocked sessions`;
+    case "db-deadlocks":
+      return `${serverName(alert.block.name)} had no deadlock for 30 min`;
+    case "db-long-query":
+      return `${serverName(alert.block.name)}: the long query in ${alert.block.part ?? "the database"} ended`;
+    case "db-backup-age":
+      return `${serverName(alert.block.name)}: ${alert.block.part ?? "the database"} has a new full backup`;
+    case "db-agent-job":
+      return `${serverName(alert.block.name)}: SQL Agent job ${alert.block.part ?? ""} succeeded again`;
   }
 }
 
@@ -107,6 +122,12 @@ export function alertStory(alert: AlertDetails): string {
     .map((event) => `${formatMeasure(alert.rule, thresholdOf(alert, event.severity))} at ${formatClock(event.at)}`);
   const minutes = Math.round(alert.windowSeconds / 60);
   const cleared = alert.resolvedAt ? formatClock(alert.resolvedAt) : null;
+
+  if (isCatalogRule(alert.rule)) {
+    const crossed = `It crossed ${crossings.join(" and ")}${where}.`;
+
+    return cleared ? `${crossed} It cleared at ${cleared}.` : crossed;
+  }
 
   switch (alert.rule) {
     case "disk-filling": {
@@ -158,6 +179,37 @@ export function alertStory(alert: AlertDetails): string {
       return cleared
         ? `${rose} It cleared at ${cleared}, below ${below}.`
         : `${rose} ${staysBelow(alert, formatRatio, minutes)}`;
+    }
+    case "db-blocking": {
+      const rose = `Sessions${where} stayed blocked for ${minutes} minutes: ${crossings.join(", then ")}.`;
+
+      return cleared
+        ? `${rose} It cleared at ${cleared}.`
+        : `${rose} It clears after 5 minutes with no blocked session.`;
+    }
+    case "db-deadlocks": {
+      const rose = `The server${where} reached ${crossings.join(" and ")} in ${minutes} minutes.`;
+
+      return cleared ? `${rose} It cleared at ${cleared}.` : `${rose} It clears after 30 minutes without a deadlock.`;
+    }
+    case "db-long-query": {
+      const rose = `A query in ${alert.block.part ?? "the database"}${where} ran past ${crossings.join(" and past ")}.`;
+
+      return cleared
+        ? `${rose} It cleared at ${cleared}.`
+        : `${rose} It clears once no query has run that long for 5 minutes.`;
+    }
+    case "db-backup-age": {
+      const rose = `${alert.block.part ?? "The database"}${where} went without a full backup past ${crossings.join(" and past ")}.`;
+
+      return cleared ? `${rose} A new backup cleared it at ${cleared}.` : `${rose} The next full backup clears it.`;
+    }
+    case "db-agent-job": {
+      const failed = `The last run of SQL Agent job ${alert.block.part ?? ""}${where} failed.`;
+
+      return cleared
+        ? `${failed} The next run succeeded at ${cleared}.`
+        : `${failed} The next successful run clears it.`;
     }
   }
 }

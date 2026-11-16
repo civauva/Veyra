@@ -1,6 +1,8 @@
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Veyra.Access.SecondFactor;
+using Veyra.Access.Settings;
 using Veyra.Access.Setup;
 using Veyra.Access.Users;
 
@@ -12,8 +14,8 @@ namespace Veyra.Access;
 public static class AccessStartup
 {
     /// <summary>
-    /// Opens first-run setup when no user exists, and applies the server's way back in for a lost second factor
-    /// when it is configured (ADR 0011).
+    /// Reads the settings saved on the Settings screen (ADR 0017), opens first-run setup when no user exists, and
+    /// applies the server's way back in for a lost second factor when it is configured (ADR 0011).
     /// </summary>
     /// <param name="services">The application's services.</param>
     /// <param name="cancellationToken">Cancels startup.</param>
@@ -24,9 +26,15 @@ public static class AccessStartup
     {
         ArgumentNullException.ThrowIfNull(services);
 
+        // The schema is migrated and Data Protection exists now, so saved settings, secrets included, can be read.
+        services.GetRequiredService<SavedSettingsRuntime>().Activate(
+            services.GetRequiredService<IDataProtectionProvider>());
+
         await services.GetRequiredService<SetupService>().PrepareAsync(cancellationToken);
 
-        if (services.GetRequiredService<IOptions<AccessOptions>>().Value.RemoveSecondFactor is { Length: > 0 } email)
+        if (
+            services.GetRequiredService<IOptionsMonitor<AccessOptions>>().CurrentValue.RemoveSecondFactor
+                is { Length: > 0 } email)
         {
             await services.GetRequiredService<SecondFactorService>().RemoveForEmailAsync(
                 services.GetRequiredService<UserStore>(),

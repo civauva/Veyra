@@ -10,7 +10,8 @@ interface RuleIconProps {
 
 /**
  * A small line drawing for each built-in rule, beside its name: a log page for error rate, a stopwatch for latency, a
- * disk for disk space, and a disk with a rising line for disk filling. Decorative; the name beside it says the rule.
+ * disk for disk space, a disk with a rising line for disk filling, and a database with a mark of its own for each
+ * database rule. Decorative; the name beside it says the rule.
  */
 export function RuleIcon({ rule, size }: RuleIconProps) {
   return (
@@ -46,6 +47,19 @@ export function RuleIcon({ rule, size }: RuleIconProps) {
           <path d="M7 14l3-3 2.5 2L17 9" />
         </>
       )}
+      {rule.startsWith("db-") && (
+        <path d="M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z M4 6v12c0 1.7 3.6 3 8 3" />
+      )}
+      {rule === "db-blocking" && <path d="M15 14h6v6h-6z M17 14v-1.5a1 1 0 0 1 2 0V14" />}
+      {rule === "db-deadlocks" && <path d="M14.5 15.5l5 5 M19.5 15.5l-5 5" />}
+      {rule === "db-long-query" && (
+        <>
+          <circle cx="18" cy="17" r="3.5" />
+          <path d="M18 15.5V17l1 1" />
+        </>
+      )}
+      {rule === "db-backup-age" && <path d="M14.5 17a3.5 3.5 0 1 0 1-2.5 M14.5 13.5v1.5h1.5" />}
+      {rule === "db-agent-job" && <path d="M15 15l5 5 M20 15l-5 5" />}
     </svg>
   );
 }

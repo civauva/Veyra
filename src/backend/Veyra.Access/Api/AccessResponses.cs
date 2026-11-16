@@ -11,7 +11,8 @@ internal static class AccessResponses
     /// <summary>The signed-in user.</summary>
     /// <param name="user">The user.</param>
     /// <returns>The answer.</returns>
-    public static SessionResponse Session(AccessUser user) => new(user.Id, user.Email, user.DisplayName, user.Role);
+    public static SessionResponse Session(AccessUser user) =>
+        new(user.Id, user.Email, user.DisplayName, user.Role, user.TimeZone);
 
     /// <summary>A person as the Users list shows them.</summary>
     /// <param name="person">The person.</param>

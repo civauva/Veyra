@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Veyra.Alerting.Alerts;
+using Veyra.Alerting.Catalog;
 using Veyra.Alerting.ErrorRates;
 using Veyra.Core.Alerts;
 using Veyra.Core.Telemetry;
@@ -33,7 +34,7 @@ public class AlertHistoryEndpointTests(PostgresFixture postgres)
         Assert.Equal(7, summary.Days.Count);
         Assert.Equal((1, "Warning"), (summary.Days[^1].Count, summary.Days[^1].Worst));
         Assert.Equal(1, summary.Rules.Single(rule => rule.Rule == "error-rate").Count);
-        Assert.Equal(4, summary.Rules.Count);
+        Assert.Equal(9 + RuleCatalog.All.Count, summary.Rules.Count);
     }
 
     [Fact]

@@ -16,6 +16,7 @@ namespace Veyra.Access.Users;
 /// <param name="CreatedAt">When the user was created.</param>
 /// <param name="LastSignInAt">When the user last signed in, or <see langword="null"/> if never.</param>
 /// <param name="Team">A free-text team an Admin set, or <see langword="null"/> (ADR 0011).</param>
+/// <param name="TimeZone">The IANA time zone the person picked, or <see langword="null"/> for the browser's.</param>
 internal sealed record AccessUser(
     Guid Id,
     string Email,
@@ -27,7 +28,8 @@ internal sealed record AccessUser(
     DateTimeOffset? LockedUntil,
     DateTimeOffset CreatedAt,
     DateTimeOffset? LastSignInAt,
-    string? Team = null)
+    string? Team = null,
+    string? TimeZone = null)
 {
     /// <summary>The longest team name an Admin can set.</summary>
     public const int MaxTeamLength = 100;

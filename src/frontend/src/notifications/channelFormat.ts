@@ -2,7 +2,7 @@ import type { ChannelInput, NotificationChannel, SendResult } from "../api/types
 import { formatClock } from "../logs/format";
 
 /*
- * Words of the Notifications screen. Times are UTC, like everywhere in Veyra.
+ * Words of the Notifications screen. Times are in the person's zone, like everywhere in Veyra.
  */
 
 /**

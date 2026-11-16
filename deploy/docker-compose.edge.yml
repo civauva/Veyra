@@ -1,0 +1,25 @@
+# For a server where one shared reverse proxy, such as a Caddy for several apps, owns ports 80 and 443 and routes by
+# host name to containers on a Docker network named "edge". Use it together with the main file:
+#   docker compose -p veyra -f docker-compose.yml -f docker-compose.edge.yml up -d
+# Veyra then publishes no ports: its web container joins "edge" as "veyra-web", and the proxy sends the site's
+# requests to veyra-web:8080, and OTLP over HTTP (/v1/logs, /v1/metrics, /v1/traces) to veyra-web:4318. Every
+# container gets a memory limit, so Veyra cannot starve the other apps on the server.
+
+services:
+  veyra:
+    ports: !reset []
+    networks:
+      default: {}
+      edge:
+        aliases: [veyra-web]
+    mem_limit: 768m
+
+  agent:
+    mem_limit: 384m
+
+  postgres:
+    mem_limit: 512m
+
+networks:
+  edge:
+    external: true

@@ -1,0 +1,1106 @@
+/*
+ * The trace screens, after the VEY-27 mockups. The list: filters, a duration chart, and one row per trace; the trace
+ * view: a waterfall with the selected span beside it. On tablets the span opens as a drawer over the waterfall; on
+ * phones the filters are a sheet, rows become cards, the waterfall stacks each span's name over its bar, and the span
+ * opens as a sheet from the bottom.
+ */
+
+/* ---- Trace list ---- */
+
+.traces {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+}
+
+.traces-main {
+  min-width: 0;
+  overflow-y: auto;
+  padding: 20px 26px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.traces-head {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.traces-head > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.traces-head h2 {
+  margin: 0;
+  font-size: 26px;
+  letter-spacing: -0.01em;
+}
+
+.traces-head p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.traces-search {
+  width: min(340px, 40%);
+}
+
+.traces-chart {
+  padding: 14px 16px 8px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+}
+
+.traces-chart-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 14px;
+  margin-bottom: 4px;
+}
+
+.traces-chart-top .section-title {
+  margin: 0;
+}
+
+.trace-picked {
+  display: inline-flex;
+  gap: 10px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--selected);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.traces-legend {
+  display: flex;
+  gap: 14px;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.traces-legend i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+}
+
+.duration-chart {
+  width: 100%;
+  overflow: hidden;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.duration-chart svg {
+  display: block;
+}
+
+.dc-grid {
+  stroke: var(--line);
+}
+
+.dc-label {
+  fill: var(--faint);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dc-p95 {
+  stroke: var(--warning-fg);
+  stroke-dasharray: 2 4;
+  opacity: 0.8;
+}
+
+.dc-p95-label {
+  fill: var(--warning-fg);
+  font-size: 10.5px;
+}
+
+.dc-ok,
+.traces-legend .dc-ok {
+  fill: var(--accent);
+  background: var(--accent);
+  opacity: 0.55;
+}
+
+.dc-slow,
+.traces-legend .dc-slow {
+  fill: var(--warning-fg);
+  background: var(--warning-fg);
+}
+
+.dc-failed,
+.traces-legend .dc-failed {
+  fill: var(--histogram-error);
+  background: var(--histogram-error);
+}
+
+circle.dc-failed {
+  stroke: color-mix(in srgb, var(--histogram-error) 35%, transparent);
+  stroke-width: 3;
+}
+
+.dc-picked,
+.dc-drag {
+  fill: var(--selected);
+  stroke: var(--accent);
+  stroke-dasharray: 4 3;
+}
+
+/* ---- Trace table ---- */
+
+.trace-table {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+}
+
+.trace-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1.5fr) minmax(0, 1.15fr) 170px minmax(90px, 1fr) 112px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--line);
+  color: inherit;
+  text-decoration: none;
+}
+
+.trace-row:hover {
+  background: var(--chip);
+}
+
+.trace-row:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.trace-head {
+  border-top: 0;
+  padding-block: 9px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.trace-head:hover {
+  background: none;
+}
+
+.trace-status {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ok-fg);
+  box-shadow: 0 0 0 3px var(--ok-bg);
+}
+
+.trace-failed .trace-status {
+  background: var(--histogram-error);
+  box-shadow: 0 0 0 3px var(--error-bg);
+}
+
+.trace-slow .trace-status {
+  background: var(--warning-fg);
+  box-shadow: 0 0 0 3px var(--warning-bg);
+}
+
+.trace-name {
+  min-width: 0;
+}
+
+.trace-name strong,
+.trace-name small {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.trace-name small {
+  margin-top: 1px;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+.trace-cause {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12.5px;
+  color: var(--error-fg);
+}
+
+.trace-dur {
+  display: grid;
+  grid-template-columns: 62px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+
+.trace-dur b {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.trace-bar {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--chip);
+}
+
+.trace-bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.trace-failed .trace-bar i {
+  background: var(--histogram-error);
+}
+
+.trace-slow .trace-bar i {
+  background: var(--warning-fg);
+}
+
+.trace-ribbon {
+  display: flex;
+  gap: 2px;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.trace-ribbon i {
+  display: block;
+  min-width: 4px;
+}
+
+.trace-spans {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.trace-pill {
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: var(--error-bg);
+  color: var(--error-fg);
+  font-size: 11px;
+}
+
+.trace-swatch {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.trace-show-failed[aria-pressed="true"] {
+  background: var(--error-bg);
+  color: var(--error-fg);
+  box-shadow: 0 0 0 1.5px var(--histogram-error);
+}
+
+.trace-show-slow[aria-pressed="true"] {
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+  box-shadow: 0 0 0 1.5px var(--warning-fg);
+}
+
+.trace-duration-fields {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--faint);
+}
+
+.trace-duration-fields label {
+  flex: 1;
+}
+
+.trace-duration-fields input {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--input);
+  color: var(--fg);
+  font: inherit;
+}
+
+/* ---- Trace view ---- */
+
+.trace-view {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.trace-view.has-span {
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
+}
+
+.trace-missing,
+.trace-view[aria-busy="true"] {
+  display: block;
+  padding: 24px 28px;
+}
+
+.trace-main {
+  min-width: 0;
+  overflow-y: auto;
+  padding: 18px 26px 24px;
+}
+
+.crumbs {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.crumbs a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.trace-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  margin: 8px 0 12px;
+}
+
+.trace-header > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.trace-header h1 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  font-size: 24px;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.trace-status-dot {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ok-fg);
+  box-shadow: 0 0 0 3px var(--ok-bg);
+}
+
+.trace-status-dot.failed {
+  background: var(--histogram-error);
+  box-shadow: 0 0 0 3px var(--error-bg);
+}
+
+.trace-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.trace-meta .mono {
+  font-size: 12px;
+}
+
+.trace-service-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.trace-service-tag i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.trace-stats {
+  display: flex;
+  gap: 10px;
+  margin: 0;
+}
+
+.trace-stats div {
+  min-width: 88px;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel) 80%, transparent);
+}
+
+.trace-stats dd {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.trace-stats dt {
+  order: 2;
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.trace-stats div {
+  display: flex;
+  flex-direction: column;
+}
+
+.trace-stats .failed dd {
+  color: var(--error-fg);
+}
+
+.trace-notice {
+  margin: 0 0 12px;
+  padding: 9px 14px;
+  border-radius: 10px;
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+  font-size: 12.5px;
+}
+
+.trace-tabs {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  border-bottom: 1px solid var(--line);
+}
+
+.trace-tabs [role="tab"] {
+  padding: 9px 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.trace-tabs [role="tab"][aria-selected="true"] {
+  color: var(--fg);
+  border-bottom-color: rgb(var(--nav-traces));
+}
+
+.trace-toggles {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  padding-bottom: 4px;
+}
+
+.trace-critical[aria-pressed="true"] {
+  background: rgba(var(--nav-traces), 0.2);
+  color: rgb(var(--nav-traces));
+}
+
+.trace-panel {
+  padding-top: 10px;
+}
+
+.trace-services {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.trace-services-note {
+  margin-left: auto;
+}
+
+/* Waterfall */
+
+.waterfall {
+  --who: 330px;
+}
+
+.wf-ruler {
+  display: grid;
+  grid-template-columns: var(--who) 1fr;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.wf-ticks {
+  position: relative;
+  margin-right: 64px;
+}
+
+.wf-ticks span {
+  position: absolute;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.wf-ticks span:first-child {
+  transform: none;
+}
+
+.wf-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wf-row {
+  display: grid;
+  grid-template-columns: var(--who) 1fr;
+  align-items: center;
+  min-height: 31px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent);
+}
+
+.wf-row.selected {
+  border-radius: 8px;
+  background: var(--selected);
+}
+
+.wf-who {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.wf-twist {
+  flex: 0 0 14px;
+  width: 14px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--faint);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.wf-service {
+  flex: 0 0 3px;
+  height: 18px;
+  border-radius: 2px;
+}
+
+.wf-name {
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.wf-row.failed .wf-name {
+  color: var(--error-fg);
+}
+
+.wf-row.orphan .wf-name {
+  color: var(--warning-fg);
+}
+
+.wf-name small {
+  color: inherit;
+  opacity: 0.85;
+}
+
+.wf-kind {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 10px;
+  color: var(--faint);
+}
+
+.wf-track {
+  position: relative;
+  align-self: stretch;
+  margin-right: 64px;
+}
+
+.wf-grid {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--line);
+  opacity: 0.6;
+}
+
+/* The whole trace as a thin track on every row, as on the alert rows, so each bar shows where it sat in the request. */
+.wf-line {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  margin-top: -1px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--fg) 12%, transparent);
+}
+
+.wf-bar {
+  position: absolute;
+  top: 50%;
+  height: 10px;
+  min-width: 6px;
+  margin-top: -5px;
+  border-radius: 999px;
+  background: var(--c);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--c) 55%, transparent);
+  transition: opacity 0.2s ease;
+}
+
+/* Failed spans keep their service colour, so the trace still reads by service, with a red ring that glows. */
+.wf-bar.failed {
+  box-shadow:
+    0 0 0 2px var(--histogram-error),
+    0 0 14px color-mix(in srgb, var(--histogram-error) 60%, transparent);
+}
+
+/* Off the critical path: still there, but quiet, so the chain that decided the duration stands out. */
+.wf-bar.dim {
+  opacity: 0.32;
+  box-shadow: none;
+}
+
+.wf-row.orphan .wf-bar {
+  background: transparent;
+  border: 1.5px dashed var(--warning-fg);
+  box-shadow: none;
+}
+
+.wf-exception {
+  position: absolute;
+  top: 50%;
+  width: 2px;
+  height: 18px;
+  margin: -9px 0 0 -1px;
+  border-radius: 1px;
+  background: var(--histogram-error);
+}
+
+.wf-exception::before {
+  content: "!";
+  position: absolute;
+  top: -4px;
+  left: -5px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--histogram-error);
+  color: #fff;
+  font: 700 9px/12px var(--font);
+  text-align: center;
+}
+
+.wf-time {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  font-style: normal;
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Span panel */
+
+.span-panel {
+  min-width: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px 22px;
+  border-left: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-2) 85%, transparent);
+}
+
+.span-panel h2 {
+  margin: -8px 0 0;
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+
+.span-panel-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.span-panel-top .detail-close {
+  margin-left: auto;
+}
+
+.trace-tag {
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: var(--chip);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.trace-tag.failed {
+  background: var(--error-bg);
+  color: var(--error-fg);
+}
+
+.span-panel-meta {
+  margin: -10px 0 0;
+  color: var(--muted);
+}
+
+.span-exception {
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--histogram-error) 45%, transparent);
+  border-radius: 12px;
+  background: var(--error-bg);
+}
+
+.span-exception p {
+  margin: 0 0 4px;
+}
+
+.span-exception b {
+  color: var(--error-fg);
+}
+
+.span-exception pre {
+  margin: 8px 0 4px;
+  overflow-x: auto;
+  font: 11px/1.5 var(--mono);
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+
+.span-exception pre.clipped {
+  max-height: 9em;
+  overflow: hidden;
+}
+
+.span-attributes {
+  margin: 0;
+}
+
+.span-attributes div {
+  display: grid;
+  grid-template-columns: minmax(120px, 42%) 1fr;
+  gap: 10px;
+  padding: 3px 0;
+  font-size: 12.5px;
+}
+
+.span-attributes dt {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.span-attributes dd {
+  margin: 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.span-events,
+.span-logs,
+.trace-logs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.span-events li {
+  padding: 3px 0;
+  font-size: 12.5px;
+}
+
+.span-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.span-section-head .section-title {
+  margin: 0;
+}
+
+.span-section-head a {
+  font-size: 12.5px;
+  text-decoration: none;
+}
+
+.span-logs li,
+.trace-logs li {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+  font-size: 12.5px;
+}
+
+.trace-logs li {
+  grid-template-columns: auto auto 1fr auto;
+}
+
+.trace-log-body {
+  overflow-wrap: anywhere;
+}
+
+.span-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: -4px;
+}
+
+.span-actions .button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--chip);
+  color: var(--fg);
+  font-size: 12.5px;
+  font-weight: 550;
+  text-decoration: none;
+}
+
+.span-actions .button:hover {
+  background: var(--selected);
+}
+
+/* ---- Tablet: the span opens as a drawer over the waterfall ---- */
+
+@media (max-width: 1199px) {
+  .traces {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  .trace-row {
+    grid-template-columns: 22px minmax(0, 1.4fr) minmax(0, 1fr) 140px 96px;
+  }
+
+  .trace-row > :nth-child(5) {
+    display: none;
+  }
+
+  .trace-view,
+  .trace-view.has-span {
+    position: relative;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .span-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 5;
+    width: min(420px, 90%);
+    box-shadow: -16px 0 40px rgba(0, 0, 0, 0.35);
+    /* The shell makes --panel see-through for its glass look; an overlay needs the solid colour menus use. */
+    background: var(--popover);
+  }
+
+  .trace-stats div {
+    min-width: 0;
+  }
+
+  .waterfall {
+    --who: 260px;
+  }
+}
+
+/* ---- Phone: cards, a stacked waterfall, and the span as a bottom sheet ---- */
+
+@media (max-width: 767px) {
+  .traces {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .traces-main,
+  .trace-main {
+    padding: 14px 14px 0;
+  }
+
+  .traces-head {
+    flex-wrap: wrap;
+  }
+
+  /* The title takes its own line, so Filters and the view share the next one. */
+  .traces-head > div:first-child {
+    flex-basis: 100%;
+  }
+
+  .traces-view {
+    margin-left: auto;
+  }
+
+  .traces-head p {
+    display: none;
+  }
+
+  .traces-search {
+    order: 3;
+    width: 100%;
+  }
+
+  .traces-legend {
+    display: none;
+  }
+
+  .trace-head {
+    display: none;
+  }
+
+  .trace-row {
+    grid-template-columns: 14px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "status name dur"
+      ". cause cause"
+      ". ribbon ribbon";
+    gap: 4px 8px;
+    margin: 0 0 8px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+  }
+
+  .trace-table {
+    border: 0;
+    background: none;
+  }
+
+  .trace-status {
+    grid-area: status;
+  }
+
+  .trace-name {
+    grid-area: name;
+  }
+
+  .trace-cause {
+    grid-area: cause;
+  }
+
+  .trace-dur {
+    grid-area: dur;
+    display: block;
+  }
+
+  .trace-bar,
+  .trace-spans {
+    display: none;
+  }
+
+  .trace-row > :nth-child(5) {
+    display: flex;
+    grid-area: ribbon;
+  }
+
+  .trace-header {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .trace-stats {
+    width: 100%;
+  }
+
+  .trace-stats div {
+    flex: 1;
+    padding: 6px 10px;
+  }
+
+  .trace-tabs {
+    gap: 14px;
+    overflow-x: auto;
+  }
+
+  .trace-toggles,
+  .trace-services-note,
+  .wf-ruler {
+    display: none;
+  }
+
+  .wf-row {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 6px 0;
+  }
+
+  .wf-track {
+    height: 14px;
+    margin-right: 56px;
+  }
+
+  .wf-bar {
+    height: 8px;
+    margin-top: -4px;
+  }
+
+  /* No room beside a bar on a phone: the duration sits at the end of the name line instead. Important, because the
+     waterfall places it beside the bar inline. */
+  .wf-time {
+    top: -14px;
+    right: -56px !important;
+    left: auto !important;
+  }
+
+  .span-panel {
+    position: fixed;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-height: 62vh;
+    border: 0;
+    border-radius: 22px 22px 0 0;
+    box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.45);
+  }
+}

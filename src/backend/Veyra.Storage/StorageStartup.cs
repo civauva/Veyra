@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Veyra.Storage.Logs;
 using Veyra.Storage.Metrics;
 using Veyra.Storage.Schema;
+using Veyra.Storage.Traces;
 
 namespace Veyra.Storage;
 
@@ -43,6 +44,7 @@ public static partial class StorageStartup
         // The first partitions must exist before ingestion starts; the background service keeps them ahead later.
         await services.GetRequiredService<LogPartitions>().EnsureAsync(cancellationToken);
         await services.GetRequiredService<MetricPartitions>().EnsureAsync(cancellationToken);
+        await services.GetRequiredService<SpanPartitions>().EnsureAsync(cancellationToken);
 
         return true;
     }

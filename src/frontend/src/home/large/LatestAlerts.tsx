@@ -5,6 +5,7 @@ import { formatDuration } from "../../alerts/alertFormat";
 import { alertTitle, formatMeasure, ruleName } from "../../alerts/ruleWords";
 import { formatClock } from "../../logs/format";
 import { WeatherIcon } from "../WeatherIcon";
+import { localDay, shortDate } from "../../time/zone";
 
 /** Props for {@link LatestAlerts}. */
 interface LatestAlertsProps {
@@ -80,11 +81,11 @@ function when(item: AlertListItem, now: Date): string {
 
   const span = `${formatClock(item.openedAt)}–${formatClock(item.resolvedAt)}`;
 
-  if (item.openedAt.slice(0, 10) === now.toISOString().slice(0, 10)) {
+  if (localDay(item.openedAt) === localDay(now)) {
     return span;
   }
 
-  const day = new Date(item.openedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  const day = shortDate(item.openedAt);
 
   return `${day}, ${span}`;
 }

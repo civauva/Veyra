@@ -169,7 +169,7 @@ export function ChannelCard({ channel, emailServer, onEdit, onChanged }: Channel
         >
           Send test
         </button>
-        <button type="button" className="button small ghost" onClick={onEdit}>
+        <button type="button" className="button small quiet" onClick={onEdit}>
           Edit
         </button>
         <span className="grow" />
@@ -189,12 +189,12 @@ export function ChannelCard({ channel, emailServer, onEdit, onChanged }: Channel
             >
               Yes, delete
             </button>
-            <button type="button" className="button small ghost" onClick={() => setConfirming(false)}>
+            <button type="button" className="button small quiet" onClick={() => setConfirming(false)}>
               Keep
             </button>
           </span>
         ) : (
-          <button type="button" className="button small ghost" onClick={() => setConfirming(true)}>
+          <button type="button" className="button small quiet" onClick={() => setConfirming(true)}>
             Delete
           </button>
         )}

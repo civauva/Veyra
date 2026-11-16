@@ -18,7 +18,7 @@ namespace Veyra.Alerting;
 /// <param name="logger">Receives failures, which are retried on the next run.</param>
 internal sealed partial class AlertEvaluation(
     IServiceProvider services,
-    IOptions<AlertingOptions> options,
+    IOptionsMonitor<AlertingOptions> options,
     TimeProvider clock,
     ILogger<AlertEvaluation> logger) : BackgroundService
 {
@@ -27,7 +27,7 @@ internal sealed partial class AlertEvaluation(
     /// <returns>A task that completes when Veyra stops.</returns>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(options.Value.EvaluationInterval, clock);
+        using var timer = new PeriodicTimer(options.CurrentValue.EvaluationInterval, clock);
 
         var failing = false;
 
@@ -58,7 +58,16 @@ internal sealed partial class AlertEvaluation(
                 }
             }
         }
-        while (await timer.WaitForNextTickAsync(stoppingToken));
+        while (await NextAsync(timer, stoppingToken));
+    }
+
+    // The interval is read again before every wait, so a change on the Settings screen applies from the next run
+    // (ADR 0017).
+    private ValueTask<bool> NextAsync(PeriodicTimer timer, CancellationToken stoppingToken)
+    {
+        timer.Period = options.CurrentValue.EvaluationInterval;
+
+        return timer.WaitForNextTickAsync(stoppingToken);
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Alert evaluation failed; retrying on the next run")]

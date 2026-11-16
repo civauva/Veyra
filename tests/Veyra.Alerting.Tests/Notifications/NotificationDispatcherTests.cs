@@ -156,7 +156,7 @@ public sealed class NotificationDispatcherTests(PostgresFixture postgres) : IDis
 
     private NotificationDispatcher Dispatcher(NpgsqlDataSource database, int batchSize = 10)
     {
-        var options = Options.Create(new AlertingOptions
+        var options = new TestOptionsMonitor<AlertingOptions>(new AlertingOptions
         {
             PublicUrl = "https://veyra.example.com",
             Notifications = new NotificationOptions { BatchSize = batchSize },

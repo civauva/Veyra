@@ -8,8 +8,8 @@ namespace Veyra.Ingestion.Pipeline;
 /// <see cref="IngestionOptions.MaxQueueLength"/> records.
 /// </summary>
 /// <param name="options">The Ingestion settings, for the limit.</param>
-internal sealed class LogQueue(IOptions<IngestionOptions> options)
-    : BoundedBatchQueue<LogRecord>(options.Value.MaxQueueLength)
+internal sealed class LogQueue(IOptionsMonitor<IngestionOptions> options)
+    : BoundedBatchQueue<LogRecord>(() => options.CurrentValue.MaxQueueLength)
 {
     /// <summary>The number of records accepted but not yet written.</summary>
     public int QueuedRecords => Queued;

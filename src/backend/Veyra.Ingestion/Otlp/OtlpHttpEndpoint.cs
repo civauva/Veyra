@@ -7,13 +7,15 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using OpenTelemetry.Proto.Collector.Logs.V1;
 using OpenTelemetry.Proto.Collector.Metrics.V1;
+using OpenTelemetry.Proto.Collector.Trace.V1;
 using Veyra.Core.Security;
 using Veyra.Ingestion.Pipeline;
 
 namespace Veyra.Ingestion.Otlp;
 
 /// <summary>
-/// The OTLP/HTTP endpoints, <c>POST /v1/logs</c> and <c>POST /v1/metrics</c>, as the OTLP specification defines them.
+/// The OTLP/HTTP endpoints, <c>POST /v1/logs</c>, <c>/v1/metrics</c>, and <c>/v1/traces</c>, as the OTLP
+/// specification defines them.
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
@@ -37,8 +39,8 @@ internal static class OtlpHttpEndpoint
     private const int _maxBodyBytes = 16 * 1024 * 1024;
 
     /// <summary>
-    /// Maps <c>POST /v1/logs</c> and <c>POST /v1/metrics</c>. They are open to anonymous callers because they check
-    /// ingestion keys themselves.
+    /// Maps <c>POST /v1/logs</c>, <c>/v1/metrics</c>, and <c>/v1/traces</c>. They are open to anonymous callers
+    /// because they check ingestion keys themselves.
     /// </summary>
     /// <param name="endpoints">The application's endpoint builder.</param>
     public static void Map(IEndpointRouteBuilder endpoints)
@@ -52,7 +54,28 @@ internal static class OtlpHttpEndpoint
             .AllowAnonymous()
             .WithMetadata(new RequestSizeLimitAttribute(_maxBodyBytes))
             .WithName("OtlpHttpMetrics");
+
+        endpoints.MapPost("/v1/traces", HandleTracesAsync)
+            .AllowAnonymous()
+            .WithMetadata(new RequestSizeLimitAttribute(_maxBodyBytes))
+            .WithName("OtlpHttpTraces");
     }
+
+    private static Task<IResult> HandleTracesAsync(
+        HttpContext context,
+        IIngestionKeyValidator keys,
+        FailedKeyThrottle throttle,
+        SpanPipeline pipeline,
+        CancellationToken cancellationToken) =>
+        HandleAsync(
+            context,
+            keys,
+            throttle,
+            json => OtlpJson.ParseTracesRequest(json),
+            ExportTraceServiceRequest.Parser.ParseFrom,
+            (request, key) => pipeline.Accept(request, key),
+            OtlpResponses.Traces,
+            cancellationToken);
 
     private static Task<IResult> HandleLogsAsync(
         HttpContext context,

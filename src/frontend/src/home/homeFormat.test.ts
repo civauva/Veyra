@@ -30,10 +30,8 @@ describe("conditionTitle", () => {
 });
 
 describe("narrative", () => {
-  it("names the worst service, the showery ones, and how many are dry", () => {
-    expect(narrative(stormSnapshot)).toBe(
-      "payments-gateway fails 21.6% of the time since 06:58. billing-worker is showery. 6 of 8 services are dry.",
-    );
+  it("counts what needs you and how many services are dry, leaving the alerts to Needs you", () => {
+    expect(narrative(stormSnapshot)).toBe("1 warning and 1 caution need you. 6 of 8 services are dry.");
   });
 
   it("says when every service is dry", () => {
@@ -44,7 +42,7 @@ describe("narrative", () => {
     expect(narrative({ ...clearSnapshot, blocks: [] })).toBe("No logs arrived in the last hour.");
   });
 
-  it("joins several showery services", () => {
+  it("counts several cautions in the plural", () => {
     const caution = (service: string, n: number): HomeAlert => ({
       ...stormCaution,
       id: service,
@@ -57,7 +55,7 @@ describe("narrative", () => {
       alerts: [caution("orders", 1), caution("billing", 2), caution("search", 3)],
     };
 
-    expect(narrative(snapshot)).toMatch(/^orders, billing and search are showery\./);
+    expect(narrative(snapshot)).toMatch(/^3 cautions need you\./);
   });
 });
 

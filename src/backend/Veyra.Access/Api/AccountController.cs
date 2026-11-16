@@ -64,7 +64,30 @@ public sealed class AccountController : ControllerBase
             AccessResponses.SecondFactor(detail.SecondFactor),
             detail.SecondFactorRequired,
             [.. detail.Sessions.Select(one => AccessResponses.SessionInfo(one, User.SessionId()))],
-            [.. detail.SignIns.Take(_signInsShown).Select(AccessResponses.SignIn)]));
+            [.. detail.SignIns.Take(_signInsShown).Select(AccessResponses.SignIn)],
+            user.TimeZone));
+    }
+
+    /// <summary>
+    /// Sets the time zone every screen shows the person's times in (VEY-22), or clears it so the browser's is used.
+    /// </summary>
+    /// <param name="request">The zone.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>No content.</returns>
+    /// <response code="204">The zone is kept.</response>
+    /// <response code="400">The name is not an IANA time zone.</response>
+    [HttpPut("time-zone")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> SetTimeZoneAsync(TimeZoneRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return await _users.SetTimeZoneAsync(User.UserId(), request.TimeZone, cancellationToken)
+            ? NoContent()
+            : Problem(
+                title: "The time zone must be an IANA name, such as Europe/Berlin.",
+                statusCode: StatusCodes.Status400BadRequest);
     }
 
     /// <summary>Starts setting up a second factor. It is not asked for until a code confirms it.</summary>

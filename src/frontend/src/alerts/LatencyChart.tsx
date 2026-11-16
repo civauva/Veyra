@@ -4,6 +4,7 @@ import type { AlertDetails, AlertLatency } from "../api/types";
 import { formatClock } from "../logs/format";
 import { formatSeconds } from "../metrics/metricFormat";
 import { besideLine, gappedPath, niceScale, timeTicks, useWidth } from "./chartParts";
+import { zoneLabel } from "../time/zone";
 
 /** Props for {@link LatencyChart}. */
 interface LatencyChartProps {
@@ -61,7 +62,7 @@ export function LatencyChart({ alert, latency }: LatencyChartProps) {
   const last = points.findLast((point) => point.p95Seconds !== null);
 
   const summary =
-    `Request durations of ${alert.block.name} from ${formatClock(latency.from)} to ${formatClock(latency.to)} UTC` +
+    `Request durations of ${alert.block.name} from ${formatClock(latency.from)} to ${formatClock(latency.to)} ${zoneLabel()}` +
     `, peak p95 ${formatSeconds(alert.peak)}${peakAt ? ` at ${formatClock(peakAt)}` : ""}` +
     `, warning from ${formatSeconds(alert.warningThreshold)}, caution from ${formatSeconds(alert.cautionThreshold)}.`;
 
