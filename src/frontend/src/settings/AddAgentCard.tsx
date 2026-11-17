@@ -46,7 +46,7 @@ export function AddAgentCard({ onAdded }: AddAgentCardProps) {
     <div className="monitor-card monitor-later">
       <b>An agent for another network</b>
       <p>
-        For SQL Servers the built-in agent cannot reach, such as those behind a company firewall while Veyra runs
+        For database servers the built-in agent cannot reach, such as those behind a company firewall while Veyra runs
         elsewhere. You install it on any machine in that network; it connects out to Veyra, and nothing connects in.
       </p>
       {open ? (

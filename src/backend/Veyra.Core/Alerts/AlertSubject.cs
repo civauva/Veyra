@@ -29,6 +29,15 @@ public sealed record AlertSubject(AlertBlockKind Kind, string Name, string? Part
     public static AlertSubject Database(string name, string? part = null) => new(AlertBlockKind.Database, name, part);
 
     /// <summary>
+    /// A Docker container. Its host stands in the part: containers on two hosts may share a name, and alerts and links
+    /// need the host to say which one they mean (ADR 0018).
+    /// </summary>
+    /// <param name="name">The container name, from <c>container.name</c>.</param>
+    /// <param name="host">The host it runs on, from <c>host.name</c>, if known.</param>
+    /// <returns>The subject.</returns>
+    public static AlertSubject Container(string name, string? host) => new(AlertBlockKind.Container, name, host);
+
+    /// <summary>
     /// The kind as the API and the database spell it: <c>service</c>, <c>host</c>, <c>database</c>, or
     /// <c>container</c>.
     /// </summary>

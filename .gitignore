@@ -19,6 +19,7 @@ node_modules/
 src/frontend/dist/
 src/frontend/test-results/
 src/frontend/playwright-report/
+*.tsbuildinfo
 src/frontend/.vite/
 npm-debug.log*
 yarn-error.log*

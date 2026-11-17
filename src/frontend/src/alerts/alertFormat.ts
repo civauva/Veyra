@@ -2,7 +2,15 @@ import type { AlertDelivery, AlertDetails, AlertEvent, AlertSeverity } from "../
 import type { ShellScene } from "../app/shellContext";
 import { severityWord, formatRatio } from "../home/homeFormat";
 import { formatClock } from "../logs/format";
-import { alertTitle, formatDays, formatDiskShare, formatMeasure, notFillingDays, serverName } from "./ruleWords";
+import {
+  alertTitle,
+  containerName,
+  formatDays,
+  formatDiskShare,
+  formatMeasure,
+  notFillingDays,
+  serverName,
+} from "./ruleWords";
 import { isCatalogRule } from "./ruleCatalog";
 
 /** An error-rate alert, which always has its error-rate series. */
@@ -77,6 +85,10 @@ export function headline(alert: AlertDetails): string {
         : `${disk} is full in ${formatDays(alert.value)} now`;
     case "error-rate":
       return `${alert.block.name} is back to ${formatRatio(alert.value)} errors`;
+    case "container-restarts":
+      return `${containerName(alert.block)} had no restart for 15 minutes`;
+    case "container-memory":
+      return `${containerName(alert.block)} is back to ${formatDiskShare(alert.value)} of its memory limit`;
     case "db-blocking":
       return `${serverName(alert.block.name)} has no blocked sessions`;
     case "db-deadlocks":
@@ -87,6 +99,10 @@ export function headline(alert: AlertDetails): string {
       return `${serverName(alert.block.name)}: ${alert.block.part ?? "the database"} has a new full backup`;
     case "db-agent-job":
       return `${serverName(alert.block.name)}: SQL Agent job ${alert.block.part ?? ""} succeeded again`;
+    case "db-connections":
+      return `${serverName(alert.block.name)}: connections are back to ${formatDiskShare(alert.value)} of the maximum`;
+    case "db-wraparound":
+      return `${serverName(alert.block.name)}: ${alert.block.part ?? "the database"} is back to ${formatDiskShare(alert.value)} of transaction ID wraparound`;
   }
 }
 
@@ -180,6 +196,25 @@ export function alertStory(alert: AlertDetails): string {
         ? `${rose} It cleared at ${cleared}, below ${below}.`
         : `${rose} ${staysBelow(alert, formatRatio, minutes)}`;
     }
+    case "container-restarts": {
+      const rose = `The container${where} restarted ${crossings.join(", then ")} in ${minutes} minutes.`;
+
+      return cleared
+        ? `${rose} It cleared at ${cleared}.`
+        : `${rose} It clears after ${minutes} minutes without a restart.`;
+    }
+    case "container-memory": {
+      const rose = `The container${where} went above ${crossings.join(" and above ")} of its memory limit.`;
+      const below = formatDiskShare(clearsBelow(alert));
+
+      if (cleared) {
+        return `${rose} It cleared at ${cleared}, below ${below}.`;
+      }
+
+      return alert.severity === "Warning"
+        ? `${rose} It eases to caution below ${below} and clears below ${formatDiskShare(alert.clearThreshold)}.`
+        : `${rose} It clears below ${below}.`;
+    }
     case "db-blocking": {
       const rose = `Sessions${where} stayed blocked for ${minutes} minutes: ${crossings.join(", then ")}.`;
 
@@ -211,6 +246,22 @@ export function alertStory(alert: AlertDetails): string {
         ? `${failed} The next run succeeded at ${cleared}.`
         : `${failed} The next successful run clears it.`;
     }
+    case "db-connections":
+    case "db-wraparound": {
+      const rose =
+        alert.rule === "db-connections"
+          ? `Connections${where} went above ${crossings.join(" and above ")} of the server's maximum.`
+          : `The oldest transaction ID of ${alert.block.part ?? "the database"}${where} went past ${crossings.join(" and past ")} of the wraparound limit.`;
+      const below = formatDiskShare(clearsBelow(alert));
+
+      if (cleared) {
+        return `${rose} It cleared at ${cleared}, below ${below}.`;
+      }
+
+      return alert.severity === "Warning"
+        ? `${rose} It eases to caution below ${below} and clears below ${formatDiskShare(alert.clearThreshold)}.`
+        : `${rose} It clears below ${below}.`;
+    }
   }
 }
 
@@ -238,7 +289,14 @@ function staysBelow(alert: AlertDetails, format: (value: number) => string, minu
  * @returns The value, in the rule's unit.
  */
 export function clearsBelow(alert: AlertDetails): number {
-  if (alert.rule === "disk-space") {
+  // Disk space, container memory, connections, and wraparound clear a number of points below their level, not a share
+  // of it.
+  if (
+    alert.rule === "disk-space" ||
+    alert.rule === "container-memory" ||
+    alert.rule === "db-connections" ||
+    alert.rule === "db-wraparound"
+  ) {
     return alert.threshold - (alert.cautionThreshold - alert.clearThreshold);
   }
 

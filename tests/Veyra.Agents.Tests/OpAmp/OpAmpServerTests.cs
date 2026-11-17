@@ -7,6 +7,7 @@ using Npgsql;
 using OpAmp.Proto.V1;
 using Veyra.Agents.Agents;
 using Veyra.Agents.OpAmp;
+using Veyra.Agents.PostgresServers;
 using Veyra.Agents.SqlServers;
 using Veyra.Testing;
 
@@ -81,6 +82,34 @@ public class OpAmpServerTests(PostgresFixture postgres)
         Assert.Contains("veyra_monitor:Correct-Horse-7@10.0.0.5:1433", body, StringComparison.Ordinal);
         Assert.Contains($"Bearer {key}", body, StringComparison.Ordinal);
         Assert.Equal(SHA256.HashData(file.Body.Span), reply.RemoteConfig.ConfigHash.ToByteArray());
+    }
+
+    [Fact]
+    public async Task HandleAsync_AgentWithAPostgresServer_SendsItsReceiversWithThePassword()
+    {
+        await using var database = await AgentsDatabase.CreateAsync(postgres);
+        var (agent, key) = await SeedAgentAsync(database);
+        var server = await PostgresServers(database).AddAsync(
+            new PostgresServerInput(
+                "pg-main",
+                "10.0.0.7",
+                5432,
+                "production",
+                agent.Id,
+                "veyra_monitor",
+                "Correct-Horse-7",
+                PostgresEncryption.Required),
+            FakeMonitoringHistory.Admin,
+            CancellationToken.None);
+
+        var reply = await Server(database).HandleAsync(key, First(), _veyra, CancellationToken.None);
+
+        var body = reply!.RemoteConfig.Config.ConfigMap[""].Body.ToStringUtf8();
+        Assert.Contains($"postgresql/{server.Id:N}:", body, StringComparison.Ordinal);
+        Assert.Contains($"sqlquery/{server.Id:N}:", body, StringComparison.Ordinal);
+        Assert.Contains("endpoint: \"10.0.0.7:5432\"", body, StringComparison.Ordinal);
+        Assert.Contains("password: \"Correct-Horse-7\"", body, StringComparison.Ordinal);
+        Assert.Contains("value: \"pg-main\"", body, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -168,6 +197,40 @@ public class OpAmpServerTests(PostgresFixture postgres)
         Assert.Equal("bind failed", report.HealthError);
     }
 
+    [Fact]
+    public async Task HandleAsync_AgentSwitchedToWatchItsHost_GetsAnotherConfigurationHash()
+    {
+        await using var database = await AgentsDatabase.CreateAsync(postgres);
+        var (agent, key) = await SeedAgentAsync(database);
+        var before = await Server(database).HandleAsync(key, First(), _veyra, CancellationToken.None);
+
+        await new AgentStore(database).SaveWatchAsync(
+            agent.Id,
+            new HostWatch(Host: true, EventLog: false, Iis: false, Environment: "staging"),
+            CancellationToken.None);
+        var after = await Server(database).HandleAsync(key, First(), _veyra, CancellationToken.None);
+
+        Assert.NotEqual(before!.RemoteConfig.ConfigHash, after!.RemoteConfig.ConfigHash);
+        Assert.Contains("staging", after.RemoteConfig.Config.ConfigMap[""].Body.ToStringUtf8(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task HandleAsync_LinuxAgentWatchingDocker_IsToldToReadTheContainers()
+    {
+        await using var database = await AgentsDatabase.CreateAsync(postgres);
+        var (agent, key) = await SeedAgentAsync(database);
+        await new AgentStore(database).SaveWatchAsync(
+            agent.Id,
+            new HostWatch(Host: true, EventLog: false, Iis: false, Environment: "production", Docker: true),
+            CancellationToken.None);
+
+        var reply = await Server(database).HandleAsync(key, First(), _veyra, CancellationToken.None);
+
+        var config = reply!.RemoteConfig.Config.ConfigMap[""].Body.ToStringUtf8();
+        Assert.Contains("docker_stats:", config, StringComparison.Ordinal);
+        Assert.Contains("filelog/docker:", config, StringComparison.Ordinal);
+    }
+
     private static AgentToServer First() =>
         new()
         {
@@ -212,6 +275,7 @@ public class OpAmpServerTests(PostgresFixture postgres)
                 "veyra_monitor",
                 "Correct-Horse-7",
                 SqlServerEncryption.Required),
+            FakeMonitoringHistory.Admin,
             CancellationToken.None);
 
     private SqlServerService Servers(NpgsqlDataSource database) =>
@@ -220,8 +284,18 @@ public class OpAmpServerTests(PostgresFixture postgres)
             new AgentStore(database),
             new SqlServerPasswordProtector(_protection),
             _clock,
+            new FakeMonitoringHistory(),
             NullLogger<SqlServerService>.Instance);
 
+    private PostgresServerService PostgresServers(NpgsqlDataSource database) =>
+        new(
+            new PostgresServerStore(database),
+            new AgentStore(database),
+            new PostgresPasswordProtector(_protection),
+            _clock,
+            new FakeMonitoringHistory(),
+            NullLogger<PostgresServerService>.Instance);
+
     private OpAmpServer Server(NpgsqlDataSource database) =>
-        new(new AgentStore(database), Servers(database), _keys, _clock);
+        new(new AgentStore(database), Servers(database), PostgresServers(database), _keys, _clock);
 }

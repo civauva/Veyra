@@ -8,6 +8,7 @@ import { api, ApiError } from "../api/client";
 import type { AlertListItem } from "../api/types";
 import { App } from "../app/App";
 import { SessionProvider } from "../session/SessionProvider";
+import { permissionsAzureDatabase, permissionsGranted, permissionsManagedInstance } from "./database/testDatabase";
 import { databaseMetrics, overviewWithDatabase } from "./testMetrics";
 
 vi.mock("../api/client", async (importOriginal) => {
@@ -27,6 +28,7 @@ vi.mock("../api/client", async (importOriginal) => {
       databaseLive: vi.fn(),
       databaseStorage: vi.fn(),
       databaseIndexes: vi.fn(),
+      databasePermissions: vi.fn(),
     },
   };
 });
@@ -83,6 +85,7 @@ beforeEach(() => {
   vi.mocked(api.databaseLive).mockReturnValue(new Promise(() => {}));
   vi.mocked(api.databaseStorage).mockReturnValue(new Promise(() => {}));
   vi.mocked(api.databaseIndexes).mockReturnValue(new Promise(() => {}));
+  vi.mocked(api.databasePermissions).mockResolvedValue(permissionsGranted);
 });
 
 describe("DatabaseScreen", () => {
@@ -155,5 +158,29 @@ describe("DatabaseScreen", () => {
     renderAt(`${path}?tab=databases`);
 
     expect(await screen.findByText("sql-prod-01 sent no metrics within the last 6h.")).toBeVisible();
+  });
+
+  it("leaves out the tabs an Azure SQL Database does not have, and says why", async () => {
+    localStorage.setItem("veyra.view", "advanced");
+    vi.mocked(api.databasePermissions).mockResolvedValue(permissionsAzureDatabase);
+    renderAt(`${path}?tab=jobs`);
+
+    expect(await screen.findByText(/An Azure SQL Database is one database/)).toBeVisible();
+    const tabs = screen.getByRole("navigation", { name: "Server views" });
+    expect(within(tabs).getByRole("button", { name: "Live" })).toHaveAttribute("aria-current", "page");
+    for (const name of ["Waits", "Jobs", "Events", "Server"]) {
+      expect(within(tabs).queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+    expect(within(tabs).getByRole("button", { name: "Databases" })).toBeVisible();
+  });
+
+  it("says on a Managed Instance's Databases tab that Azure takes the backups", async () => {
+    vi.mocked(api.databasePermissions).mockResolvedValue(permissionsManagedInstance);
+    renderAt(`${path}?tab=databases`);
+
+    expect(await screen.findByText(/Azure takes the backups and runs the storage/)).toBeVisible();
+    expect(
+      within(screen.getByRole("navigation", { name: "Server views" })).getByRole("button", { name: "Jobs" }),
+    ).toBeVisible();
   });
 });

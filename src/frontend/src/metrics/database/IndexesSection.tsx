@@ -1,4 +1,5 @@
 import { api } from "../../api/client";
+import { unreadText } from "./unread";
 import { formatAmount } from "../metricFormat";
 import { useMetricData } from "../useMetricData";
 import { shortCount } from "./liveFormat";
@@ -12,6 +13,8 @@ export interface IndexesSectionProps {
   server: string;
   /** Whether the Advanced view is on. */
   advanced: boolean;
+  /** Whether the login lacks a permission this tab needs, so an empty answer proves nothing (VEY-58). */
+  blind?: boolean;
 }
 
 /**
@@ -19,7 +22,7 @@ export interface IndexesSectionProps {
  * statistics, and lock escalations, each with the statement to run; the Advanced view adds the largest indexes and
  * their use.
  */
-export function IndexesSection({ engine, server, advanced }: IndexesSectionProps) {
+export function IndexesSection({ engine, server, advanced, blind = false }: IndexesSectionProps) {
   const { data } = useMetricData(`indexes-${engine}-${server}`, (signal) =>
     api.databaseIndexes(engine, server, signal),
   );
@@ -35,7 +38,9 @@ export function IndexesSection({ engine, server, advanced }: IndexesSectionProps
         <span>read every hour</span>
       </div>
       {data.findings.length === 0 ? (
-        <p className="metrics-empty">No index or statistics advice: nothing missing, unused, or stale stands out.</p>
+        <p className="metrics-empty">
+          {blind ? unreadText : "No index or statistics advice: nothing missing, unused, or stale stands out."}
+        </p>
       ) : (
         <ul className="live-findings">
           {(advanced ? data.findings : data.findings.slice(0, 5)).map((finding, index) => (

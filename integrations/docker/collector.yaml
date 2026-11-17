@@ -1,0 +1,155 @@
+# OpenTelemetry Collector (contrib distribution) for the containers of one Linux Docker host: each container's CPU,
+# memory and its limit, network, block I/O, restarts, and uptime, and its logs, sent to Veyra over OTLP/HTTP (ADR
+# 0018). See docs/integrations/docker.md. Runs alone, or beside the host's own reads:
+# --config ../linux/collector.yaml --config collector.yaml. Its processors are the same as the Linux host's.
+#
+# Settings come from the environment, never from this file:
+#   VEYRA_OTLP_ENDPOINT   Veyra's OTLP/HTTP address, for example https://veyra.example.com or http://127.0.0.1:4318
+#   VEYRA_INGESTION_KEY   an ingestion key created in Veyra (vyk_...)
+#   VEYRA_ENVIRONMENT     the environment the host belongs to, for example production
+#
+# The Collector needs to read the Docker socket and /var/lib/docker/containers. Docker must write its json-file logs
+# with the container's name as their tag, set in /etc/docker/daemon.json:
+#   { "log-driver": "json-file", "log-opts": { "tag": "{{.Name}}", "max-size": "10m", "max-file": "3" } }
+#
+# What arrives from docker_stats (checked by test/run.sh). Every series carries the resource attributes
+# container.name, container.id, container.image.name, container.hostname, and container.runtime, but no host:
+#   container.cpu.utilization                  gauge  "1"           percent of one CPU, 0 to 100 per core in use
+#   container.cpu.usage.total, .kernelmode,
+#     .usermode                                sum    ns            cumulative, monotonic
+#   container.memory.usage.total               sum    By            not monotonic; in use, without the page cache
+#   container.memory.usage.limit               sum    By            not monotonic; the limit, or the host's memory
+#                                                                   when it has none
+#   container.memory.percent                   gauge  "1"           usage of the limit, as a percent 0 to 100
+#   container.memory.file                      sum    By            not monotonic; the page cache
+# A container caught between two restarts reports 0 for its CPU and memory, its limit too.
+#   container.network.io.usage.rx_bytes,
+#     .tx_bytes                                sum    By            cumulative, monotonic, per interface
+#   container.network.io.usage.rx_dropped,
+#     .tx_dropped                              sum    {packets}     cumulative, monotonic, per interface
+#   container.blockio.io_service_bytes_recursive
+#                                              sum    By            cumulative, monotonic, per device and operation;
+#                                                                   only once the container has used a disk
+#   container.restarts                         sum    {restarts}    cumulative, monotonic: restarts by the restart
+#                                                                   policy since the container was created
+#   container.uptime                           gauge  s             time since the container last started
+
+receivers:
+  docker_stats:
+    endpoint: unix:///var/run/docker.sock
+    # Veyra charts in one-minute buckets at the finest; two points a minute keep the newest bucket filled.
+    collection_interval: 30s
+    # Docker takes about two seconds to answer for a container, more on a busy host; the default 5 seconds was seen
+    # running out.
+    timeout: 10s
+    # Current engines refuse the receiver's own default. 1.44 is Docker 25, the oldest version Docker 29 accepts.
+    api_version: "1.44"
+    metrics:
+      # Off by default; Veyra's container-restarts rule and the host screen read them.
+      container.restarts:
+        enabled: true
+      container.uptime:
+        enabled: true
+
+  # Each container's stdout and stderr, from Docker's json-file logs. One file per container, named after its ID;
+  # every line is a JSON object holding the text, the stream, the time, and the tag the daemon was told to add.
+  filelog/docker:
+    include:
+      - /var/lib/docker/containers/*/*-json.log
+    include_file_path: true
+    include_file_name: false
+    # Only lines written from now on; a restarted Collector does not send a container's whole history again.
+    start_at: end
+    operators:
+      # Reads the JSON: the text becomes the body, the time the record's time, the stream log.iostream, and the tag
+      # attributes.attrs.tag. Lines on stderr are not errors by themselves; many programs log everything there.
+      - type: container
+        format: docker
+        add_metadata_from_filepath: false
+      # Docker splits a line longer than 16 KiB into parts; only the last part ends with a newline.
+      - type: recombine
+        combine_field: body
+        combine_with: ""
+        is_last_entry: 'body endsWith "\n"'
+        source_identifier: attributes["log.file.path"]
+      - type: add
+        field: body
+        value: 'EXPR(trimSuffix(body, "\n"))'
+      - type: regex_parser
+        parse_from: attributes["log.file.path"]
+        regex: '/(?P<container_id>[0-9a-f]{64})/[^/]+$'
+      - type: move
+        from: attributes.container_id
+        to: resource["container.id"]
+      # The container's name, which Veyra files the record under (ADR 0018). A container created before the daemon
+      # was given the tag has none; its records go to the host.
+      - type: move
+        if: 'attributes.attrs?.tag != nil'
+        from: attributes.attrs.tag
+        to: resource["container.name"]
+      - type: remove
+        if: 'attributes.attrs != nil'
+        field: attributes.attrs
+      - type: remove
+        field: attributes["log.file.path"]
+
+processors:
+  # host.name and os.description from the host, deployment.environment.name from the environment. docker_stats names
+  # no host, so this tells Veyra which host each container runs on. In a container, the Collector needs
+  # --network host for host.name to be the host's own name.
+  resourcedetection:
+    detectors:
+      - system
+    system:
+      hostname_sources:
+        - os
+      resource_attributes:
+        os.description:
+          enabled: true
+  resource:
+    attributes:
+      - key: deployment.environment.name
+        value: ${env:VEYRA_ENVIRONMENT:-production}
+        action: upsert
+  # Keeps the Collector's own memory bounded when Veyra is unreachable for a while.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 128
+  batch:
+    timeout: 10s
+
+exporters:
+  otlphttp:
+    endpoint: ${env:VEYRA_OTLP_ENDPOINT}
+    headers:
+      Authorization: Bearer ${env:VEYRA_INGESTION_KEY}
+    # Veyra answers 503 when its queues are full. The exporter retries and queues meanwhile.
+    retry_on_failure:
+      enabled: true
+      max_elapsed_time: 10m
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+
+service:
+  pipelines:
+    metrics/docker:
+      receivers:
+        - docker_stats
+      processors:
+        - memory_limiter
+        - resourcedetection
+        - resource
+        - batch
+      exporters:
+        - otlphttp
+    logs/docker:
+      receivers:
+        - filelog/docker
+      processors:
+        - memory_limiter
+        - resourcedetection
+        - resource
+        - batch
+      exporters:
+        - otlphttp

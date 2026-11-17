@@ -12,10 +12,12 @@ namespace Veyra.Agents.Agents;
 /// </param>
 /// <param name="CreatedAt">When it was set up.</param>
 /// <param name="Report">What it last reported.</param>
+/// <param name="Watch">What it reads of the machine it runs on.</param>
 internal sealed record Agent(
     Guid Id,
     string Name,
     AgentPlacement Placement,
     Guid? IngestionKeyId,
     DateTimeOffset CreatedAt,
-    AgentReport Report);
+    AgentReport Report,
+    HostWatch Watch);

@@ -1,0 +1,112 @@
+# IIS on a Windows host, added to collector.yaml: --config collector.yaml --config iis.yaml (ADR 0018). Every IIS site
+# becomes a service in Veyra, named after its log folder, such as W3SVC1 for the Default Web Site: each request is a
+# log record with its method, path, status, and time taken; status 5xx is an error, so the error-rate rule watches the
+# site. The iis receiver adds requests, connections, queues, and application pool state per site to the host.
+#
+#   IIS_LOG_DIR   where IIS writes its W3C logs, C:\inetpub\logs\LogFiles by default
+#
+# IIS must log in the W3C format with its default fields, as it does unless changed (IIS Manager, Logging).
+
+receivers:
+  iis:
+    collection_interval: 30s
+
+  # IIS writes each site's requests to its own folder, W3SVC<site ID>, one file a day, with UTC times. Lines starting
+  # with # are the file's headers. The default fields are, in order: date time s-ip cs-method cs-uri-stem
+  # cs-uri-query s-port cs-username c-ip cs(User-Agent) cs(Referer) sc-status sc-substatus sc-win32-status time-taken.
+  filelog/iis:
+    include:
+      - ${env:IIS_LOG_DIR:-C:\inetpub\logs\LogFiles}\W3SVC*\*.log
+    include_file_path: true
+    start_at: end
+    operators:
+      - type: filter
+        expr: 'body matches "^#"'
+      - type: regex_parser
+        # Folded over three lines; YAML joins them with the single space that separates the fields.
+        regex: '^(?P<date>\S+) (?P<time>\S+) (?P<server_ip>\S+) (?P<method>\S+) (?P<path>\S+)
+          (?P<query>\S+) (?P<port>\S+) (?P<user>\S+) (?P<client>\S+) (?P<agent>\S+) (?P<referer>\S+)
+          (?P<status>\d+) (?P<substatus>\d+) (?P<win32>\d+) (?P<taken>\d+)$'
+      - type: add
+        field: attributes.at
+        value: EXPR(attributes.date + " " + attributes.time)
+      - type: time_parser
+        parse_from: attributes.at
+        layout_type: strptime
+        layout: '%Y-%m-%d %H:%M:%S'
+        location: UTC
+      - type: severity_parser
+        parse_from: attributes.status
+        mapping:
+          error: 5xx
+          warn: 4xx
+          info:
+            - 1xx
+            - 2xx
+            - 3xx
+      - type: regex_parser
+        parse_from: attributes["log.file.path"]
+        regex: '(?P<site>W3SVC\d+)'
+      - type: move
+        from: attributes.site
+        to: resource["service.name"]
+      - type: move
+        from: attributes.method
+        to: attributes["http.request.method"]
+      - type: move
+        from: attributes.path
+        to: attributes["url.path"]
+      - type: move
+        from: attributes.status
+        to: attributes["http.response.status_code"]
+      - type: move
+        from: attributes.client
+        to: attributes["client.address"]
+      - type: move
+        from: attributes.taken
+        to: attributes["iis.time_taken_ms"]
+      - type: remove
+        field: attributes.date
+      - type: remove
+        field: attributes.time
+      - type: remove
+        field: attributes.at
+      - type: remove
+        field: attributes.server_ip
+      - type: remove
+        field: attributes.query
+      - type: remove
+        field: attributes.port
+      - type: remove
+        field: attributes.user
+      - type: remove
+        field: attributes.agent
+      - type: remove
+        field: attributes.referer
+      - type: remove
+        field: attributes.substatus
+      - type: remove
+        field: attributes.win32
+
+service:
+  pipelines:
+    metrics/iis:
+      receivers:
+        - iis
+      processors:
+        - memory_limiter
+        - resourcedetection
+        - resource
+        - batch
+      exporters:
+        - otlphttp
+    logs/iis:
+      receivers:
+        - filelog/iis
+      processors:
+        - memory_limiter
+        - resourcedetection
+        - resource
+        - batch
+      exporters:
+        - otlphttp

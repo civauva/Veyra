@@ -1,0 +1,70 @@
+# Containers to watch, and the Collector with ../collector.yaml writing to a file instead of Veyra. run.sh starts
+# them and checks what the Collector sends. Each container writes json-file logs tagged with its name, as the
+# daemon.json of docs/integrations/docker.md sets for every container.
+name: veyra-docker-check
+
+x-tagged-logs: &tagged-logs
+  driver: json-file
+  options:
+    tag: "{{.Name}}"
+
+services:
+  # Writes a line to stdout and one to stderr every second, and every fifth second a line longer than the 16 KiB
+  # Docker splits lines at. Its memory limit is what container.memory.usage.limit must report.
+  logger:
+    image: busybox:1.37
+    container_name: veyra-check-logger
+    mem_limit: 64m
+    logging: *tagged-logs
+    command:
+      - sh
+      - -c
+      - |
+        i=0
+        while true; do
+          i=$$((i + 1))
+          echo "hello line $$i"
+          echo "oops $$i" >&2
+          if [ $$((i % 5)) -eq 0 ]; then
+            head -c 20000 /dev/zero | tr '\0' 'x'
+            echo
+          fi
+          sleep 1
+        done
+
+  # Fails a second after each start, so Docker restarts it again and again.
+  restarter:
+    image: busybox:1.37
+    container_name: veyra-check-restarter
+    restart: on-failure
+    logging: *tagged-logs
+    command: ["sh", "-c", "echo starting; sleep 1; exit 1"]
+
+  # Keeps one CPU busy, so container.cpu.utilization shows what its unit is.
+  busy:
+    image: busybox:1.37
+    container_name: veyra-check-busy
+    logging: *tagged-logs
+    command: ["sh", "-c", "while :; do :; done"]
+
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.140.0
+    # Root, so it can read the Docker socket and log files, and the file exporter can write to the mounted folder.
+    user: "0"
+    # As docs/integrations/docker.md runs it: the host's network gives host.name the host's own name.
+    network_mode: host
+    command:
+      - --config=/etc/check/collector.yaml
+      - --config=/etc/check/to-file.yaml
+    environment:
+      VEYRA_OTLP_ENDPOINT: http://unused:4318
+      VEYRA_INGESTION_KEY: unused
+      VEYRA_ENVIRONMENT: check
+    volumes:
+      - ../collector.yaml:/etc/check/collector.yaml:ro
+      - ./to-file.yaml:/etc/check/to-file.yaml:ro
+      - ./out:/out
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    profiles:
+      - collector

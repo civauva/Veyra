@@ -60,6 +60,24 @@ public sealed class AlertingOptionsRules : OptionsRules<AlertingOptions>
             _prefix + "Latency:ClearFactor must be above 0 and at most 100 %.");
         yield return (latency.MinimumRequests >= 1, _prefix + "Latency:MinimumRequests must be at least 1.");
 
+        var restarts = options.ContainerRestarts;
+        yield return (
+            restarts.CautionRestarts >= 1,
+            _prefix + "ContainerRestarts:CautionRestarts must be at least 1.");
+        yield return (
+            restarts.WarningRestarts >= restarts.CautionRestarts,
+            _prefix + "ContainerRestarts:WarningRestarts must not be below the caution level.");
+
+        var memory = options.ContainerMemory;
+        yield return (memory.CautionRatio > 0, _prefix + "ContainerMemory:CautionRatio must be above 0 %.");
+        yield return (
+            memory.WarningRatio >= memory.CautionRatio,
+            _prefix + "ContainerMemory:WarningRatio must not be below the caution level.");
+        yield return (memory.WarningRatio <= 1, _prefix + "ContainerMemory:WarningRatio must not be above 100 %.");
+        yield return (
+            memory.ClearMargin >= 0 && memory.ClearMargin < memory.CautionRatio,
+            _prefix + "ContainerMemory:ClearMargin must be at least 0 and below the caution level.");
+
         var blocking = options.DatabaseBlocking;
         yield return (
             blocking.CautionSessions >= 1,
@@ -91,6 +109,34 @@ public sealed class AlertingOptionsRules : OptionsRules<AlertingOptions>
         yield return (
             backupAge.WarningHours >= backupAge.CautionHours,
             _prefix + "DatabaseBackupAge:WarningHours must not be below the caution level.");
+
+        var connections = options.DatabaseConnections;
+        yield return (
+            connections.CautionRatio > 0,
+            _prefix + "DatabaseConnections:CautionRatio must be above 0 %.");
+        yield return (
+            connections.WarningRatio >= connections.CautionRatio,
+            _prefix + "DatabaseConnections:WarningRatio must not be below the caution level.");
+        yield return (
+            connections.WarningRatio <= 1,
+            _prefix + "DatabaseConnections:WarningRatio must not be above 100 %.");
+        yield return (
+            connections.ClearMargin >= 0 && connections.ClearMargin < connections.CautionRatio,
+            _prefix + "DatabaseConnections:ClearMargin must be at least 0 and below the caution level.");
+
+        var wraparound = options.DatabaseWraparound;
+        yield return (
+            wraparound.CautionRatio > 0,
+            _prefix + "DatabaseWraparound:CautionRatio must be above 0 %.");
+        yield return (
+            wraparound.WarningRatio >= wraparound.CautionRatio,
+            _prefix + "DatabaseWraparound:WarningRatio must not be below the caution level.");
+        yield return (
+            wraparound.WarningRatio <= 1,
+            _prefix + "DatabaseWraparound:WarningRatio must not be above 100 %.");
+        yield return (
+            wraparound.ClearRatio >= 0 && wraparound.ClearRatio <= wraparound.CautionRatio,
+            _prefix + "DatabaseWraparound:ClearRatio must be at least 0 and not above the caution level.");
 
         foreach (var rule in RuleCatalog.All)
         {

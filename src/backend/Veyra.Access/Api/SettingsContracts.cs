@@ -135,21 +135,27 @@ public sealed record SettingsReviewResponse(
     IReadOnlyList<SettingDiffResponse> Changes,
     bool ConfirmationRequired);
 
-/// <summary>One change in the settings history.</summary>
+/// <summary>One change in the settings history: to a setting, or to a monitored system or agent (ADR 0019).</summary>
 /// <param name="Id">The change's number.</param>
-/// <param name="Key">The setting.</param>
-/// <param name="Label">The setting's label, or its key when Veyra no longer has it.</param>
-/// <param name="Group">The setting's card.</param>
-/// <param name="Section">The setting's section.</param>
-/// <param name="OldValue">The value before; null for a secret or when none was saved.</param>
-/// <param name="NewValue">The value after; null for a secret or when reset.</param>
+/// <param name="Key">The setting, or the name of the monitored system or agent.</param>
+/// <param name="Label">The setting's label, its key when Veyra no longer has it, or the system's name.</param>
+/// <param name="Group">The setting's card, or the kind of system, such as <c>SQL Server</c>.</param>
+/// <param name="Section">The setting's section; <c>Databases</c> or <c>Agents</c> for a monitored system.</param>
+/// <param name="OldValue">The value before; null for a secret, a monitored system, or when none was saved.</param>
+/// <param name="NewValue">The value after; null for a secret, a monitored system, or when reset.</param>
 /// <param name="Secret">Whether its values are hidden.</param>
-/// <param name="Kind">Changed, Reset, Reverted, or Imported.</param>
+/// <param name="Kind">
+/// Changed, Reset, Reverted, or Imported for a setting; Added, Changed, or Removed for a monitored system.
+/// </param>
 /// <param name="ChangedBy">The account that saved it, when it still exists.</param>
 /// <param name="ChangedByName">Who saved it.</param>
 /// <param name="ChangedAt">When.</param>
 /// <param name="Origin">The imported file's name.</param>
-/// <param name="CanRevert">Whether it can be set back from the history.</param>
+/// <param name="CanRevert">Whether it can be set back from the history; never for a monitored system.</param>
+/// <param name="Subject">
+/// <c>SqlServer</c>, <c>PostgresServer</c>, or <c>Agent</c> for a monitored system; null for a setting.
+/// </param>
+/// <param name="Fields">For a monitored system, the fields a change touched, never their values; null otherwise.</param>
 public sealed record SettingHistoryItemResponse(
     long Id,
     string Key,
@@ -164,7 +170,9 @@ public sealed record SettingHistoryItemResponse(
     string ChangedByName,
     DateTimeOffset ChangedAt,
     string? Origin,
-    bool CanRevert);
+    bool CanRevert,
+    string? Subject = null,
+    IReadOnlyList<string>? Fields = null);
 
 /// <summary>A page of the settings history.</summary>
 /// <param name="Changes">The changes, newest first.</param>

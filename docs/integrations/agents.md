@@ -2,7 +2,8 @@
 
 A Veyra agent reads systems for Veyra and sends what it reads over OTLP. It is the official OpenTelemetry Collector run
 by the official OpAMP supervisor, unchanged, at the version Veyra tests (0.140.0). Veyra configures it over OpAMP:
-nobody edits its files (ADR 0019). Today agents read SQL Servers; see [`sqlserver.md`](sqlserver.md).
+nobody edits its files (ADR 0019). Today agents read SQL Servers and PostgreSQL servers; see
+[`sqlserver.md`](sqlserver.md) and [`postgres.md`](postgres.md).
 
 An agent reads a SQL Server over the network, on its port, so nothing is installed on the database server itself.
 
@@ -65,8 +66,8 @@ revoked. Files downloaded before are used again when they still match.
 ### Change or remove an agent
 
 - **New code** on an agent that never connected, or went offline, installs it again, on the same machine or another.
-- **Remove** revokes the agent's key, so it can no longer connect or send. An agent that still reads SQL Servers cannot
-  be removed; give them to another agent first. Then uninstall it on its machine:
+- **Remove** revokes the agent's key, so it can no longer connect or send. An agent that still reads database servers
+  cannot be removed; give them to another agent first. Then uninstall it on its machine:
 
   ```powershell
   irm https://veyra.example.com/v1/agents/install.ps1 | iex; Uninstall-VeyraAgent
@@ -75,6 +76,20 @@ revoked. Files downloaded before are used again when they still match.
   ```bash
   curl -fsSL https://veyra.example.com/v1/agents/install.sh | sudo sh -s -- --uninstall
   ```
+
+### Watch the agent's own host
+
+An installed agent can also read the machine it runs on: switch on **Watch this host** on its card. A Windows agent
+can add its Event Log errors and IIS ([`windows.md`](windows.md)); a Linux agent its Docker containers, once its user
+may read Docker ([`docker.md`](docker.md#2a-from-the-settings-screen)). The built-in agent runs in a container and
+cannot watch a host.
+
+### Who changed what
+
+**History** on the Settings screen lists every agent, SQL Server, and PostgreSQL server added, changed, or removed,
+under **Agents** and **Database monitoring**: who did it, when, and which fields changed, such as "Changed port,
+password". A new code and a change to what an agent watches count as changes. Values are never kept there, so no
+password or address appears, and these changes cannot be reverted from the history.
 
 ## States
 

@@ -1,3 +1,5 @@
+using Veyra.Core.Settings;
+
 namespace Veyra.Access.Settings;
 
 /// <summary>Which changes of the settings history to read.</summary>
@@ -6,11 +8,16 @@ namespace Veyra.Access.Settings;
 /// <param name="From">Only changes saved at or after this time; null for no limit.</param>
 /// <param name="Before">Only changes older than this change number, for the next page; null for the newest.</param>
 /// <param name="Limit">The most changes on one page.</param>
-/// <param name="Names">Only these settings, such as the keys of one section; null for all.</param>
+/// <param name="Names">
+/// Only these settings, such as the keys of one section, and the changes to <paramref name="Subjects"/>; null for
+/// everything.
+/// </param>
+/// <param name="Subjects">With <paramref name="Names"/>, also the changes to these kinds of monitored systems.</param>
 internal sealed record SettingHistoryQuery(
     string? Prefix = null,
     Guid? ChangedBy = null,
     DateTimeOffset? From = null,
     long? Before = null,
     int Limit = 50,
-    IReadOnlyList<string>? Names = null);
+    IReadOnlyList<string>? Names = null,
+    IReadOnlyList<MonitoringSubject>? Subjects = null);

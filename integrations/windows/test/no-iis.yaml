@@ -1,0 +1,7 @@
+# Merged last on a machine without IIS: the iis receiver has nothing to read there, so its pipeline reads the host
+# instead and the W3C log reader is checked against the sample log the check writes.
+service:
+  pipelines:
+    metrics/iis:
+      receivers:
+        - hostmetrics

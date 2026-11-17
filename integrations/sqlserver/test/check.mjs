@@ -25,6 +25,7 @@ let plans = 0;
 
 /** The rows of the live view's sessions query (ADR 0020), with their attributes and body. */
 const sessions = [];
+const kinds = new Map();
 
 /** Every point of the statement metrics, with its attributes and whether it is a delta (VEY-43). */
 const statements = [];
@@ -67,6 +68,10 @@ for (const line of lines) {
         events.add(record.eventName);
 
         const row = attributes(record.attributes);
+
+        if (row.veyra_record !== undefined) {
+          kinds.set(row.veyra_record, (kinds.get(row.veyra_record) ?? 0) + 1);
+        }
 
         if (row.veyra_record === "sqlserver.session") {
           sessions.push({ ...row, text: text(record.body) ?? "" });
@@ -127,6 +132,16 @@ expect(value("sqlserver.agent.job.failed", "Purge sessions") === 0, "the succeed
 expect(value("sqlserver.database.backup.age", "shop") >= 0, "shop has no backup age");
 expect(value("sqlserver.database.backup.age", "reporting") === undefined, "reporting was never backed up");
 expect(value("sqlserver.database.size", "shop,data") > 0, "shop has no data size");
+// run.sh fires a deadlock while the Collector reads; its graph must arrive (ADR 0020, area 3).
+const received = [...kinds].map(([kind, count]) => `${kind} ${count}`).join(", ");
+expect(kinds.has("sqlserver.deadlock"), `no deadlock record arrived; records: ${received}`);
+
+// The check's login has every grant of the SQL Server guide, so the agent reports none missing (VEY-58).
+const permissions = [...latest].filter(([key]) => key.startsWith("sqlserver.login.permission.missing|"));
+expect(permissions.length === 15, `the agent reported ${permissions.length} permissions, not 15`);
+for (const [key, missing] of permissions) {
+  expect(missing === 0, `${key.split("|")[1]} is missing`);
+}
 // master and model are dated 2003 on every server; a database never checked counts from the installation instead.
 for (const [key, age] of latest) {
   if (key.startsWith("sqlserver.database.checkdb.age|") || key.startsWith("sqlserver.database.log_backup.age|")) {

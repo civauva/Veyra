@@ -1,16 +1,20 @@
 import { Link } from "react-router";
 
-import type { DatabaseCard, HostCard, MetricRange, ServiceCard } from "../api/types";
-import { engineName } from "../alerts/ruleWords";
+import type { ContainerCard, DatabaseCard, HostCard, MetricRange, ServiceCard } from "../api/types";
+import { containerAnchor, engineName } from "../alerts/ruleWords";
 import {
+  containerIsHot,
   formatAgo,
   formatAmount,
+  formatCpuPercent,
   formatFull,
   formatRate,
   formatSeconds,
   formatShare,
   formatSpan,
+  shareTone,
 } from "./metricFormat";
+import { connectionsRatio, connectionsTone, isPostgres, wraparoundTone } from "./database/postgres";
 import { Ring } from "./Ring";
 import { Sparkline } from "./Sparkline";
 
@@ -68,6 +72,103 @@ export function DatabaseIcon({ size = 20 }: { size?: number }) {
   );
 }
 
+/** The icon of a Docker container: a shipping container seen from the side. */
+export function ContainerIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      aria-hidden="true"
+    >
+      <rect x="3" y="6.5" width="18" height="11" rx="1.2" />
+      <path d="M7 9.5v5M10.3 9.5v5M13.7 9.5v5M17 9.5v5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Props for {@link ContainerCardView}. */
+interface ContainerCardViewProps {
+  /** The container's numbers. */
+  container: ContainerCard;
+  /** The range, carried into its host's page. */
+  range: MetricRange;
+  /** The current time, for how long ago it sent. */
+  now: Date;
+}
+
+/**
+ * One Docker container on the overview (ADR 0018): CPU, memory of its limit, and restarts, with CPU over the range
+ * and how long it has been up. The whole card leads to its row on its host's screen.
+ */
+export function ContainerCardView({ container, range, now }: ContainerCardViewProps) {
+  const id = `container-${container.host ?? ""}-${container.name}`;
+  const facts = [container.image, container.host ? `on ${container.host}` : null, container.environment]
+    .filter(Boolean)
+    .join(" · ");
+  const restarting = (container.restarts ?? 0) > 0;
+  const body = (
+    <>
+      <div className="metric-card-head">
+        <span className="metric-icon container">
+          <ContainerIcon />
+        </span>
+        <div>
+          <h3 id={id}>{container.name}</h3>
+          <small>{facts}</small>
+        </div>
+        <span className="metric-when">{formatAgo(container.lastSeen, now)}</span>
+      </div>
+      <dl className="metric-numbers">
+        <div>
+          <dt>CPU</dt>
+          <dd>{formatCpuPercent(container.cpuPercent)}</dd>
+        </div>
+        <div>
+          <dt>Memory</dt>
+          <dd className={shareTone(container.memoryRatio) === "ok" ? undefined : shareTone(container.memoryRatio)}>
+            {formatShare(container.memoryRatio)}
+            {container.memoryLimitBytes !== null && <small> of {formatAmount(container.memoryLimitBytes)}</small>}
+          </dd>
+        </div>
+        <div>
+          <dt>Restarts</dt>
+          <dd className={restarting ? "warn" : undefined}>{container.restarts === null ? "—" : container.restarts}</dd>
+        </div>
+      </dl>
+      <Sparkline line={container.cpu} color="var(--metric-pink)" />
+      <div className="metric-card-foot">
+        <span>CPU, last {range}</span>
+        {restarting ? (
+          <b className="warn">
+            Restarted {container.restarts === 1 ? "once" : `${container.restarts} times`} in {range}
+          </b>
+        ) : (
+          <span>{container.uptimeSeconds === null ? "Running" : `Up ${formatSpan(container.uptimeSeconds)}`}</span>
+        )}
+      </div>
+    </>
+  );
+
+  return (
+    <article className={containerIsHot(container) ? "metric-card hot" : "metric-card"} aria-labelledby={id}>
+      {container.host ? (
+        <Link
+          className="metric-card-link"
+          to={`/metrics/hosts/${encodeURIComponent(container.host)}?range=${range}#${containerAnchor(container.name)}`}
+        >
+          {body}
+        </Link>
+      ) : (
+        <div className="metric-card-link">{body}</div>
+      )}
+    </article>
+  );
+}
+
 /** Props for {@link DatabaseCardView}. */
 interface DatabaseCardViewProps {
   /** The server's numbers. */
@@ -80,8 +181,9 @@ interface DatabaseCardViewProps {
 
 /**
  * One database server on the overview (ADR 0018): batch requests, blocked sessions, and the longest query now, batch
- * requests over the range, and what needs a look: failed SQL Agent jobs or the oldest backup. The whole card leads
- * to the server's page.
+ * requests over the range, and what needs a look: failed SQL Agent jobs or the oldest backup. A PostgreSQL server
+ * shows its connections of the maximum, transactions over the range, and how far it is to wraparound instead
+ * (VEY-33). The whole card leads to the server's page.
  */
 export function DatabaseCardView({ database, range, now }: DatabaseCardViewProps) {
   const id = `database-${database.engine}-${database.server}`;
@@ -92,10 +194,14 @@ export function DatabaseCardView({ database, range, now }: DatabaseCardViewProps
   ]
     .filter(Boolean)
     .join(" · ");
+  const postgres = isPostgres(database.engine);
   const blocked = database.blocked !== null && database.blocked > 0;
   const longQuery = database.longestQuerySeconds !== null && database.longestQuerySeconds >= 300;
   const lateBackup = database.oldestBackupSeconds !== null && database.oldestBackupSeconds >= 26 * 3600;
-  const hot = blocked || longQuery || lateBackup || database.failedJobs > 0;
+  const connections = connectionsRatio(database.connections, database.maxConnections);
+  const crowded = connectionsTone(connections) !== "ok";
+  const wrapping = wraparoundTone(database.wraparoundRatio) !== "ok";
+  const hot = blocked || longQuery || lateBackup || database.failedJobs > 0 || crowded || wrapping;
 
   return (
     <article className={hot ? "metric-card hot" : "metric-card"} aria-labelledby={id}>
@@ -114,13 +220,23 @@ export function DatabaseCardView({ database, range, now }: DatabaseCardViewProps
           <span className="metric-when">{formatAgo(database.lastSeen, now)}</span>
         </div>
         <dl className="metric-numbers">
-          <div>
-            <dt>Requests</dt>
-            <dd>
-              {formatRate(database.batchRequests)}
-              <small>/s</small>
-            </dd>
-          </div>
+          {postgres ? (
+            <div>
+              <dt>Connections</dt>
+              <dd className={crowded ? "warn" : undefined}>
+                {database.connections === null ? "–" : Math.round(database.connections)}
+                {database.maxConnections !== null && <small> of {Math.round(database.maxConnections)}</small>}
+              </dd>
+            </div>
+          ) : (
+            <div>
+              <dt>Requests</dt>
+              <dd>
+                {formatRate(database.batchRequests)}
+                <small>/s</small>
+              </dd>
+            </div>
+          )}
           <div>
             <dt>Blocked</dt>
             <dd className={blocked ? "warn" : undefined}>{database.blocked === null ? "–" : database.blocked}</dd>
@@ -134,8 +250,12 @@ export function DatabaseCardView({ database, range, now }: DatabaseCardViewProps
         </dl>
         <Sparkline line={database.requests} color="var(--metric-teal)" />
         <div className="metric-card-foot">
-          <span>Batch requests, last {range}</span>
-          {database.failedJobs > 0 ? (
+          <span>
+            {postgres ? "Transactions" : "Batch requests"}, last {range}
+          </span>
+          {postgres ? (
+            <Wraparound ratio={database.wraparoundRatio} />
+          ) : database.failedJobs > 0 ? (
             <b className="warn">{database.failedJobs === 1 ? "1 job failed" : `${database.failedJobs} jobs failed`}</b>
           ) : lateBackup && database.oldestBackupSeconds !== null ? (
             <b className="warn">Oldest backup {formatSpan(database.oldestBackupSeconds)}</b>
@@ -146,6 +266,22 @@ export function DatabaseCardView({ database, range, now }: DatabaseCardViewProps
       </Link>
     </article>
   );
+}
+
+/**
+ * How far a PostgreSQL server's oldest transaction ID is to wraparound, at the foot of its card.
+ *
+ * @param props - The component's props.
+ * @param props.ratio - The highest transaction ID age of any database, of the limit; null when not reported.
+ */
+function Wraparound({ ratio }: { ratio: number | null }) {
+  if (ratio === null) {
+    return <span>Wraparound not reported</span>;
+  }
+
+  const text = `Wraparound ${formatShare(ratio)}`;
+
+  return wraparoundTone(ratio) === "ok" ? <span>{text}</span> : <b className="warn">{text}</b>;
 }
 
 /** Props for {@link HostCardView}. */

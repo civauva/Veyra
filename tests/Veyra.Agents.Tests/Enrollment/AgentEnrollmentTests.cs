@@ -1,8 +1,10 @@
+using System.Security.Claims;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 using Veyra.Agents.Agents;
 using Veyra.Agents.Enrollment;
+using Veyra.Core.Settings;
 using Veyra.Testing;
 
 namespace Veyra.Agents.Tests.Enrollment;
@@ -14,6 +16,10 @@ public class AgentEnrollmentTests(PostgresFixture postgres)
 
     private readonly FakeKeys _keys = new();
 
+    private readonly FakeMonitoringHistory _history = new();
+
+    private readonly ClaimsPrincipal _by = FakeMonitoringHistory.Admin;
+
     private readonly FakeTimeProvider _clock = new(new DateTimeOffset(2026, 11, 13, 9, 0, 0, TimeSpan.Zero));
 
     [Fact]
@@ -21,7 +27,7 @@ public class AgentEnrollmentTests(PostgresFixture postgres)
     {
         await using var database = await AgentsDatabase.CreateAsync(postgres);
 
-        var added = await Enrollment(database).AddAsync("Company network", CancellationToken.None);
+        var added = await Enrollment(database).AddAsync("Company network", _by, CancellationToken.None);
 
         Assert.Equal("Company network", added.Agent.Name);
         Assert.Equal(AgentPlacement.Remote, added.Agent.Placement);
@@ -39,7 +45,7 @@ public class AgentEnrollmentTests(PostgresFixture postgres)
         await using var database = await AgentsDatabase.CreateAsync(postgres);
 
         await Assert.ThrowsAsync<AgentsValidationException>(() =>
-            Enrollment(database).AddAsync(name, CancellationToken.None));
+            Enrollment(database).AddAsync(name, _by, CancellationToken.None));
     }
 
     [Fact]
@@ -47,7 +53,7 @@ public class AgentEnrollmentTests(PostgresFixture postgres)
     {
         await using var database = await AgentsDatabase.CreateAsync(postgres);
         var enrollment = Enrollment(database);
-        var added = await enrollment.AddAsync("Company network", CancellationToken.None);
+        var added = await enrollment.AddAsync("Company network", _by, CancellationToken.None);
 
         var enrolled = await enrollment.EnrollAsync(
             added.Code.ToLowerInvariant(),
@@ -73,7 +79,7 @@ public class AgentEnrollmentTests(PostgresFixture postgres)
     {
         await using var database = await AgentsDatabase.CreateAsync(postgres);
         var enrollment = Enrollment(database);
-        var added = await enrollment.AddAsync("Company network", CancellationToken.None);
+        var added = await enrollment.AddAsync("Company network", _by, CancellationToken.None);
         await enrollment.EnrollAsync(added.Code, AgentPlatform.Linux, _veyra, CancellationToken.None);
 
         var again = await enrollment.EnrollAsync(added.Code, AgentPlatform.Linux, _veyra, CancellationToken.None);
@@ -87,7 +93,7 @@ public class AgentEnrollmentTests(PostgresFixture postgres)
     {
         await using var database = await AgentsDatabase.CreateAsync(postgres);
         var enrollment = Enrollment(database);
-        var added = await enrollment.AddAsync("Company network", CancellationToken.None);
+        var added = await enrollment.AddAsync("Company network", _by, CancellationToken.None);
         _clock.Advance(TimeSpan.FromMinutes(61));
 
         Assert.Null(await enrollment.EnrollAsync(added.Code, AgentPlatform.Linux, _veyra, CancellationToken.None));
@@ -110,10 +116,10 @@ public class AgentEnrollmentTests(PostgresFixture postgres)
     {
         await using var database = await AgentsDatabase.CreateAsync(postgres);
         var enrollment = Enrollment(database);
-        var added = await enrollment.AddAsync("Company network", CancellationToken.None);
+        var added = await enrollment.AddAsync("Company network", _by, CancellationToken.None);
         await enrollment.EnrollAsync(added.Code, AgentPlatform.Windows, _veyra, CancellationToken.None);
 
-        var code = await enrollment.NewCodeAsync(added.Agent.Id, CancellationToken.None);
+        var code = await enrollment.NewCodeAsync(added.Agent.Id, _by, CancellationToken.None);
         await enrollment.EnrollAsync(code!.Code, AgentPlatform.Windows, _veyra, CancellationToken.None);
 
         Assert.Equal(2, _keys.Issued.Count);
@@ -127,7 +133,7 @@ public class AgentEnrollmentTests(PostgresFixture postgres)
         var builtIn = AgentsDatabase.BuiltIn();
         await new AgentStore(database).InsertAsync(builtIn, CancellationToken.None);
 
-        Assert.Null(await Enrollment(database).NewCodeAsync(builtIn.Id, CancellationToken.None));
+        Assert.Null(await Enrollment(database).NewCodeAsync(builtIn.Id, _by, CancellationToken.None));
     }
 
     [Fact]
@@ -135,11 +141,11 @@ public class AgentEnrollmentTests(PostgresFixture postgres)
     {
         await using var database = await AgentsDatabase.CreateAsync(postgres);
         var enrollment = Enrollment(database);
-        var added = await enrollment.AddAsync("Company network", CancellationToken.None);
+        var added = await enrollment.AddAsync("Company network", _by, CancellationToken.None);
         await enrollment.EnrollAsync(added.Code, AgentPlatform.Linux, _veyra, CancellationToken.None);
-        var code = await enrollment.NewCodeAsync(added.Agent.Id, CancellationToken.None);
+        var code = await enrollment.NewCodeAsync(added.Agent.Id, _by, CancellationToken.None);
 
-        Assert.True(await enrollment.RemoveAsync(added.Agent.Id, CancellationToken.None));
+        Assert.True(await enrollment.RemoveAsync(added.Agent.Id, _by, CancellationToken.None));
 
         Assert.Equal([_keys.Issued[0].KeyId], _keys.Revoked);
         Assert.Null(await new AgentStore(database).FindAsync(added.Agent.Id, CancellationToken.None));
@@ -151,7 +157,7 @@ public class AgentEnrollmentTests(PostgresFixture postgres)
     {
         await using var database = await AgentsDatabase.CreateAsync(postgres);
         var enrollment = Enrollment(database);
-        var added = await enrollment.AddAsync("Company network", CancellationToken.None);
+        var added = await enrollment.AddAsync("Company network", _by, CancellationToken.None);
         await using (var command = database.CreateCommand(
             """
             INSERT INTO agents.sql_server
@@ -164,7 +170,7 @@ public class AgentEnrollmentTests(PostgresFixture postgres)
         }
 
         await Assert.ThrowsAsync<AgentsConflictException>(() =>
-            enrollment.RemoveAsync(added.Agent.Id, CancellationToken.None));
+            enrollment.RemoveAsync(added.Agent.Id, _by, CancellationToken.None));
     }
 
     [Fact]
@@ -175,7 +181,30 @@ public class AgentEnrollmentTests(PostgresFixture postgres)
         await new AgentStore(database).InsertAsync(builtIn, CancellationToken.None);
 
         await Assert.ThrowsAsync<AgentsValidationException>(() =>
-            Enrollment(database).RemoveAsync(builtIn.Id, CancellationToken.None));
+            Enrollment(database).RemoveAsync(builtIn.Id, _by, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ChangesAsync_AddNewCodeRemove_AreInTheSettingsHistoryByWhoMadeThem()
+    {
+        await using var database = await AgentsDatabase.CreateAsync(postgres);
+        var enrollment = Enrollment(database);
+
+        var added = await enrollment.AddAsync("Company network", _by, CancellationToken.None);
+        await enrollment.NewCodeAsync(added.Agent.Id, _by, CancellationToken.None);
+        await enrollment.RemoveAsync(added.Agent.Id, _by, CancellationToken.None);
+
+        Assert.Equal(
+            [
+                (MonitoringChangeKind.Added, ""),
+                (MonitoringChangeKind.Changed, "install code"),
+                (MonitoringChangeKind.Removed, ""),
+            ],
+            _history.Changes.Select(entry => (entry.Change.Kind, string.Join(", ", entry.Change.Fields))));
+        Assert.All(
+            _history.Changes,
+            entry => Assert.Equal((MonitoringSubject.Agent, "Company network"), (entry.Change.Subject, entry.Change.Name)));
+        Assert.All(_history.Changes, entry => Assert.Same(_by, entry.By));
     }
 
     private AgentEnrollment Enrollment(NpgsqlDataSource database) =>
@@ -184,5 +213,6 @@ public class AgentEnrollmentTests(PostgresFixture postgres)
             new EnrollmentStore(database),
             _keys,
             _clock,
+            _history,
             NullLogger<AgentEnrollment>.Instance);
 }

@@ -102,8 +102,11 @@
   color: var(--accent);
 }
 
-.monitor-kind.soon {
-  opacity: 0.55;
+/* The buttons that add a server, one per engine. */
+.monitor-adds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .monitor-kind small {
@@ -682,6 +685,11 @@
   cursor: pointer;
 }
 
+/* A line under the encryption choices that says what each means. */
+.monitor-step .monitor-hint {
+  margin: 8px 0 0;
+}
+
 .monitor-segments label.on {
   background: var(--panel);
   color: var(--fg);
@@ -763,6 +771,10 @@
     justify-content: flex-start;
   }
 
+  .monitor-adds {
+    width: 100%;
+  }
+
   .monitor-bar .button.primary {
     width: 100%;
     justify-content: center;
@@ -783,4 +795,42 @@
   .monitor-step-number {
     display: none;
   }
+}
+
+.monitor-host {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.monitor-host .button {
+  align-self: flex-start;
+}
+
+.monitor-host .monitor-field {
+  flex: 0 1 auto;
+  max-width: 320px;
+}
+
+.monitor-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.monitor-switch small {
+  display: block;
+  color: var(--faint);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.monitor-switch .switch:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }

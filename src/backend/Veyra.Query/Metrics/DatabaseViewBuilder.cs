@@ -7,7 +7,8 @@ namespace Veyra.Query.Metrics;
 /// <summary>
 /// Puts together a database server's screen (ADR 0018) from its metric series and its query events. It finds the
 /// server's series through the block index (ADR 0015), then reads them once for the window and once for the last
-/// five minutes, the deadlocks over the last 15 minutes, and the sizes over the last day.
+/// five minutes, the deadlocks over the last 15 minutes, and the sizes over the last day. A PostgreSQL server reads
+/// its own metrics (<see cref="PostgresView"/>); every other engine is read as SQL Server.
 /// </summary>
 /// <param name="search">The stored metrics.</param>
 /// <param name="events">The stored events of blocks.</param>
@@ -23,6 +24,9 @@ internal sealed class DatabaseViewBuilder(IMetricSearch search, IBlockEvents eve
     // Four series per statement. The agent reports the busiest 50 statements a minute, so a week of a busy server stays
     // well below this.
     private const int _maxStatementSeries = 8_000;
+
+    // Three series per PostgreSQL table, live rows, dead rows, and vacuums: room for 5,000 tables.
+    private const int _maxTableSeries = 15_000;
 
     private readonly MetricReader _reader = new(search);
 
@@ -43,6 +47,12 @@ internal sealed class DatabaseViewBuilder(IMetricSearch search, IBlockEvents eve
         var now = clock.GetUtcNow();
         var window = MetricWindow.Of(range, now);
         var block = TelemetryBlock.Database(engine, server);
+
+        if (engine == MetricNames.PostgresEngine)
+        {
+            return await PostgresAsync(block, window, now, cancellationToken);
+        }
+
         var series = await search.FindSeriesAsync(
             new MetricSeriesQuery(window.Start, Names: SqlServerNames.Screen, Block: block),
             cancellationToken);
@@ -82,6 +92,63 @@ internal sealed class DatabaseViewBuilder(IMetricSearch search, IBlockEvents eve
             await readingDay,
             await listingSamples,
             await readingStatements);
+    }
+
+    // A PostgreSQL server's screen: the server's series over the window, the last five minutes, and the deadlocks of
+    // the last 15 minutes, its tables' rows over the last five minutes, and the sizes and vacuums over the last day.
+    // The tables are found apart, so a server with many tables does not crowd out the rest.
+    private async Task<DatabaseMetricsResponse?> PostgresAsync(
+        TelemetryBlock block,
+        MetricWindow window,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var findingServer = search.FindSeriesAsync(
+            new MetricSeriesQuery(window.Start, Names: MetricNames.PostgresScreen, Block: block),
+            cancellationToken);
+        var findingTables = search.FindSeriesAsync(
+            new MetricSeriesQuery(
+                window.Start,
+                Names: MetricNames.PostgresTables,
+                Limit: _maxTableSeries,
+                Block: block),
+            cancellationToken);
+
+        await Task.WhenAll(findingServer, findingTables);
+
+        var series = await findingServer;
+        var tables = await findingTables;
+
+        if (series.Count == 0 && tables.Count == 0)
+        {
+            return null;
+        }
+
+        var readingWindow = _reader.ReadAsync(series, window, cancellationToken);
+        var readingRecent = _reader.ReadAsync(
+            [.. series, .. tables.Where(one => one.Name == MetricNames.PostgresRows)],
+            MetricWindow.Recent(now),
+            cancellationToken);
+        var readingQuarter = _reader.ReadAsync(
+            series.Where(one => one.Name == MetricNames.PostgresDeadlocks).ToList(),
+            Quarter(now),
+            cancellationToken);
+        var readingDay = _reader.ReadAsync(
+            [
+                .. series.Where(one => one.Name == MetricNames.PostgresDatabaseSize),
+                .. tables.Where(one => one.Name == MetricNames.PostgresVacuums),
+            ],
+            MetricWindow.Day(now),
+            cancellationToken);
+
+        await Task.WhenAll(readingWindow, readingRecent, readingQuarter, readingDay);
+
+        return PostgresView.Detail(
+            block,
+            await readingWindow,
+            await readingRecent,
+            await readingQuarter,
+            await readingDay);
     }
 
     // Each statement's totals over the whole window, read as one bucket per series: one row per series, however long

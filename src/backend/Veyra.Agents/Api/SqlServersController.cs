@@ -48,7 +48,7 @@ public sealed class SqlServersController : ControllerBase
     [ProducesResponseType<SqlServerResponse>(StatusCodes.Status201Created)]
     public async Task<IActionResult> CreateAsync(SqlServerInput input, CancellationToken cancellationToken)
     {
-        var server = await _servers.AddAsync(input, cancellationToken);
+        var server = await _servers.AddAsync(input, User, cancellationToken);
 
         return Created($"/api/v1/sql-servers/{server.Id}", await FindAsync(server.Id, cancellationToken));
     }
@@ -65,7 +65,7 @@ public sealed class SqlServersController : ControllerBase
     [ProducesResponseType<SqlServerResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UpdateAsync(Guid id, SqlServerInput input, CancellationToken cancellationToken) =>
-        await _servers.UpdateAsync(id, input, cancellationToken) is { } server
+        await _servers.UpdateAsync(id, input, User, cancellationToken) is { } server
             ? Ok(await FindAsync(server.Id, cancellationToken))
             : NotFound();
 
@@ -81,7 +81,7 @@ public sealed class SqlServersController : ControllerBase
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteAsync(Guid id, CancellationToken cancellationToken) =>
-        await _servers.RemoveAsync(id, cancellationToken) ? NoContent() : NotFound();
+        await _servers.RemoveAsync(id, User, cancellationToken) ? NoContent() : NotFound();
 
     private async Task<SqlServerResponse?> FindAsync(Guid id, CancellationToken cancellationToken) =>
         (await _overview.ListSqlServersAsync(cancellationToken))
@@ -104,5 +104,7 @@ public sealed class SqlServersController : ControllerBase
             Detail: view.Status.Detail,
             Since: view.Status.Since,
             CreatedAt: view.Server.CreatedAt,
-            ChangedAt: view.Server.ChangedAt);
+            ChangedAt: view.Server.ChangedAt,
+            Platform: view.Server.Platform,
+            Database: view.Server.Database);
 }

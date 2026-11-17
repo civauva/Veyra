@@ -34,8 +34,9 @@ interfaces to their implementations.
 ## What an alert is about
 
 An alert belongs to a **block** (ADR 0007, ADR 0018): a **service**, named by `service.name`, a **host**, named by
-`host.name`, or a **database server**, named by its engine and server, such as `microsoft.sql_server sql-prod-01`.
-It can also name a **part** of its block: the mount point of a disk, a database, or a SQL Agent job. Every environment counts
+`host.name`, a **database server**, named by its engine and server, such as `microsoft.sql_server sql-prod-01`, or a
+**container**, named by `container.name`. It can also name a **part** of its block: the mount point of a disk, a
+database, a SQL Agent job, or the host a container runs on. Every environment counts
 separately, so `orders` in production and `orders` in staging are two services with two alerts, and every disk of a
 host has alerts of its own. At most one alert per rule and subject is open at a time; a unique index enforces it.
 
@@ -51,11 +52,15 @@ close an alert every 30 seconds.
 | `latency-p95` | 95th percentile of a service's HTTP request durations, last 5 minutes | 1 s | 3 s | Below 80 % of its threshold |
 | `disk-space` | Share of a disk in use, now | 90 % | 95 % | 5 points below its threshold |
 | `disk-filling` | Days until a disk is full at the pace of the last day | 14 days | 3 days | Past 1.5 times its threshold, or not filling |
+| `container-restarts` | Restarts of a Docker container in the last 15 minutes | 2 | 5 | No restart for 15 minutes |
+| `container-memory` | Memory a Docker container uses of its limit, now | 90 % | 95 % | 5 points below its threshold |
 | `db-blocking` | Sessions of a database server blocked throughout the last 5 minutes | 1 | 5 | No session blocked for 5 minutes |
 | `db-deadlocks` | Deadlocks on a database server in the last 15 minutes | 1 | 5 | No deadlock for 30 minutes |
 | `db-long-query` | The longest running query of a database, now | 5 min | 30 min | No query past caution for 5 minutes |
 | `db-backup-age` | Time since a database's last full backup | 26 h | 50 h | A new full backup |
 | `db-agent-job` | The last run of a SQL Agent job failed | failed | | The next run succeeds |
+| `db-connections` | Connections in use of a database server's maximum, now (PostgreSQL) | 80 % | 90 % | 5 points below its threshold |
+| `db-wraparound` | Transaction ID age of a database, of the wraparound limit, now (PostgreSQL) | 50 % | 75 % | Caution below 45 %; warning 5 points below |
 
 - **Too little to judge by.** With fewer than 20 records (error rate) or 20 requests (latency) in the window, nothing
   changes: no alert opens, and an open one keeps its last measurement. One error in a quiet service is not a 100 %
@@ -70,11 +75,32 @@ close an alert every 30 seconds.
   less than 0.05 points a day, or would be full only in more than a year, is not filling; Veyra records 365 days for
   it. An open `disk-filling` alert clears when its disk stops filling. A full disk that stopped growing still has
   its `disk-space` alert, which is why there are two disk rules.
-- **Database servers (ADR 0018).** The five `db-` rules read the metrics of the tested SQL Server configuration
+- **Containers (ADR 0018).** The two `container-` rules read the Collector's `docker_stats` receiver: Docker's
+  restart count (`container.restarts`), and memory in use without the page cache (`container.memory.usage.total`)
+  of the limit (`container.memory.usage.limit`), or `container.memory.percent` when either is missing. Docker
+  reports the host's memory as the limit of a container without one, so such a container alerts only when the host
+  is nearly out of memory. A container caught between restarts reports 0 for both usage and limit; it has no share
+  then and the rule leaves it alone. A container is its name on its host: the alert's part is the host, and two hosts with a
+  container of the same name have alerts of their own. A count that falls, because the container was created again,
+  counts from zero. Their alerts read like "Container shop-api on web-01 restarted 3 times in 15 minutes" and
+  "Container shop-api on web-01 uses 93% of its memory limit", and lead to the container's row on its host's screen.
+- **Database servers (ADR 0018).** The `db-` rules above read the metrics of the tested SQL Server configuration
   ([docs/integrations/sqlserver.md](../integrations/sqlserver.md)). Blocking counts only when sessions were blocked
   in every minute of the five, so a server that just started sending is not judged yet. The backup rule leaves
   `tempdb` alone, every database never backed up, and the databases listed in `DatabaseBackupAge:IgnoredDatabases`.
   Their alerts read like "SQL Server sql-prod-01: shop has no full backup for 1 d 7 h".
+- **PostgreSQL (ADR 0018, VEY-33).** A PostgreSQL server is judged by the same `db-blocking`, `db-deadlocks`, and
+  `db-long-query` rules, from the metrics of the tested PostgreSQL configuration: sessions waiting for a lock longer
+  than 30 seconds (`postgresql.sessions.blocked`), each database's running total of deadlocks
+  (`postgresql.deadlocks`), and each database's longest running query (`postgresql.query.duration.max`). Two rules
+  are its own. `db-connections` judges the connections to every database (`postgresql.backends`) of the server's
+  `max_connections` (`postgresql.connection.max`); at the maximum, new connections are refused. `db-wraparound`
+  judges each database's oldest unfrozen transaction ID (`postgresql.database.xid.age`) of the limit of 2^31, about
+  2.1 billion; near it, PostgreSQL stops accepting writes until the database is vacuumed. Only a vacuum that freezes
+  old rows lowers the age, so a caution holds until it falls below `DatabaseWraparound:ClearRatio`, 45 %. A server
+  that does not report its maximum, as SQL Server does not, has no `db-connections` alert. Their alerts read like
+  "PostgreSQL pg-main: connections at 86% of the maximum" and "PostgreSQL pg-main: shop is at 52% of transaction ID
+  wraparound". The metric names live in one place, `MetricNames` in the Query module.
 - **Catalog rules (ADR 0020).** Most of what a DBA watches is a figure with two levels, so these rules are entries
   of one catalog in the Alerting module rather than classes of their own: an ID, the measure the Query module
   reports for each database server (`IMetricHealth.ListDatabaseMeasuresAsync`), its unit, its default levels, and
@@ -255,6 +281,13 @@ SMTP server (`VEYRA_PUBLIC_URL`, `VEYRA_SMTP_*` in `deploy/.env`) as first value
 | `Veyra:Alerting:DiskFilling:CautionDays` | `14` | A disk full within this many days opens a caution |
 | `Veyra:Alerting:DiskFilling:WarningDays` | `3` | A disk full within this many days opens a warning |
 | `Veyra:Alerting:DiskFilling:ClearFactor` | `1.5` | A held severity ends past its threshold times this |
+| `Veyra:Alerting:ContainerRestarts:Enabled` | `true` | Whether the restart rule for containers runs |
+| `Veyra:Alerting:ContainerRestarts:CautionRestarts` | `2` | Restarts in 15 minutes that open a caution |
+| `Veyra:Alerting:ContainerRestarts:WarningRestarts` | `5` | Restarts in 15 minutes that open a warning |
+| `Veyra:Alerting:ContainerMemory:Enabled` | `true` | Whether the memory rule for containers runs |
+| `Veyra:Alerting:ContainerMemory:CautionRatio` | `0.9` | The share of its limit in use, from 0 to 1, that opens a caution |
+| `Veyra:Alerting:ContainerMemory:WarningRatio` | `0.95` | The share of its limit in use that opens a warning |
+| `Veyra:Alerting:ContainerMemory:ClearMargin` | `0.05` | A held severity ends this far below its threshold |
 | `Veyra:Alerting:DatabaseBlocking:Enabled` | `true` | Whether the blocking rule for database servers runs |
 | `Veyra:Alerting:DatabaseBlocking:CautionSessions` | `1` | Sessions blocked throughout 5 minutes that open a caution |
 | `Veyra:Alerting:DatabaseBlocking:WarningSessions` | `5` | Sessions blocked throughout 5 minutes that open a warning |
@@ -269,6 +302,14 @@ SMTP server (`VEYRA_PUBLIC_URL`, `VEYRA_SMTP_*` in `deploy/.env`) as first value
 | `Veyra:Alerting:DatabaseBackupAge:WarningHours` | `50` | Hours without a full backup that open a warning |
 | `Veyra:Alerting:DatabaseBackupAge:IgnoredDatabases` | empty | Databases not backed up on purpose, separated by commas |
 | `Veyra:Alerting:DatabaseAgentJob:Enabled` | `true` | Whether the SQL Agent job rule runs |
+| `Veyra:Alerting:DatabaseConnections:Enabled` | `true` | Whether the connections rule for database servers runs |
+| `Veyra:Alerting:DatabaseConnections:CautionRatio` | `0.8` | The share of the maximum connections in use, from 0 to 1, that opens a caution |
+| `Veyra:Alerting:DatabaseConnections:WarningRatio` | `0.9` | The share of the maximum connections in use that opens a warning |
+| `Veyra:Alerting:DatabaseConnections:ClearMargin` | `0.05` | A held severity ends this far below its threshold |
+| `Veyra:Alerting:DatabaseWraparound:Enabled` | `true` | Whether the transaction ID wraparound rule runs |
+| `Veyra:Alerting:DatabaseWraparound:CautionRatio` | `0.5` | The transaction ID age of the limit, from 0 to 1, that opens a caution |
+| `Veyra:Alerting:DatabaseWraparound:WarningRatio` | `0.75` | The transaction ID age of the limit that opens a warning |
+| `Veyra:Alerting:DatabaseWraparound:ClearRatio` | `0.45` | A caution ends below this share; a warning as far below its own level |
 | `Veyra:Alerting:Notifications:DispatchInterval` | `00:00:05` | How often the dispatcher looks for messages |
 | `Veyra:Alerting:Notifications:BatchSize` | `10` | The most messages one dispatcher run sends |
 | `Veyra:Alerting:Notifications:SendTimeout` | `00:00:10` | How long one try may take |

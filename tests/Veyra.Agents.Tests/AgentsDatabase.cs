@@ -17,5 +17,6 @@ internal static class AgentsDatabase
             Placement: AgentPlacement.BuiltIn,
             IngestionKeyId: Guid.CreateVersion7(),
             CreatedAt: new DateTimeOffset(2026, 11, 13, 8, 0, 0, TimeSpan.Zero),
-            Report: AgentReport.None);
+            Report: AgentReport.None,
+            Watch: HostWatch.None);
 }

@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type * as client from "../api/client";
 import { api } from "../api/client";
-import type { Agent, SqlServer } from "../api/types";
+import type { Agent, PostgresServer, SqlServer } from "../api/types";
 import { App } from "../app/App";
 import { SessionProvider } from "../session/SessionProvider";
 import { settingsPage } from "./testSettings";
@@ -26,6 +26,10 @@ vi.mock("../api/client", async (importOriginal) => {
       createSqlServer: vi.fn(),
       updateSqlServer: vi.fn(),
       deleteSqlServer: vi.fn(),
+      postgresServers: vi.fn(),
+      createPostgresServer: vi.fn(),
+      updatePostgresServer: vi.fn(),
+      deletePostgresServer: vi.fn(),
       addAgent: vi.fn(),
       newAgentCode: vi.fn(),
       deleteAgent: vi.fn(),
@@ -49,6 +53,11 @@ const builtIn: Agent = {
   createdAt: "2026-11-13T08:00:00Z",
   installed: true,
   codeExpiresAt: null,
+  host: false,
+  eventLog: false,
+  iis: false,
+  docker: false,
+  hostEnvironment: "production",
 };
 
 const receiving: SqlServer = {
@@ -66,6 +75,8 @@ const receiving: SqlServer = {
   since: new Date().toISOString(),
   createdAt: "2026-11-13T08:00:00Z",
   changedAt: "2026-11-13T08:00:00Z",
+  platform: "SqlServer",
+  database: null,
 };
 
 const refused: SqlServer = {
@@ -92,7 +103,134 @@ beforeEach(() => {
   vi.mocked(api.currentSession).mockResolvedValue(admin);
   vi.mocked(api.settings).mockResolvedValue(settingsPage);
   vi.mocked(api.sqlServers).mockResolvedValue([receiving, refused]);
+  vi.mocked(api.postgresServers).mockResolvedValue([]);
   vi.mocked(api.agents).mockResolvedValue([builtIn]);
+});
+
+describe("PostgreSQL on Database monitoring", () => {
+  const pgMain: PostgresServer = {
+    id: "p1",
+    name: "pg-main",
+    address: "pg-main.corp.local",
+    port: 5432,
+    environment: "production",
+    agentId: "a1",
+    agentName: "Built in",
+    login: "veyra_monitor",
+    encryption: "Required",
+    state: "Receiving",
+    detail: null,
+    since: new Date().toISOString(),
+    createdAt: "2026-11-16T08:00:00Z",
+    changedAt: "2026-11-16T08:00:00Z",
+  };
+
+  it("shows each PostgreSQL server with its state and its database screen", async () => {
+    vi.mocked(api.postgresServers).mockResolvedValue([
+      pgMain,
+      { ...pgMain, id: "p2", name: "pg-replica", state: "LoginFailed" },
+    ]);
+    renderAt("/settings?section=Databases");
+
+    const main = await screen.findByRole("article", { name: "pg-main" });
+    expect(within(main).getByText("Receiving")).toBeVisible();
+    expect(within(main).getByText(/PostgreSQL · pg-main.corp.local:5432/)).toBeVisible();
+    expect(within(main).getByRole("link", { name: "Open" })).toHaveAttribute(
+      "href",
+      "/metrics/databases/postgresql/pg-main",
+    );
+
+    const replica = screen.getByRole("article", { name: "pg-replica" });
+    expect(within(replica).getByText(/pg_hba.conf does not let the agent in/)).toBeVisible();
+  });
+
+  it("counts PostgreSQL servers beside SQL Servers in the section list", async () => {
+    vi.mocked(api.postgresServers).mockResolvedValue([pgMain]);
+    renderAt("/settings?section=Databases");
+
+    const sections = await screen.findByRole("navigation", { name: "Settings sections" });
+
+    await waitFor(() =>
+      expect(within(sections).getByRole("link", { name: /Database monitoring/ })).toHaveTextContent(
+        "2 SQL Servers · 1 PostgreSQL · 1 needs a look",
+      ),
+    );
+  });
+
+  it("adds a server with the role script to copy, then follows the check", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.createPostgresServer).mockResolvedValue({
+      ...pgMain,
+      id: "p3",
+      name: "pg-branch",
+      state: "WaitingForData",
+      since: null,
+      changedAt: new Date().toISOString(),
+    });
+    renderAt("/settings?section=Databases");
+
+    await user.click(await screen.findByRole("button", { name: "+ Add PostgreSQL" }));
+    const panel = screen.getByRole("dialog", { name: "Add a PostgreSQL server" });
+    expect(within(panel).getByRole("textbox", { name: "Port" })).toHaveValue("5432");
+    await user.type(within(panel).getByRole("textbox", { name: /Name in Veyra/ }), "pg-branch");
+    await user.type(within(panel).getByRole("textbox", { name: "Address" }), "10.20.0.15");
+    await user.click(within(panel).getByRole("radio", { name: "Trust its certificate" }));
+
+    const script = within(panel).getByLabelText("Role script");
+    expect(script).toHaveTextContent('CREATE ROLE "veyra_monitor" LOGIN PASSWORD');
+    expect(script).toHaveTextContent('GRANT pg_monitor TO "veyra_monitor";');
+    expect(script).toHaveTextContent("••••••••••••");
+    await user.click(within(panel).getByRole("button", { name: "Copy" }));
+    const copied = await navigator.clipboard.readText();
+
+    await user.click(within(panel).getByRole("button", { name: "Save and start watching" }));
+
+    const input = vi.mocked(api.createPostgresServer).mock.calls[0]?.[0];
+    expect(input).toMatchObject({
+      name: "pg-branch",
+      address: "10.20.0.15",
+      port: 5432,
+      environment: "production",
+      agentId: "a1",
+      login: "veyra_monitor",
+      encryption: "TrustServerCertificate",
+    });
+    expect(input?.password).toMatch(/^[A-Za-z0-9]{24}$/);
+    expect(copied).toContain(`PASSWORD '${input?.password}'`);
+    expect(await within(panel).findByRole("status")).toHaveTextContent("Waiting for first data");
+  });
+
+  it("changes a server without sending a password unless a new one is made", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.postgresServers).mockResolvedValue([pgMain]);
+    vi.mocked(api.updatePostgresServer).mockResolvedValue(pgMain);
+    renderAt("/settings?section=Databases");
+
+    await user.click(
+      within(await screen.findByRole("article", { name: "pg-main" })).getByRole("button", { name: "Edit" }),
+    );
+    const panel = screen.getByRole("dialog", { name: "Change pg-main" });
+    await user.click(within(panel).getByRole("button", { name: "Give the role a new password" }));
+    expect(within(panel).getByLabelText("Role script")).toHaveTextContent('ALTER ROLE "veyra_monitor" PASSWORD');
+    await user.click(within(panel).getByRole("button", { name: "Save changes" }));
+
+    expect(vi.mocked(api.updatePostgresServer).mock.calls[0]?.[0]).toBe("p1");
+    expect(vi.mocked(api.updatePostgresServer).mock.calls[0]?.[1].password).toMatch(/^[A-Za-z0-9]{24}$/);
+  });
+
+  it("removes a server after a second click", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.postgresServers).mockResolvedValue([pgMain]);
+    vi.mocked(api.deletePostgresServer).mockResolvedValue(undefined);
+    renderAt("/settings?section=Databases");
+
+    const card = await screen.findByRole("article", { name: "pg-main" });
+    await user.click(within(card).getByRole("button", { name: "Remove" }));
+    await user.click(within(card).getByRole("button", { name: "Remove pg-main" }));
+
+    expect(api.deletePostgresServer).toHaveBeenCalledWith("p1");
+    expect(api.deleteSqlServer).not.toHaveBeenCalled();
+  });
 });
 
 describe("Database monitoring", () => {
@@ -169,6 +307,33 @@ describe("Database monitoring", () => {
     expect(copied).toContain(`N'${input?.password}'`);
     expect(await within(panel).findByRole("status")).toHaveTextContent("Waiting for first data");
     expect(within(panel).getByText(/Logged in as veyra_monitor/)).toHaveTextContent("not known yet");
+  });
+
+  it("asks for the database of an Azure SQL Database and shows the script for that database", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.createSqlServer).mockResolvedValue({ ...receiving, id: "s5", platform: "AzureSqlDatabase" });
+    renderAt("/settings?section=Databases");
+
+    await user.click(await screen.findByRole("button", { name: "+ Add SQL Server" }));
+    const panel = screen.getByRole("dialog", { name: "Add a SQL Server" });
+    expect(within(panel).queryByRole("textbox", { name: /Database/ })).toBeNull();
+
+    await user.click(within(panel).getByRole("radio", { name: "Azure SQL Database" }));
+    await user.type(within(panel).getByRole("textbox", { name: /Name in Veyra/ }), "azure-orders");
+    await user.type(within(panel).getByRole("textbox", { name: "Address" }), "orders.database.windows.net");
+    await user.type(within(panel).getByRole("textbox", { name: /Database/ }), "orders");
+
+    const script = within(panel).getByLabelText("Login script");
+    expect(script).toHaveTextContent("Run this in the database orders");
+    expect(script).toHaveTextContent("CREATE USER [veyra_monitor] WITH PASSWORD");
+    expect(script).not.toHaveTextContent("USE master");
+
+    await user.click(within(panel).getByRole("button", { name: "Save and start watching" }));
+
+    expect(vi.mocked(api.createSqlServer).mock.calls[0]?.[0]).toMatchObject({
+      platform: "AzureSqlDatabase",
+      database: "orders",
+    });
   });
 
   it("changes a server without sending a password unless a new one is made", async () => {
@@ -255,7 +420,7 @@ describe("Agents", () => {
     const agent = await screen.findByRole("article", { name: "Built-in agent" });
     expect(within(agent).getByText("Online")).toBeVisible();
     expect(
-      within(agent).getByText(/Beside Veyra on veyra-agent · reads 2 SQL Servers · version 0.140.1/),
+      within(agent).getByText(/Beside Veyra on veyra-agent · reads 2 database servers · version 0.140.1/),
     ).toBeVisible();
   });
 

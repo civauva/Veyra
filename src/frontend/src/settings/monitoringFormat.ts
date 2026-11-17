@@ -1,7 +1,17 @@
-import type { Agent, AgentState, SqlServer, SqlServerEncryption, SqlServerState } from "../api/types";
+import type {
+  Agent,
+  AgentState,
+  MonitoredServer,
+  SqlServerEncryption,
+  SqlServerPlatform,
+  SqlServerState,
+} from "../api/types";
 
 /** The colour a state is shown in: fine, needs someone, or not yet known. */
 export type Tone = "ok" | "bad" | "wait";
+
+/** The database engines Veyra's agents read (ADR 0019, VEY-33). */
+export type ServerEngine = "SqlServer" | "PostgreSQL";
 
 /** A state as the page says it. */
 export interface StateWords {
@@ -42,6 +52,13 @@ const agentWords: Record<AgentState, StateWords> = {
   Online: { label: "Online", tone: "ok" },
 };
 
+/** The names of the three kinds of SQL Server, as the page offers them. */
+export const platformLabels: Record<SqlServerPlatform, string> = {
+  SqlServer: "SQL Server",
+  ManagedInstance: "Azure SQL Managed Instance",
+  AzureSqlDatabase: "Azure SQL Database",
+};
+
 /** The names of the three ways to encrypt, as the page offers them. */
 export const encryptionLabels: Record<SqlServerEncryption, string> = {
   Required: "Required",
@@ -76,7 +93,7 @@ export function agentStateWords(state: AgentState): StateWords {
  * @param agents - Every agent, to tell the built-in one.
  * @returns "the built-in agent", or "the agent" and its name.
  */
-export function readerOf(server: SqlServer, agents: Agent[]): string {
+export function readerOf(server: MonitoredServer, agents: Agent[]): string {
   const agent = agents.find((one) => one.id === server.agentId);
 
   return agent?.placement === "BuiltIn" ? "the built-in agent" : `the agent ${server.agentName}`;
@@ -122,9 +139,17 @@ export function ago(iso: string | null, now: Date): string {
  * @param server - The server with its state.
  * @param now - The current time.
  * @param reader - The words for the agent that reads it, from {@link readerOf}.
+ * @param engine - What the server runs; PostgreSQL names its role, pg_monitor, and pg_hba.conf instead of a login.
  * @returns The sentence.
  */
-export function serverExplanation(server: SqlServer, now: Date, reader = `the agent ${server.agentName}`): string {
+export function serverExplanation(
+  server: MonitoredServer,
+  now: Date,
+  reader = `the agent ${server.agentName}`,
+  engine: ServerEngine = "SqlServer",
+): string {
+  const postgres = engine === "PostgreSQL";
+
   switch (server.state) {
     case "AgentNotConnected":
       return `${capital(reader)} has not connected yet. In Veyra's Docker Compose deployment it starts beside Veyra by itself.`;
@@ -133,13 +158,19 @@ export function serverExplanation(server: SqlServer, now: Date, reader = `the ag
     case "ConfigurationFailed":
       return `The agent refused the settings Veyra sent and keeps its last ones: ${server.detail ?? "no reason given"}.`;
     case "LoginFailed":
-      return `SQL Server refused the login ${server.login}: a wrong password, or the login was never created. Enter the password again, or run the login script again.`;
+      return postgres
+        ? `PostgreSQL refused the role ${server.login}: a wrong password, the role was never created, or pg_hba.conf does not let the agent in. Enter the password again, or run the script again.`
+        : `SQL Server refused the login ${server.login}: a wrong password, or the login was never created. Enter the password again, or run the login script again.`;
     case "Unreachable":
       return `The agent cannot reach ${server.address}:${server.port}. Check the address and the port, and that a firewall lets the agent through.`;
     case "CertificateRejected":
-      return "The agent does not trust the server's certificate. Choose “Trust its certificate”, or give the server a certificate the agent trusts.";
+      return postgres
+        ? "The encrypted connection failed: the agent does not trust the server's certificate, or the server does not take TLS. Choose “Trust its certificate”, turn encryption off, or give the server a certificate the agent trusts."
+        : "The agent does not trust the server's certificate. Choose “Trust its certificate”, or give the server a certificate the agent trusts.";
     case "GrantMissing":
-      return "The login works, but a grant is missing, so some figures are missing. Run the login script again.";
+      return postgres
+        ? "The role signs in, but is not a member of pg_monitor, so some figures are missing. Run the script again."
+        : "The login works, but a grant is missing, so some figures are missing. Run the login script again.";
     case "Failing":
       return `Reading fails: ${server.detail ?? "no reason given"}.`;
     case "Receiving":
@@ -154,9 +185,14 @@ export function serverExplanation(server: SqlServer, now: Date, reader = `the ag
  *
  * @param server - The server with its state.
  * @param reader - The words for the agent that reads it, from {@link readerOf}.
+ * @param engine - What the server runs, for the words of a failed login.
  * @returns The lines, in the order a connection gets that far.
  */
-export function checkLines(server: SqlServer, reader = `the agent ${server.agentName}`): CheckLine[] {
+export function checkLines(
+  server: MonitoredServer,
+  reader = `the agent ${server.agentName}`,
+  engine: ServerEngine = "SqlServer",
+): CheckLine[] {
   const agentFails = ["AgentNotConnected", "AgentOffline", "ConfigurationFailed"].includes(server.state);
   const steps: SqlServerState[] = ["Unreachable", "CertificateRejected", "LoginFailed", "GrantMissing"];
   const failedAt = server.state === "Failing" ? steps.length - 1 : steps.indexOf(server.state);
@@ -180,7 +216,13 @@ export function checkLines(server: SqlServer, reader = `the agent ${server.agent
       server.encryption === "Off" ? "Connected without encryption" : "Encrypted connection",
       "the certificate is not trusted",
     ),
-    line(2, `Logged in as ${server.login}`, "wrong password, or the login does not exist"),
+    line(
+      2,
+      `Logged in as ${server.login}`,
+      engine === "PostgreSQL"
+        ? "wrong password, no such role, or pg_hba.conf turns the agent away"
+        : "wrong password, or the login does not exist",
+    ),
     line(
       3,
       "Read every figure",
@@ -195,11 +237,35 @@ export function checkLines(server: SqlServer, reader = `the agent ${server.agent
  *
  * @param login - The login's name.
  * @param password - Its password.
+ * @param platform - The kind of SQL Server; an Azure SQL Database gets a contained user in its database.
+ * @param database - The database an Azure SQL Database is read in.
  * @returns The T-SQL script.
  */
-export function loginScript(login: string, password: string): string {
+export function loginScript(
+  login: string,
+  password: string,
+  platform: SqlServerPlatform = "SqlServer",
+  database = "",
+): string {
   const name = `[${login.replaceAll("]", "]]")}]`;
   const secret = password.replaceAll("'", "''");
+
+  if (platform === "AzureSqlDatabase") {
+    // Azure SQL Database cannot switch databases, so there is no USE: the script runs in the database itself.
+    return [
+      `-- Run this in the database ${database}, connected as its administrator.`,
+      `CREATE USER ${name} WITH PASSWORD = N'${secret}';`,
+      `GRANT VIEW DATABASE STATE TO ${name};`,
+      `GRANT VIEW DEFINITION TO ${name};`,
+      "GO",
+      "",
+      "-- Azure SQL Database records no deadlocks unless asked.",
+      "CREATE EVENT SESSION [veyra_deadlocks] ON DATABASE ADD EVENT sqlserver.xml_deadlock_report " +
+        "ADD TARGET package0.ring_buffer (SET max_memory = 4096) WITH (STARTUP_STATE = ON);",
+      "ALTER EVENT SESSION [veyra_deadlocks] ON DATABASE STATE = START;",
+      "GO",
+    ].join("\n");
+  }
 
   return [
     "USE master;",
@@ -233,10 +299,52 @@ export function loginScript(login: string, password: string): string {
  *
  * @param login - The login's name.
  * @param password - Its new password.
+ * @param platform - The kind of SQL Server; an Azure SQL Database has a user, not a login.
  * @returns The T-SQL statement.
  */
-export function passwordScript(login: string, password: string): string {
-  return `ALTER LOGIN [${login.replaceAll("]", "]]")}] WITH PASSWORD = N'${password.replaceAll("'", "''")}';`;
+export function passwordScript(login: string, password: string, platform: SqlServerPlatform = "SqlServer"): string {
+  const kind = platform === "AzureSqlDatabase" ? "USER" : "LOGIN";
+
+  return `ALTER ${kind} [${login.replaceAll("]", "]]")}] WITH PASSWORD = N'${password.replaceAll("'", "''")}';`;
+}
+
+/** A PostgreSQL identifier in double quotes, so the role keeps its case and nothing in it is read as SQL. */
+function quotedRole(role: string): string {
+  return `"${role.replaceAll('"', '""')}"`;
+}
+
+/**
+ * The script that creates the PostgreSQL role Veyra signs in as (docs/integrations/postgres.md): a login with a
+ * password, and pg_monitor, which lets it read every session's state and the server's statistics without reading any
+ * table's data. Only a superuser can run it; pg_hba.conf must let the agent in too.
+ *
+ * @param role - The role's name.
+ * @param password - Its password.
+ * @returns The SQL script, with the pg_hba.conf line as a comment.
+ */
+export function postgresLoginScript(role: string, password: string): string {
+  const name = quotedRole(role);
+
+  return [
+    "-- Run this once as a superuser, for example in psql connected to the postgres database.",
+    `CREATE ROLE ${name} LOGIN PASSWORD '${password.replaceAll("'", "''")}';`,
+    `GRANT pg_monitor TO ${name};`,
+    "",
+    "-- pg_hba.conf must let the agent sign in with a password, with a line such as this one and the agent's own",
+    "-- address, then SELECT pg_reload_conf(); to apply it.",
+    `-- host  all  ${role}  10.0.0.0/8  scram-sha-256`,
+  ].join("\n");
+}
+
+/**
+ * The one line that gives an existing PostgreSQL role a new password.
+ *
+ * @param role - The role's name.
+ * @param password - Its new password.
+ * @returns The SQL statement.
+ */
+export function postgresPasswordScript(role: string, password: string): string {
+  return `ALTER ROLE ${quotedRole(role)} PASSWORD '${password.replaceAll("'", "''")}';`;
 }
 
 // No letters that are easy to mix up when read aloud, and nothing SQL or a URL treats specially.

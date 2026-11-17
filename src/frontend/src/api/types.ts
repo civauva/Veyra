@@ -127,19 +127,26 @@ export type AlertSeverity = "Caution" | "Warning";
 /**
  * The built-in alert rules (ADR 0012, ADR 0018) and the unit of their measurements: `error-rate` a ratio of records
  * from 0 to 1, `latency-p95` seconds, `disk-space` a share of a disk from 0 to 1, `disk-filling` days until a disk
- * is full, `db-blocking` sessions, `db-deadlocks` deadlocks, `db-long-query` and `db-backup-age` seconds, and
- * `db-agent-job` 1 for a failed run. The catalog rules (ADR 0020) word themselves from {@link CatalogRule}.
+ * is full, `container-restarts` restarts in 15 minutes, `container-memory` a share of a container's memory limit
+ * from 0 to 1, `db-blocking` sessions, `db-deadlocks` deadlocks, `db-long-query` and `db-backup-age` seconds,
+ * `db-agent-job` 1 for a failed run, `db-connections` a share of the server's maximum connections from 0 to 1, and
+ * `db-wraparound` a database's transaction ID age of the wraparound limit from 0 to 1. The catalog rules (ADR 0020)
+ * word themselves from {@link CatalogRule}.
  */
 export type AlertRule =
   | "error-rate"
   | "latency-p95"
   | "disk-space"
   | "disk-filling"
+  | "container-restarts"
+  | "container-memory"
   | "db-blocking"
   | "db-deadlocks"
   | "db-long-query"
   | "db-backup-age"
   | "db-agent-job"
+  | "db-connections"
+  | "db-wraparound"
   | "db-head-blocker"
   | "db-open-transaction"
   | "db-tempdb-session"
@@ -862,6 +869,43 @@ export interface MetricsOverview {
   services: ServiceCard[];
   /** The database servers (ADR 0018). */
   databases: DatabaseCard[];
+  /** The Docker containers, by name and host (ADR 0018). */
+  containers: ContainerCard[];
+}
+
+/**
+ * A Docker container on the Metrics overview and on its host's screen, from the Collector's `docker_stats` receiver
+ * (ADR 0018).
+ */
+export interface ContainerCard {
+  /** From `container.name`. */
+  name: string;
+  /** The host it runs on, from `host.name`; null when the Collector did not add it. */
+  host: string | null;
+  /** The environment its metrics name, if any. */
+  environment: string | null;
+  /** The image, from `container.image.name`. */
+  image: string | null;
+  /** The short container ID, as Docker shows it. */
+  id: string | null;
+  /** When a point last arrived. */
+  lastSeen: string;
+  /** CPU in use over the last five minutes, in percent of one CPU: above 100 when it uses more than one. */
+  cpuPercent: number | null;
+  /** Memory in use now, in bytes, without the page cache. */
+  memoryBytes: number | null;
+  /** Its memory limit in bytes; Docker reports the host's memory for a container without one. */
+  memoryLimitBytes: number | null;
+  /** Memory in use of its limit, from 0 to 1. */
+  memoryRatio: number | null;
+  /** Restarts within the range; null when the container sends no restart count. */
+  restarts: number | null;
+  /** Docker's count of its restarts since it was created. */
+  restartsTotal: number | null;
+  /** How long it has run since it last started, in seconds. */
+  uptimeSeconds: number | null;
+  /** CPU in use over the range, in percent of one CPU. */
+  cpu: ChartLine;
 }
 
 /** A database server on the Metrics overview, and the head of its screen (ADR 0018). */
@@ -898,8 +942,16 @@ export interface DatabaseCard {
   oldestBackupSeconds: number | null;
   /** SQL Agent jobs whose last run failed. */
   failedJobs: number;
-  /** Batch requests per second over the window. */
+  /** Batch requests per second over the window; for PostgreSQL, transactions committed or rolled back per second. */
   requests: ChartLine;
+  /** The server's maximum connections; null where the engine does not say it, as only PostgreSQL does. */
+  maxConnections: number | null;
+  /** Committed transactions per second now, of every database (PostgreSQL). */
+  commitsPerSecond: number | null;
+  /** Rolled back transactions per second now, of every database (PostgreSQL). */
+  rollbacksPerSecond: number | null;
+  /** The highest transaction ID age of any database, of the wraparound limit, from 0 to 1 (PostgreSQL). */
+  wraparoundRatio: number | null;
 }
 
 /** One database of a server. */
@@ -918,6 +970,38 @@ export interface DatabasePart {
   ioLatencySeconds: number | null;
   /** The longest query running in it now, in seconds. */
   longestQuerySeconds: number | null;
+  /** Connections to it now (PostgreSQL). */
+  connections: number | null;
+  /** The age of its oldest unfrozen transaction ID, in transactions (PostgreSQL). */
+  transactionIdAge: number | null;
+  /** That age of the wraparound limit of 2^31, from 0 to 1 (PostgreSQL). */
+  wraparoundRatio: number | null;
+  /** Live rows of all its tables (PostgreSQL). */
+  liveRows: number | null;
+  /** Dead rows of all its tables, left behind until a vacuum clears them (PostgreSQL). */
+  deadRows: number | null;
+  /** Dead rows of all its rows, from 0 to 1 (PostgreSQL). */
+  deadRowsRatio: number | null;
+  /** How many times its tables were vacuumed over the last day (PostgreSQL). */
+  vacuums: number | null;
+}
+
+/** A PostgreSQL table with dead rows, which updates and deletes leave behind until a vacuum clears them. */
+export interface DatabaseTable {
+  /** The database it is in. */
+  database: string;
+  /** Its schema. */
+  schema: string | null;
+  /** The table name. */
+  name: string;
+  /** Its live rows now. */
+  liveRows: number | null;
+  /** Its dead rows now. */
+  deadRows: number | null;
+  /** Dead rows of all its rows, from 0 to 1. */
+  deadRowsRatio: number | null;
+  /** How many times it was vacuumed over the last day. */
+  vacuums: number | null;
 }
 
 /** The last run of a SQL Agent job. */
@@ -984,9 +1068,9 @@ export interface DatabaseMetrics {
   range: MetricRange;
   /** The width of a point of the lines, in seconds. */
   bucketSeconds: number;
-  /** Batch requests per second. */
+  /** Batch requests per second; for PostgreSQL, transactions committed or rolled back per second. */
   requests: ChartLine;
-  /** User connections. */
+  /** User connections; for PostgreSQL, the connections to every database. */
   connections: ChartLine;
   /** Sessions blocked. */
   blocked: ChartLine;
@@ -1008,6 +1092,14 @@ export interface DatabaseMetrics {
   topQueries: TopQuery[];
   /** What Veyra's agent itself asked of the server over the range; null when nothing. */
   agentWork: AgentWork | null;
+  /** The server's maximum connections over the range; null where the engine does not say it. */
+  maxConnections: ChartLine | null;
+  /** Committed transactions per second of every database (PostgreSQL); null for other engines. */
+  commits: ChartLine | null;
+  /** Rolled back transactions per second of every database (PostgreSQL); null for other engines. */
+  rollbacks: ChartLine | null;
+  /** The tables with the most dead rows now, the most first (PostgreSQL); empty for other engines. */
+  tables: DatabaseTable[];
 }
 
 /** One host's metrics from `GET /api/v1/metrics/hosts/{host}`. */
@@ -1030,6 +1122,8 @@ export interface HostMetrics {
   diskIo: ChartLine[];
   /** Load averages: 1m, 5m, 15m. */
   load: ChartLine[];
+  /** The Docker containers on the host that sent within the range, by name (ADR 0018). */
+  containers: ContainerCard[];
 }
 
 /** One HTTP route of a service over the last five minutes. */
@@ -1564,26 +1658,33 @@ export interface SettingsReview {
   confirmationRequired: boolean;
 }
 
-/** One change in the settings history. */
+/** What kind of monitored system a change in the settings history is about. */
+export type MonitoringSubject = "SqlServer" | "PostgresServer" | "Agent";
+
+/** One change in the settings history: to a setting, or to a monitored system or agent (ADR 0019). */
 export interface SettingHistoryItem {
   /** The change's number. */
   id: number;
-  /** The setting. */
+  /** The setting, or the name of the monitored system. */
   key: string;
-  /** Its label, or its key when Veyra no longer has it. */
+  /** Its label, its key when Veyra no longer has it, or the monitored system's name. */
   label: string;
-  /** Its card. */
+  /** Its card, or the kind of monitored system, such as "SQL Server". */
   group: string | null;
-  /** Its section. */
-  section: SettingSection | null;
-  /** The value before; null for a secret or when none was saved. */
+  /** Its section; Databases or Agents for a monitored system. */
+  section: SettingSection | "Databases" | "Agents" | null;
+  /** The value before; null for a secret, a monitored system, or when none was saved. */
   oldValue: string | null;
-  /** The value after; null for a secret or when reset. */
+  /** The value after; null for a secret, a monitored system, or when reset. */
   newValue: string | null;
   /** Whether its values are hidden. */
   secret: boolean;
-  /** How it came to change. */
-  kind: "Changed" | "Reset" | "Reverted" | "Imported";
+  /** How it came to change; a monitored system is Added, Changed, or Removed. */
+  kind: "Changed" | "Reset" | "Reverted" | "Imported" | "Added" | "Removed";
+  /** The kind of monitored system; absent or null for a setting. */
+  subject?: MonitoringSubject | null;
+  /** For a monitored system, the fields a change touched, never their values. */
+  fields?: string[] | null;
   /** The account that saved it, when it still exists. */
   changedBy: string | null;
   /** Who saved it. */
@@ -1650,6 +1751,16 @@ export interface Agent {
   installed: boolean;
   /** When its open one-time code stops working, in ISO 8601; null when it has none. */
   codeExpiresAt: string | null;
+  /** Whether it reads its host's CPU, memory, disks, and network. */
+  host: boolean;
+  /** Whether it reads the Windows Event Log's errors; Windows only. */
+  eventLog: boolean;
+  /** Whether it reads IIS; Windows only. */
+  iis: boolean;
+  /** Whether it reads the Docker containers' stats and logs; Linux only. */
+  docker: boolean;
+  /** The environment its host belongs to, such as `production`. */
+  hostEnvironment: string;
 }
 
 /** A one-time code that installs an agent in another network. */
@@ -1669,6 +1780,9 @@ export interface AddedAgent extends AgentCode {
 /** How the agent's connection to a SQL Server is encrypted. */
 export type SqlServerEncryption = "Required" | "TrustServerCertificate" | "Off";
 
+/** The kind of SQL Server it is: one you run, an Azure SQL Managed Instance, or an Azure SQL Database. */
+export type SqlServerPlatform = "SqlServer" | "ManagedInstance" | "AzureSqlDatabase";
+
 /** How a SQL Server's monitoring stands; the first that applies wins, in this order. */
 export type SqlServerState =
   | "AgentNotConnected"
@@ -1682,8 +1796,8 @@ export type SqlServerState =
   | "Receiving"
   | "WaitingForData";
 
-/** A SQL Server a Veyra agent reads. Its password is never sent back. */
-export interface SqlServer {
+/** What every database server a Veyra agent reads has, SQL Server or PostgreSQL. Its password is never sent back. */
+export interface MonitoredServer {
   /** The server's ID. */
   id: string;
   /** Its name in Veyra, its database block, such as `sql-prod-01`. */
@@ -1698,13 +1812,13 @@ export interface SqlServer {
   agentId: string;
   /** That agent's name. */
   agentName: string;
-  /** The SQL login the agent signs in with. */
+  /** The SQL login or PostgreSQL role the agent signs in with. */
   login: string;
   /** How the connection is encrypted. */
   encryption: SqlServerEncryption;
   /** How its monitoring stands. */
   state: SqlServerState;
-  /** The error behind the state, as the agent or SQL Server gave it. */
+  /** The error behind the state, as the agent or the server gave it. */
   detail: string | null;
   /** When that error or the last data was seen, in ISO 8601. */
   since: string | null;
@@ -1712,6 +1826,46 @@ export interface SqlServer {
   createdAt: string;
   /** When it was last changed, in ISO 8601. */
   changedAt: string;
+}
+
+/** A SQL Server a Veyra agent reads. Its password is never sent back. */
+export interface SqlServer extends MonitoredServer {
+  /** The kind of SQL Server it is. */
+  platform: SqlServerPlatform;
+  /** The one database it is read in, for an Azure SQL Database; otherwise null. */
+  database: string | null;
+}
+
+/**
+ * How the agent's connection to a PostgreSQL server is encrypted: `Required` checks the certificate and the server's
+ * name (sslmode verify-full), `TrustServerCertificate` takes any certificate (require), `Off` sends no TLS (disable).
+ */
+export type PostgresEncryption = SqlServerEncryption;
+
+/**
+ * A PostgreSQL server a Veyra agent reads (VEY-33), with the same fields and states as a SQL Server. Its login is the
+ * role the agent signs in as. Its password is never sent back.
+ */
+export type PostgresServer = MonitoredServer;
+
+/** A PostgreSQL server as the Settings screen sends it, to add one or to change one. */
+export interface PostgresServerInput {
+  /** Its name in Veyra: letters, digits, dots, dashes, and underscores, at most 63. */
+  name: string;
+  /** The host name or IP address the agent connects to. */
+  address: string;
+  /** The TCP port, from 1 to 65535. */
+  port: number;
+  /** The environment its telemetry is filed under, such as `production`. */
+  environment: string;
+  /** The agent that reads it; null for the built-in agent. */
+  agentId: string | null;
+  /** The role the agent signs in as: letters, digits, underscores, dots, and dashes. */
+  login: string;
+  /** The role's password, without spaces, quotes, or backslashes; null when changing keeps the stored one. */
+  password: string | null;
+  /** How the connection is encrypted. */
+  encryption: PostgresEncryption;
 }
 
 /** A SQL Server as the Settings screen sends it, to add one or to change one. */
@@ -1732,6 +1886,10 @@ export interface SqlServerInput {
   password: string | null;
   /** How the connection is encrypted. */
   encryption: SqlServerEncryption;
+  /** The kind of SQL Server it is. */
+  platform: SqlServerPlatform;
+  /** The database to read, for an Azure SQL Database; null for the other kinds. */
+  database: string | null;
 }
 
 /** A wait type explained (ADR 0020): its category, words for the Simple view, and what it means and usually causes. */
@@ -2465,4 +2623,42 @@ export interface ConfigurationView {
   sysadmins: string[];
   /** Changes of the last 30 days, the newest first. */
   changes: { at: string; item: string; from: string; to: string }[];
+}
+
+/** A permission the monitoring login lacks (VEY-58). */
+export interface PermissionGap {
+  /** The permission, such as `VIEW SERVER STATE` or `SELECT ON msdb.dbo.sysjobs`. */
+  permission: string;
+  /** The tabs it leaves empty, by their names in the address. */
+  tabs: string[];
+  /** What Veyra cannot read without it, in words. */
+  reads: string;
+}
+
+/** What the monitoring login may not read on a server, and the statements that grant it (VEY-58). */
+export interface PermissionsView {
+  /** Whether the agent reported the login's permissions within the last 15 minutes. */
+  reported: boolean;
+  /** The login the agent signs in as, or null when nothing was reported. */
+  login: string | null;
+  /** What the agent reads: `sqlserver`, `managed-instance`, or `azure-sql-database`; null when nothing was reported. */
+  platform: string | null;
+  /** Each missing permission with the tabs it leaves empty. */
+  gaps: PermissionGap[];
+  /** The statements that grant every missing permission, or null for none. */
+  script: string | null;
+}
+
+/** What an installed agent reads of the machine it runs on. */
+export interface AgentHostInput {
+  /** Whether to read the host's CPU, memory, disks, and network. */
+  host: boolean;
+  /** Whether to read the Windows Event Log's errors; Windows only, and only with the host. */
+  eventLog: boolean;
+  /** Whether to read IIS; Windows only, and only with the host. */
+  iis: boolean;
+  /** Whether to read the Docker containers' stats and logs; Linux only, and only with the host. */
+  docker: boolean;
+  /** The environment the host belongs to: letters, digits, dots, dashes, underscores. */
+  environment: string;
 }

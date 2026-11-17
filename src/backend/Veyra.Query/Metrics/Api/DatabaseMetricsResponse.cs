@@ -4,8 +4,10 @@ namespace Veyra.Query.Metrics.Api;
 /// <param name="Card">The head of the screen.</param>
 /// <param name="Range">The window, for example <c>6h</c>.</param>
 /// <param name="BucketSeconds">The width of a point of the lines.</param>
-/// <param name="Requests">Batch requests per second.</param>
-/// <param name="Connections">User connections.</param>
+/// <param name="Requests">
+/// Batch requests per second; for PostgreSQL, transactions committed or rolled back per second.
+/// </param>
+/// <param name="Connections">User connections; for PostgreSQL, the connections to every database.</param>
 /// <param name="Blocked">Sessions blocked.</param>
 /// <param name="Deadlocks">Deadlocks per point.</param>
 /// <param name="PageLife">Page life expectancy in seconds.</param>
@@ -35,4 +37,16 @@ public sealed record DatabaseMetricsResponse(
 {
     /// <summary>What Veyra's agent itself asked of the server over the range; null when nothing.</summary>
     public AgentWorkResponse? AgentWork { get; init; }
+
+    /// <summary>The server's maximum connections over the range; null where the engine does not say it.</summary>
+    public ChartLineResponse? MaxConnections { get; init; }
+
+    /// <summary>Committed transactions per second of every database (PostgreSQL); null for other engines.</summary>
+    public ChartLineResponse? Commits { get; init; }
+
+    /// <summary>Rolled back transactions per second of every database (PostgreSQL); null for other engines.</summary>
+    public ChartLineResponse? Rollbacks { get; init; }
+
+    /// <summary>The tables with the most dead rows now, the most first (PostgreSQL); empty for other engines.</summary>
+    public IReadOnlyList<DatabaseTableResponse> Tables { get; init; } = [];
 }

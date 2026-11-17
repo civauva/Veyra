@@ -39,6 +39,11 @@ internal static partial class StatementNames
             return rest.Length == 0 ? "Transaction" : $"Transaction: {Lower(Describe(rest))}";
         }
 
+        if (WaitFor().Match(sql) is { Success: true } pause)
+        {
+            return $"Pause (WAITFOR {pause.Groups["until"].Value})";
+        }
+
         if (Procedure().Match(sql) is { Success: true } procedure)
         {
             return $"Run {Name(procedure.Groups["name"].Value)}";
@@ -95,14 +100,20 @@ internal static partial class StatementNames
             : parts[^1];
     }
 
+    // A sentence's first word in lower case; a word in capitals, such as DBCC or a statement's text, stays.
     private static string Lower(string words) =>
-        words.Length == 0 ? words : char.ToLowerInvariant(words[0]) + words[1..];
+        words.Length == 0 || (words.Length > 1 && char.IsUpper(words[1]))
+            ? words
+            : char.ToLowerInvariant(words[0]) + words[1..];
 
     [GeneratedRegex(@"/\*.*?\*/|--[^\n]*", RegexOptions.Singleline)]
     private static partial Regex Comments();
 
     [GeneratedRegex(@"\s+")]
     private static partial Regex Space();
+
+    [GeneratedRegex(@"^WAITFOR\s+(DELAY|TIME)\s+'(?<until>[^']*)'", RegexOptions.IgnoreCase)]
+    private static partial Regex WaitFor();
 
     [GeneratedRegex(@"^BEGIN\s+TRAN(SACTION)?\b[^;]*?;?", RegexOptions.IgnoreCase)]
     private static partial Regex BeginTransaction();

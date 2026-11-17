@@ -8,6 +8,8 @@ interface RingProps {
   label: string;
   /** A line under the label, for example `10.9 of 16 GB`. */
   detail: string;
+  /** The colour, where a rule's own levels decide it; by default amber from 75 % and red from 90 %. */
+  tone?: "ok" | "warn" | "bad";
 }
 
 const radius = 31;
@@ -17,12 +19,12 @@ const circumference = 2 * Math.PI * radius;
  * A ring that fills with a share: green, amber from 75 %, red from 90 %, like the disk bars. The number in the middle
  * and the label say the same in words.
  */
-export function Ring({ share, label, detail }: RingProps) {
+export function Ring({ share, label, detail, tone }: RingProps) {
   const filled = share === null ? 0 : Math.min(Math.max(share, 0), 1) * circumference;
 
   return (
     <div className="ring-box">
-      <span className={`usage-ring ${shareTone(share)}`}>
+      <span className={`usage-ring ${tone ?? shareTone(share)}`}>
         <svg width="74" height="74" viewBox="0 0 74 74" aria-hidden="true">
           <circle className="ring-track" cx="37" cy="37" r={radius} />
           <circle

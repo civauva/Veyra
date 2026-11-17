@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   alertTitle,
+  containerPath,
   databasePath,
   formatDays,
   formatDiskShare,
   formatMeasure,
   formatThreshold,
   ruleName,
+  ruleOrder,
   ruleSentence,
   ruleSummary,
   serverName,
@@ -111,5 +113,81 @@ describe("database rules", () => {
     expect(ruleSummary("db-deadlocks", 1, 900)).toBe("Deadlocks · 1 deadlock or more in 15 min");
     expect(databasePath(server.name)).toBe("/metrics/databases/microsoft.sql_server/sql-prod-01");
     expect(serverName("postgresql pg-main:5432")).toBe("PostgreSQL pg-main:5432");
+  });
+});
+
+describe("PostgreSQL rules", () => {
+  const server = { kind: "database" as const, name: "postgresql pg-main", part: null };
+  const shop = { ...server, part: "shop" };
+
+  it("names the server and the database in words", () => {
+    expect(alertTitle("db-connections", server, 0.86, false)).toBe(
+      "PostgreSQL pg-main: connections at 86% of the maximum",
+    );
+    expect(alertTitle("db-connections", server, 0.91, true)).toBe(
+      "PostgreSQL pg-main: connections were at 91% of the maximum",
+    );
+    expect(alertTitle("db-wraparound", shop, 0.52, false)).toBe(
+      "PostgreSQL pg-main: shop is at 52% of transaction ID wraparound",
+    );
+    expect(alertTitle("db-wraparound", shop, 0.76, true)).toBe(
+      "PostgreSQL pg-main: shop was at 76% of transaction ID wraparound",
+    );
+    expect(alertTitle("db-blocking", server, 2, false)).toBe("PostgreSQL pg-main: 2 sessions are blocked");
+  });
+
+  it("measures, names, and explains each rule", () => {
+    expect(ruleName("db-connections")).toBe("Connections");
+    expect(ruleName("db-wraparound")).toBe("Wraparound");
+    expect(formatMeasure("db-connections", 0.8)).toBe("80%");
+    expect(formatMeasure("db-wraparound", 0.5)).toBe("50%");
+    expect(ruleSummary("db-connections", 0.9, 300)).toBe("Connections · above 90% of the maximum");
+    expect(ruleSummary("db-wraparound", 0.5, 300)).toBe("Wraparound · transaction ID age above 50% of the limit");
+    expect(ruleSentence("db-connections", "Caution", 0.8, 300)).toBe(
+      "Built-in rule: caution when 80% or more of the server's maximum connections are in use.",
+    );
+    expect(ruleSentence("db-wraparound", "Warning", 0.75, 300)).toBe(
+      "Built-in rule: warning when a database's oldest transaction ID is 75% or more of the way to wraparound. " +
+        "A vacuum that freezes old rows clears it.",
+    );
+    expect(ruleOrder).toContain("db-connections");
+    expect(ruleOrder).toContain("db-wraparound");
+  });
+});
+
+describe("container rules", () => {
+  const container = { kind: "container" as const, name: "shop-api", part: "web-01" };
+
+  it("names the container and its host in words", () => {
+    expect(alertTitle("container-restarts", container, 3, false)).toBe(
+      "Container shop-api on web-01 restarted 3 times in 15 minutes",
+    );
+    expect(alertTitle("container-memory", container, 0.93, false)).toBe(
+      "Container shop-api on web-01 uses 93% of its memory limit",
+    );
+    expect(alertTitle("container-memory", container, 0.96, true)).toBe(
+      "Container shop-api on web-01 used 96% of its memory limit",
+    );
+    expect(alertTitle("container-restarts", { ...container, part: null }, 1, true)).toBe(
+      "Container shop-api restarted 1 time in 15 minutes",
+    );
+    expect(subjectLabel(container)).toBe("shop-api · web-01");
+  });
+
+  it("measures, names, and links each rule", () => {
+    expect(ruleName("container-restarts")).toBe("Container restarts");
+    expect(ruleName("container-memory")).toBe("Container memory");
+    expect(formatMeasure("container-restarts", 1)).toBe("1 restart");
+    expect(formatMeasure("container-memory", 0.9)).toBe("90%");
+    expect(ruleSummary("container-restarts", 2, 900)).toBe("Container restarts · 2 restarts or more in 15 min");
+    expect(ruleSummary("container-memory", 0.95, 300)).toBe("Container memory · above 95% of its limit");
+    expect(ruleSentence("container-restarts", "Caution", 2, 900)).toBe(
+      "Built-in rule: caution at 2 restarts or more in 15 minutes. It clears after 15 minutes without one.",
+    );
+    expect(ruleSentence("container-memory", "Warning", 0.95, 300)).toBe(
+      "Built-in rule: warning when a container uses 95% or more of its memory limit.",
+    );
+    expect(containerPath(container)).toBe("/metrics/hosts/web-01#container-shop-api");
+    expect(containerPath({ ...container, part: null })).toBe("/metrics");
   });
 });

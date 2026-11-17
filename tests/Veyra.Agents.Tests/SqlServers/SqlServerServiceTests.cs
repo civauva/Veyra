@@ -1,9 +1,11 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 using Veyra.Agents.Agents;
 using Veyra.Agents.SqlServers;
+using Veyra.Core.Settings;
 using Veyra.Testing;
 
 namespace Veyra.Agents.Tests.SqlServers;
@@ -17,13 +19,17 @@ public class SqlServerServiceTests(PostgresFixture postgres)
 
     private readonly EphemeralDataProtectionProvider _protection = new();
 
+    private readonly FakeMonitoringHistory _history = new();
+
+    private readonly ClaimsPrincipal _by = FakeMonitoringHistory.Admin;
+
     [Fact]
     public async Task AddAsync_NoAgentChosen_GivesTheServerToTheBuiltInAgent()
     {
         await using var database = await AgentsDatabase.CreateAsync(postgres);
         var agent = await SeedBuiltInAsync(database);
 
-        var server = await Service(database).AddAsync(Input(), CancellationToken.None);
+        var server = await Service(database).AddAsync(Input(), _by, CancellationToken.None);
 
         Assert.Equal(agent.Id, server.AgentId);
         Assert.Equal("sql-prod-01", server.Name);
@@ -37,7 +43,7 @@ public class SqlServerServiceTests(PostgresFixture postgres)
         var agent = await SeedBuiltInAsync(database);
         var service = Service(database);
 
-        await service.AddAsync(Input(), CancellationToken.None);
+        await service.AddAsync(Input(), _by, CancellationToken.None);
 
         Assert.False(await StoredTextContainsAsync(database, _password));
         var target = Assert.Single(await service.TargetsAsync(agent.Id, CancellationToken.None));
@@ -51,10 +57,10 @@ public class SqlServerServiceTests(PostgresFixture postgres)
         await using var database = await AgentsDatabase.CreateAsync(postgres);
         await SeedBuiltInAsync(database);
         var service = Service(database);
-        await service.AddAsync(Input(), CancellationToken.None);
+        await service.AddAsync(Input(), _by, CancellationToken.None);
 
         await Assert.ThrowsAsync<AgentsConflictException>(() =>
-            service.AddAsync(Input() with { Address = "10.0.0.9" }, CancellationToken.None));
+            service.AddAsync(Input() with { Address = "10.0.0.9" }, _by, CancellationToken.None));
     }
 
     [Theory]
@@ -81,6 +87,7 @@ public class SqlServerServiceTests(PostgresFixture postgres)
 
         await Assert.ThrowsAsync<AgentsValidationException>(() => Service(database).AddAsync(
             new SqlServerInput(name, address, port, environment, null, login, password, SqlServerEncryption.Required),
+            _by,
             CancellationToken.None));
     }
 
@@ -94,7 +101,7 @@ public class SqlServerServiceTests(PostgresFixture postgres)
         await using var database = await AgentsDatabase.CreateAsync(postgres);
         await SeedBuiltInAsync(database);
 
-        var server = await Service(database).AddAsync(Input() with { Address = address }, CancellationToken.None);
+        var server = await Service(database).AddAsync(Input() with { Address = address }, _by, CancellationToken.None);
 
         Assert.Equal(address, server.Address);
     }
@@ -105,7 +112,7 @@ public class SqlServerServiceTests(PostgresFixture postgres)
         await using var database = await AgentsDatabase.CreateAsync(postgres);
 
         await Assert.ThrowsAsync<AgentsValidationException>(() =>
-            Service(database).AddAsync(Input(), CancellationToken.None));
+            Service(database).AddAsync(Input(), _by, CancellationToken.None));
     }
 
     [Fact]
@@ -114,12 +121,13 @@ public class SqlServerServiceTests(PostgresFixture postgres)
         await using var database = await AgentsDatabase.CreateAsync(postgres);
         var agent = await SeedBuiltInAsync(database);
         var service = Service(database);
-        var added = await service.AddAsync(Input(), CancellationToken.None);
+        var added = await service.AddAsync(Input(), _by, CancellationToken.None);
         _clock.Advance(TimeSpan.FromMinutes(5));
 
         var changed = await service.UpdateAsync(
             added.Id,
             Input() with { Address = "10.0.0.6", Password = null, Encryption = SqlServerEncryption.Off },
+            _by,
             CancellationToken.None);
 
         Assert.NotNull(changed);
@@ -132,12 +140,125 @@ public class SqlServerServiceTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task AddAsync_NoPlatformGiven_IsASqlServerWithoutADatabase()
+    {
+        await using var database = await AgentsDatabase.CreateAsync(postgres);
+        await SeedBuiltInAsync(database);
+
+        var server = await Service(database).AddAsync(Input(), _by, CancellationToken.None);
+
+        Assert.Equal(SqlServerPlatform.SqlServer, server.Platform);
+        Assert.Null(server.Database);
+    }
+
+    [Fact]
+    public async Task AddAsync_AzureSqlDatabase_StoresTheTrimmedDatabaseName()
+    {
+        await using var database = await AgentsDatabase.CreateAsync(postgres);
+        var agent = await SeedBuiltInAsync(database);
+        var service = Service(database);
+
+        await service.AddAsync(
+            Input() with { Platform = SqlServerPlatform.AzureSqlDatabase, Database = "  orders  " },
+            _by,
+            CancellationToken.None);
+
+        var target = Assert.Single(await service.TargetsAsync(agent.Id, CancellationToken.None));
+        Assert.Equal(SqlServerPlatform.AzureSqlDatabase, target.Server.Platform);
+        Assert.Equal("orders", target.Server.Database);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task AddAsync_AzureSqlDatabaseWithoutDatabase_IsRejected(string? name)
+    {
+        await using var database = await AgentsDatabase.CreateAsync(postgres);
+        await SeedBuiltInAsync(database);
+
+        var exception = await Assert.ThrowsAsync<AgentsValidationException>(() => Service(database).AddAsync(
+            Input() with { Platform = SqlServerPlatform.AzureSqlDatabase, Database = name },
+            _by,
+            CancellationToken.None));
+
+        Assert.Equal("Name the database: Azure SQL Database is read one database at a time.", exception.Message);
+    }
+
+    [Theory]
+    [InlineData(SqlServerPlatform.SqlServer)]
+    [InlineData(SqlServerPlatform.ManagedInstance)]
+    public async Task AddAsync_OtherKindWithADatabase_IsRejected(SqlServerPlatform platform)
+    {
+        await using var database = await AgentsDatabase.CreateAsync(postgres);
+        await SeedBuiltInAsync(database);
+
+        var exception = await Assert.ThrowsAsync<AgentsValidationException>(() => Service(database).AddAsync(
+            Input() with { Platform = platform, Database = "orders" },
+            _by,
+            CancellationToken.None));
+
+        Assert.Equal("Only an Azure SQL Database names its database.", exception.Message);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public async Task AddAsync_ManagedInstanceWithBlankDatabase_StoresNoDatabase(string? name)
+    {
+        await using var database = await AgentsDatabase.CreateAsync(postgres);
+        await SeedBuiltInAsync(database);
+
+        var server = await Service(database).AddAsync(
+            Input() with { Platform = SqlServerPlatform.ManagedInstance, Database = name },
+            _by,
+            CancellationToken.None);
+
+        Assert.Equal(SqlServerPlatform.ManagedInstance, server.Platform);
+        Assert.Null(server.Database);
+    }
+
+    [Fact]
+    public async Task AddAsync_UndefinedPlatform_IsRejected()
+    {
+        await using var database = await AgentsDatabase.CreateAsync(postgres);
+        await SeedBuiltInAsync(database);
+
+        var exception = await Assert.ThrowsAsync<AgentsValidationException>(() => Service(database).AddAsync(
+            Input() with { Platform = (SqlServerPlatform)9 },
+            _by,
+            CancellationToken.None));
+
+        Assert.Equal("Choose the kind of SQL Server.", exception.Message);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ChangedToAzureSqlDatabase_IsReadBackFromTheStore()
+    {
+        await using var database = await AgentsDatabase.CreateAsync(postgres);
+        var agent = await SeedBuiltInAsync(database);
+        var service = Service(database);
+        var added = await service.AddAsync(Input(), _by, CancellationToken.None);
+
+        await service.UpdateAsync(
+            added.Id,
+            Input() with { Password = null, Platform = SqlServerPlatform.AzureSqlDatabase, Database = "orders" },
+            _by,
+            CancellationToken.None);
+
+        var target = Assert.Single(await service.TargetsAsync(agent.Id, CancellationToken.None));
+        Assert.Equal(SqlServerPlatform.AzureSqlDatabase, target.Server.Platform);
+        Assert.Equal("orders", target.Server.Database);
+    }
+
+    [Fact]
     public async Task UpdateAsync_UnknownServer_ReturnsNull()
     {
         await using var database = await AgentsDatabase.CreateAsync(postgres);
         await SeedBuiltInAsync(database);
 
-        Assert.Null(await Service(database).UpdateAsync(Guid.CreateVersion7(), Input(), CancellationToken.None));
+        Assert.Null(await Service(database).UpdateAsync(Guid.CreateVersion7(), Input(), _by, CancellationToken.None));
     }
 
     [Fact]
@@ -146,12 +267,77 @@ public class SqlServerServiceTests(PostgresFixture postgres)
         await using var database = await AgentsDatabase.CreateAsync(postgres);
         await SeedBuiltInAsync(database);
         var service = Service(database);
-        var added = await service.AddAsync(Input(), CancellationToken.None);
+        var added = await service.AddAsync(Input(), _by, CancellationToken.None);
 
-        Assert.True(await service.RemoveAsync(added.Id, CancellationToken.None));
+        Assert.True(await service.RemoveAsync(added.Id, _by, CancellationToken.None));
 
         Assert.Empty(await service.ListAsync(CancellationToken.None));
-        Assert.False(await service.RemoveAsync(added.Id, CancellationToken.None));
+        Assert.False(await service.RemoveAsync(added.Id, _by, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task AddAsync_Server_IsAddedToTheSettingsHistoryByWhoAddedIt()
+    {
+        await using var database = await AgentsDatabase.CreateAsync(postgres);
+        await SeedBuiltInAsync(database);
+
+        await Service(database).AddAsync(Input(), _by, CancellationToken.None);
+
+        var (change, by) = Assert.Single(_history.Changes);
+        Assert.Equal(
+            new MonitoringChange(MonitoringSubject.SqlServer, "sql-prod-01", MonitoringChangeKind.Added, []),
+            change with { Fields = [] });
+        Assert.Empty(change.Fields);
+        Assert.Same(_by, by);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ChangedFields_AreNamedInTheHistoryWithoutTheirValues()
+    {
+        await using var database = await AgentsDatabase.CreateAsync(postgres);
+        await SeedBuiltInAsync(database);
+        var service = Service(database);
+        var added = await service.AddAsync(Input(), _by, CancellationToken.None);
+
+        await service.UpdateAsync(
+            added.Id,
+            Input() with { Port = 1533, Password = "Another-Horse-8", Encryption = SqlServerEncryption.Off },
+            _by,
+            CancellationToken.None);
+
+        var change = _history.Changes[^1].Change;
+        Assert.Equal((MonitoringChangeKind.Changed, "sql-prod-01"), (change.Kind, change.Name));
+        Assert.Equal(["port", "password", "encryption"], change.Fields);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_NothingChanged_IsNotInTheHistory()
+    {
+        await using var database = await AgentsDatabase.CreateAsync(postgres);
+        await SeedBuiltInAsync(database);
+        var service = Service(database);
+        var added = await service.AddAsync(Input(), _by, CancellationToken.None);
+
+        await service.UpdateAsync(added.Id, Input() with { Password = null }, _by, CancellationToken.None);
+
+        Assert.Single(_history.Changes);
+    }
+
+    [Fact]
+    public async Task RemoveAsync_Server_IsRemovedInTheHistoryByName()
+    {
+        await using var database = await AgentsDatabase.CreateAsync(postgres);
+        await SeedBuiltInAsync(database);
+        var service = Service(database);
+        var added = await service.AddAsync(Input(), _by, CancellationToken.None);
+
+        await service.RemoveAsync(added.Id, _by, CancellationToken.None);
+        await service.RemoveAsync(added.Id, _by, CancellationToken.None);
+
+        Assert.Equal(
+            [MonitoringChangeKind.Added, MonitoringChangeKind.Removed],
+            _history.Changes.Select(entry => entry.Change.Kind));
+        Assert.Equal("sql-prod-01", _history.Changes[^1].Change.Name);
     }
 
     private static SqlServerInput Input() =>
@@ -179,6 +365,7 @@ public class SqlServerServiceTests(PostgresFixture postgres)
             new AgentStore(database),
             new SqlServerPasswordProtector(_protection),
             _clock,
+            _history,
             NullLogger<SqlServerService>.Instance);
 
     private static async Task<bool> StoredTextContainsAsync(NpgsqlDataSource database, string text)

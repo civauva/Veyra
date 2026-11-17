@@ -1,4 +1,4 @@
-import type { Agent, Setting, SettingSection, SqlServer } from "../api/types";
+import type { Agent, PostgresServer, Setting, SettingSection, SqlServer } from "../api/types";
 import { serverStateWords } from "./monitoringFormat";
 import { describeValue } from "./settingsFormat";
 
@@ -15,6 +15,8 @@ export const pageSections: SectionId[] = ["Databases", "Agents"];
 export interface Watched {
   /** The SQL Servers agents read. */
   servers: SqlServer[];
+  /** The PostgreSQL servers agents read; left out where only SQL Servers are counted. */
+  postgres?: PostgresServer[];
   /** The agents. */
   agents: Agent[];
 }
@@ -132,14 +134,20 @@ export function sectionSummary(id: SectionId, settings: Setting[], watched: Watc
     }
     case "Databases": {
       if (!watched) {
-        return "SQL Server";
+        return "SQL Server and PostgreSQL";
       }
 
-      const count = watched.servers.length;
-      const look = watched.servers.filter((server) => serverStateWords(server.state).tone === "bad").length;
-      const servers = count === 1 ? "1 SQL Server" : `${count} SQL Servers`;
+      const postgres = watched.postgres ?? [];
+      const all = [...watched.servers, ...postgres];
+      const look = all.filter((server) => serverStateWords(server.state).tone === "bad").length;
+      const sql = watched.servers.length;
+      const kinds = [
+        sql === 0 ? null : sql === 1 ? "1 SQL Server" : `${sql} SQL Servers`,
+        postgres.length === 0 ? null : `${postgres.length} PostgreSQL`,
+      ].filter((kind) => kind !== null);
+      const servers = kinds.join(" · ");
 
-      return count === 0 ? "No server yet" : look > 0 ? `${servers} · ${look} needs a look` : servers;
+      return all.length === 0 ? "No server yet" : look > 0 ? `${servers} · ${look} needs a look` : servers;
     }
     case "Agents": {
       if (!watched) {

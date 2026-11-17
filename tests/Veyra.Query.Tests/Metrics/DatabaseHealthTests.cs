@@ -38,6 +38,50 @@ public class DatabaseHealthTests
     }
 
     [Fact]
+    public async Task ListDatabasesAsync_Postgres_HasWhatTheRulesJudge()
+    {
+        var server = TelemetryBlock.Database("postgresql", "pg-main");
+
+        // The receiver names the database on the resource; sqlquery names it on the point.
+        Add("postgresql.backends", [], _ => 60, server, [("postgresql.database.name", "shop")]);
+        Add("postgresql.backends", [], _ => 26, server, [("postgresql.database.name", "reporting")]);
+        Add("postgresql.connection.max", [], _ => 100, server);
+        Add("postgresql.sessions.blocked", [], minute => minute == 27 ? 1 : 2, server);
+
+        // One deadlock a minute in shop from 12:05 to 12:10: six within 30 minutes, none within 15.
+        Add(
+            "postgresql.deadlocks",
+            [],
+            minute => 40 + Math.Clamp(minute - 4, 0, 6),
+            server,
+            [("postgresql.database.name", "shop")]);
+        Add("postgresql.query.duration.max", [("postgresql.database.name", "shop")], m => m == 28 ? 900 : 30, server);
+        Add("postgresql.database.xid.age", [("postgresql.database.name", "shop")], _ => 1_073_741_824, server);
+        Add("postgresql.database.xid.age", [("postgresql.database.name", "reporting")], _ => 214_748_365, server);
+
+        var health = Assert.Single(await new MetricHealth(_store).ListDatabasesAsync(_now, default));
+
+        Assert.Equal(server, health.Server);
+        Assert.Equal(0.86, health.ConnectionsRatio!.Value, 6);
+        Assert.Equal((1d, 2d), (health.BlockedLeast, health.BlockedMost));
+        Assert.Equal((0d, 6d), (health.DeadlocksQuarter, health.DeadlocksHalfHour));
+        Assert.Equal(["reporting", "shop"], health.Databases.Select(database => database.Name));
+        var shop = health.Databases[1];
+        Assert.Equal((30d, 900d, 0.5), (shop.LongestQuerySeconds, shop.LongestQueryRecentMax, shop.WraparoundRatio));
+        Assert.Null(shop.BackupAgeSeconds);
+        Assert.Equal(0.1, health.Databases[0].WraparoundRatio!.Value, 6);
+        Assert.Empty(health.Jobs);
+    }
+
+    [Fact]
+    public async Task ListDatabasesAsync_SqlServer_HasNoConnectionsRatio()
+    {
+        Add("sqlserver.processes.blocked", [], _ => 0);
+
+        Assert.Null(Assert.Single(await new MetricHealth(_store).ListDatabasesAsync(_now, default)).ConnectionsRatio);
+    }
+
+    [Fact]
     public async Task ListDatabasesAsync_DeadlocksSinceSqlServerStarted_AreNotNewDeadlocks()
     {
         // A running total that stands still: deadlocks from before the window, which the rule must not judge again.
@@ -70,7 +114,8 @@ public class DatabaseHealthTests
         string name,
         (string Key, string Value)[] attributes,
         Func<int, double> valueAtMinute,
-        TelemetryBlock? block = null)
+        TelemetryBlock? block = null,
+        (string Key, string Value)[]? resource = null)
     {
         var series = _store.Add(new MetricSeries(
             0,
@@ -83,7 +128,7 @@ public class DatabaseHealthTests
             null,
             "production",
             null,
-            new Dictionary<string, string>(),
+            (resource ?? []).ToDictionary(pair => pair.Key, pair => pair.Value),
             attributes.ToDictionary(pair => pair.Key, pair => pair.Value),
             _now.AddDays(-1),
             _now,

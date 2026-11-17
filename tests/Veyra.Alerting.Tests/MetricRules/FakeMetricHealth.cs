@@ -13,6 +13,8 @@ internal sealed class FakeMetricHealth : IMetricHealth
 
     public IReadOnlyList<DatabaseMeasure> Measures { get; set; } = [];
 
+    public IReadOnlyList<ContainerHealth> Containers { get; set; } = [];
+
     public DiskHistory DiskHistory { get; set; } = new(TimeSpan.FromHours(1), []);
 
     public LatencyHistory LatencyHistory { get; set; } = new(TimeSpan.FromMinutes(1), [], []);
@@ -40,6 +42,15 @@ internal sealed class FakeMetricHealth : IMetricHealth
         ListCalls++;
 
         return Task.FromResult(Databases);
+    }
+
+    public Task<IReadOnlyList<ContainerHealth>> ListContainersAsync(
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        ListCalls++;
+
+        return Task.FromResult(Containers);
     }
 
     public Task<IReadOnlyList<ServiceLatency>> ListLatenciesAsync(

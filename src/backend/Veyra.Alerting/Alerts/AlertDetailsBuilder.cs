@@ -78,8 +78,13 @@ internal sealed class AlertDetailsBuilder(
                 or AlertRules.DatabaseDeadlocks
                 or AlertRules.DatabaseLongQuery
                 or AlertRules.DatabaseBackupAge
-                or AlertRules.DatabaseAgentJob:
+                or AlertRules.DatabaseAgentJob
+                or AlertRules.DatabaseConnections
+                or AlertRules.DatabaseWraparound:
                 // The server's own screen shows its metrics and queries; the details link to it.
+                break;
+            case AlertRules.ContainerRestarts or AlertRules.ContainerMemory:
+                // The host screen lists its containers with their memory and restarts; the details link to it.
                 break;
             case var rule when RuleCatalog.Find(rule) is not null:
                 // Catalog rules judge database servers too; their screens show the figures (ADR 0020).

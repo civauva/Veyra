@@ -29,6 +29,9 @@ internal sealed class AlertingSettings(IEnumerable<IValidateOptions<AlertingOpti
         _prefix + "Latency:MinimumRequests",
         _prefix + "DiskSpace:ClearMargin",
         _prefix + "DiskFilling:ClearFactor",
+        _prefix + "ContainerMemory:ClearMargin",
+        _prefix + "DatabaseConnections:ClearMargin",
+        _prefix + "DatabaseWraparound:ClearRatio",
         _prefix + "DatabaseBackupAge:IgnoredDatabases",
         _prefix + "EvaluationInterval",
         _prefix + "HistoryDays",
@@ -44,11 +47,15 @@ internal sealed class AlertingSettings(IEnumerable<IValidateOptions<AlertingOpti
         ["Latency"] = "The latency rule",
         ["DiskSpace"] = "The disk-space rule",
         ["DiskFilling"] = "The disk-filling rule",
+        ["ContainerRestarts"] = "The container restart rule",
+        ["ContainerMemory"] = "The container memory rule",
         ["DatabaseBlocking"] = "The database blocking rule",
         ["DatabaseDeadlocks"] = "The deadlock rule",
         ["DatabaseLongQuery"] = "The long-query rule",
         ["DatabaseBackupAge"] = "The backup-age rule",
         ["DatabaseAgentJob"] = "The SQL Agent job rule",
+        ["DatabaseConnections"] = "The connections rule",
+        ["DatabaseWraparound"] = "The wraparound rule",
     };
 
     /// <inheritdoc />
@@ -98,10 +105,14 @@ internal sealed class AlertingSettings(IEnumerable<IValidateOptions<AlertingOpti
         var diskSpace = _defaults.DiskSpace;
         var diskFilling = _defaults.DiskFilling;
         var latency = _defaults.Latency;
+        var restarts = _defaults.ContainerRestarts;
+        var containerMemory = _defaults.ContainerMemory;
         var blocking = _defaults.DatabaseBlocking;
         var deadlocks = _defaults.DatabaseDeadlocks;
         var longQuery = _defaults.DatabaseLongQuery;
         var backupAge = _defaults.DatabaseBackupAge;
+        var connections = _defaults.DatabaseConnections;
+        var wraparound = _defaults.DatabaseWraparound;
         var notifications = _defaults.Notifications;
         var smtp = notifications.Smtp;
 
@@ -217,6 +228,46 @@ internal sealed class AlertingSettings(IEnumerable<IValidateOptions<AlertingOpti
                 diskFilling.ClearFactor,
                 "× the caution level"),
 
+            Switch("ContainerRestarts", "Container restarts", "Whether the restart rule for containers runs."),
+            Whole(
+                SettingSection.Rules,
+                "ContainerRestarts:CautionRestarts",
+                "Container restarts",
+                "Caution from",
+                "Restarts of a container in 15 minutes that raise a caution. It clears after 15 minutes without one.",
+                restarts.CautionRestarts,
+                "restarts"),
+            Whole(
+                SettingSection.Rules,
+                "ContainerRestarts:WarningRestarts",
+                "Container restarts",
+                "Warning from",
+                "Restarts in 15 minutes that raise a warning.",
+                restarts.WarningRestarts,
+                "restarts"),
+
+            Switch("ContainerMemory", "Container memory", "Whether the memory rule for containers runs."),
+            Ratio(
+                "ContainerMemory:CautionRatio",
+                "Container memory",
+                "Caution from",
+                "Share of its memory limit a container uses that raises a caution. Without a limit, Docker counts "
+                + "the host's memory.",
+                containerMemory.CautionRatio),
+            Ratio(
+                "ContainerMemory:WarningRatio",
+                "Container memory",
+                "Warning from",
+                "Share of its memory limit in use that raises a warning.",
+                containerMemory.WarningRatio),
+            Ratio(
+                "ContainerMemory:ClearMargin",
+                "Container memory",
+                "Clears",
+                "An alert clears this many points below the level it crossed.",
+                containerMemory.ClearMargin,
+                "points below"),
+
             Switch("DatabaseBlocking", "Database blocking", "Whether the blocking rule for database servers runs."),
             Whole(
                 SettingSection.Rules,
@@ -302,6 +353,55 @@ internal sealed class AlertingSettings(IEnumerable<IValidateOptions<AlertingOpti
             },
 
             Switch("DatabaseAgentJob", "SQL Agent jobs", "Whether the rule for failed SQL Agent jobs runs."),
+
+            Switch(
+                "DatabaseConnections",
+                "Database connections",
+                "Whether the connections rule for database servers runs. Only PostgreSQL says its maximum."),
+            Ratio(
+                "DatabaseConnections:CautionRatio",
+                "Database connections",
+                "Caution from",
+                "Share of the server's maximum connections in use that raises a caution. At the maximum, new "
+                + "connections are refused.",
+                connections.CautionRatio),
+            Ratio(
+                "DatabaseConnections:WarningRatio",
+                "Database connections",
+                "Warning from",
+                "Share of the maximum connections in use that raises a warning.",
+                connections.WarningRatio),
+            Ratio(
+                "DatabaseConnections:ClearMargin",
+                "Database connections",
+                "Clears",
+                "An alert clears this many points below the level it crossed.",
+                connections.ClearMargin,
+                "points below"),
+
+            Switch(
+                "DatabaseWraparound",
+                "Transaction ID wraparound",
+                "Whether the wraparound rule for PostgreSQL databases runs."),
+            Ratio(
+                "DatabaseWraparound:CautionRatio",
+                "Transaction ID wraparound",
+                "Caution from",
+                "Age of a database's oldest transaction ID, of the limit of about 2.1 billion, that raises a caution. "
+                + "Near the limit PostgreSQL stops accepting writes until the database is vacuumed.",
+                wraparound.CautionRatio),
+            Ratio(
+                "DatabaseWraparound:WarningRatio",
+                "Transaction ID wraparound",
+                "Warning from",
+                "Age of the oldest transaction ID, of the limit, that raises a warning.",
+                wraparound.WarningRatio),
+            Ratio(
+                "DatabaseWraparound:ClearRatio",
+                "Transaction ID wraparound",
+                "Clears below",
+                "A caution clears once the age falls below this share of the limit, as a vacuum freezes old rows.",
+                wraparound.ClearRatio),
 
             .. RuleCatalog.All.SelectMany(CatalogDefinitions),
 

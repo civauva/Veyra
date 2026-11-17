@@ -1,0 +1,52 @@
+# A throwaway PostgreSQL and the Collector with ../collector.yaml writing to a file instead of Veyra. run.sh starts it,
+# seeds it, and checks what the Collector sends. Passwords come from run.sh, never from this file.
+name: veyra-postgres-check
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:16}
+    environment:
+      POSTGRES_PASSWORD: ${ADMIN_PASSWORD:?run.sh sets it}
+    volumes:
+      - ./out/tls:/tls-source:ro
+    # With a certificate from run.sh, the server takes TLS connections, as a real one would. PostgreSQL refuses a key
+    # that others may read, so it is copied with the owner and mode it wants first.
+    entrypoint:
+      - sh
+      - -c
+      - |
+        if [ -f /tls-source/server.key ]; then
+          mkdir -p /tls
+          cp /tls-source/server.crt /tls-source/server.key /tls/
+          chown postgres /tls/server.crt /tls/server.key
+          chmod 600 /tls/server.key
+          exec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/tls/server.crt -c ssl_key_file=/tls/server.key
+        fi
+        exec docker-entrypoint.sh postgres
+
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.140.0
+    # Root, so the file exporter can write to the mounted folder on any runner.
+    user: "0"
+    command:
+      - --config=/etc/check/collector.yaml
+      - --config=/etc/check/to-file.yaml
+    environment:
+      VEYRA_OTLP_ENDPOINT: http://unused:4318
+      VEYRA_INGESTION_KEY: unused
+      POSTGRES_SERVER: pg-check-01
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: veyra_monitor
+      POSTGRES_PASSWORD: ${MONITOR_PASSWORD:?run.sh sets it}
+      POSTGRES_TLS_INSECURE: ${TLS_INSECURE:?run.sh sets it}
+      POSTGRES_TLS_SKIP_VERIFY: ${TLS_SKIP_VERIFY:?run.sh sets it}
+      POSTGRES_SSLMODE: ${SSLMODE:?run.sh sets it}
+    volumes:
+      - ../collector.yaml:/etc/check/collector.yaml:ro
+      - ./to-file.yaml:/etc/check/to-file.yaml:ro
+      - ./out:/out
+    depends_on:
+      - postgres
+    profiles:
+      - collector

@@ -494,6 +494,23 @@
   border-color: color-mix(in srgb, var(--error-fg) 55%, var(--line));
 }
 
+/* The session open in the side panel, wherever it is listed. */
+.live-node.selected,
+.live-tree > li.head > .live-node.selected,
+.live-plain > li.selected {
+  border-color: var(--accent);
+  box-shadow: inset 4px 0 0 var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--panel-2));
+}
+
+.live-table tr.selected > * {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+.live-table tr.selected > :first-child {
+  box-shadow: inset 4px 0 0 var(--accent);
+}
+
 .live-node-id {
   display: flex;
   flex-direction: column;

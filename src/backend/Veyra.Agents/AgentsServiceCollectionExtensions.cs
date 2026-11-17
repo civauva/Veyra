@@ -9,6 +9,7 @@ using Veyra.Agents.Api;
 using Veyra.Agents.Enrollment;
 using Veyra.Agents.Install;
 using Veyra.Agents.OpAmp;
+using Veyra.Agents.PostgresServers;
 using Veyra.Agents.SqlServers;
 using Veyra.Core;
 using Veyra.Core.Schema;
@@ -22,8 +23,8 @@ namespace Veyra.Agents;
 public static class AgentsServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers the Agents module: Veyra's agents, the SQL Servers they read, and the OpAMP server that configures
-    /// them (ADR 0019).
+    /// Registers the Agents module: Veyra's agents, the SQL Servers and PostgreSQL servers they read, and the OpAMP
+    /// server that configures them (ADR 0019).
     /// </summary>
     /// <remarks>
     /// The module issues agent keys through <see cref="Veyra.Core.Security.IIngestionKeyIssuer"/> and checks them
@@ -60,17 +61,25 @@ public static class AgentsServiceCollectionExtensions
         services.AddSingleton<SqlServerPasswordProtector>();
         services.AddSingleton<SqlServerService>();
         services.AddSingleton<SqlServerSignals>();
+        services.AddSingleton<PostgresServerStore>();
+        services.AddSingleton<PostgresPasswordProtector>();
+        services.AddSingleton<PostgresServerService>();
         services.AddSingleton<AgentsOverview>();
         services.AddSingleton<OpAmpServer>();
         services.AddSingleton<EnrollmentStore>();
         services.AddSingleton<EnrollThrottle>();
         services.AddSingleton<AgentEnrollment>();
+        services.AddSingleton<AgentHostService>();
 
         services.AddTransient(provider => new AgentsController(
             provider.GetRequiredService<AgentsOverview>(),
-            provider.GetRequiredService<AgentEnrollment>()));
+            provider.GetRequiredService<AgentEnrollment>(),
+            provider.GetRequiredService<AgentHostService>()));
         services.AddTransient(provider => new SqlServersController(
             provider.GetRequiredService<SqlServerService>(),
+            provider.GetRequiredService<AgentsOverview>()));
+        services.AddTransient(provider => new PostgresServersController(
+            provider.GetRequiredService<PostgresServerService>(),
             provider.GetRequiredService<AgentsOverview>()));
 
         return services;

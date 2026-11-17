@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 using Veyra.Access.Settings;
+using Veyra.Core.Settings;
 using Veyra.Testing;
 
 namespace Veyra.Access.Tests.Settings;
@@ -117,6 +118,66 @@ public class SettingStoreTests(PostgresFixture postgres)
         Assert.Equal(["9", "8"], first.Changes.Select(change => change.NewValue));
         Assert.Equal(["7"], second.Changes.Select(change => change.NewValue));
         Assert.Null(second.Next);
+    }
+
+    [Fact]
+    public async Task RecordMonitoringAsync_IsInTheHistory_WithoutMovingTheSettingsVersion()
+    {
+        var (store, admin) = await CreateAsync();
+        var author = new SettingAuthor(admin, "Lena Adler");
+        var version = await store.SaveAsync(0, [new SettingWrite(_days, "7", false)], author, SettingChangeKind.Changed, null, default);
+
+        await store.RecordMonitoringAsync(
+            new MonitoringChange(MonitoringSubject.SqlServer, "sql-prod-01", MonitoringChangeKind.Changed, ["port", "password"]),
+            author,
+            default);
+
+        Assert.Equal(version, await store.VersionAsync(default));
+        var change = (await store.HistoryAsync(new SettingHistoryQuery(), default)).Changes[0];
+        Assert.Equal(
+            ("sql-prod-01", SettingChangeKind.Changed, MonitoringSubject.SqlServer, "Lena Adler"),
+            (change.Name, change.Kind, change.Subject, change.ChangedByName));
+        Assert.Equal(["port", "password"], change.Fields!);
+        Assert.Equal((null, null, false), (change.OldValue, change.NewValue, change.Secret));
+
+        // An Admin who opened the Settings screen before the server changed can still save.
+        Assert.NotNull(await store.SaveAsync(version!.Value, [new SettingWrite(_days, "8", false)], author, SettingChangeKind.Changed, null, default));
+    }
+
+    [Fact]
+    public async Task RecordMonitoringAsync_AddedAndRemoved_KeepTheirKind()
+    {
+        var (store, admin) = await CreateAsync();
+        var author = new SettingAuthor(admin, "Lena Adler");
+
+        await store.RecordMonitoringAsync(new MonitoringChange(MonitoringSubject.Agent, "dc-east", MonitoringChangeKind.Added, []), author, default);
+        await store.RecordMonitoringAsync(new MonitoringChange(MonitoringSubject.Agent, "dc-east", MonitoringChangeKind.Removed, []), author, default);
+
+        Assert.Equal(
+            [SettingChangeKind.Removed, SettingChangeKind.Added],
+            (await store.HistoryAsync(new SettingHistoryQuery(), default)).Changes.Select(change => change.Kind));
+        Assert.Equal(0, await store.VersionAsync(default));
+    }
+
+    [Fact]
+    public async Task HistoryAsync_Section_HasItsSettingsAndItsMonitoredSystemsOnly()
+    {
+        var (store, admin) = await CreateAsync();
+        var author = new SettingAuthor(admin, "Lena Adler");
+        await store.SaveAsync(0, [new SettingWrite(_days, "7", false), new SettingWrite("Veyra:Query:MaxPageSize", "700", false)], author, SettingChangeKind.Changed, null, default);
+        await store.RecordMonitoringAsync(new MonitoringChange(MonitoringSubject.SqlServer, "sql-prod-01", MonitoringChangeKind.Added, []), author, default);
+        await store.RecordMonitoringAsync(new MonitoringChange(MonitoringSubject.PostgresServer, "pg-main", MonitoringChangeKind.Added, []), author, default);
+        await store.RecordMonitoringAsync(new MonitoringChange(MonitoringSubject.Agent, _days, MonitoringChangeKind.Added, []), author, default);
+
+        var databases = await store.HistoryAsync(
+            new SettingHistoryQuery(Names: [], Subjects: [MonitoringSubject.SqlServer, MonitoringSubject.PostgresServer]),
+            default);
+        var data = await store.HistoryAsync(new SettingHistoryQuery(Names: [_days]), default);
+
+        Assert.Equal(["pg-main", "sql-prod-01"], databases.Changes.Select(change => change.Name));
+        // An agent that happens to share a setting's name is not that setting's change.
+        Assert.Equal([_days], data.Changes.Select(change => change.Name));
+        Assert.Null(Assert.Single(data.Changes).Subject);
     }
 
     private async Task<(SettingStore Store, Guid Admin)> CreateAsync()

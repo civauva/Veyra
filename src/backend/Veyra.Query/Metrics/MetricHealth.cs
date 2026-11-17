@@ -24,7 +24,13 @@ internal sealed class MetricHealth(IMetricSearch search, IDatabaseActivitySearch
     private static readonly TimeSpan _deadlocksWindow = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan _deadlocksClearAfter = TimeSpan.FromMinutes(30);
 
-    // What the database rules judge.
+    // The restart rule counts over 15 minutes and clears after as long without one (ADR 0018).
+    private static readonly TimeSpan _restartsWindow = TimeSpan.FromMinutes(15);
+
+    // Six series per container: room for well over a thousand containers.
+    private const int _maxContainerSeries = 10_000;
+
+    // What the database rules judge, of SQL Server and of PostgreSQL.
     private static readonly string[] _databaseRules =
     [
         SqlServerNames.Blocked,
@@ -32,7 +38,11 @@ internal sealed class MetricHealth(IMetricSearch search, IDatabaseActivitySearch
         SqlServerNames.LongestQuery,
         SqlServerNames.BackupAge,
         SqlServerNames.JobFailed,
+        .. MetricNames.PostgresRules,
     ];
+
+    // The deadlocks of both engines, counted over the last 30 minutes.
+    private static readonly string[] _deadlocks = [SqlServerNames.DeadlockRate, MetricNames.PostgresDeadlocks];
 
     // An alert's chart has no more points than this.
     private const int _maxPoints = 240;
@@ -75,6 +85,32 @@ internal sealed class MetricHealth(IMetricSearch search, IDatabaseActivitySearch
                         disk.DaysUntilFull));
             })
             .ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<ContainerHealth>> ListContainersAsync(
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var series = (await search.FindSeriesAsync(
+                new MetricSeriesQuery(now - _activeWithin, Names: MetricNames.Container, Limit: _maxContainerSeries),
+                cancellationToken))
+            .Where(ContainerView.IsContainer)
+            .ToList();
+
+        if (series.Count == 0)
+        {
+            return [];
+        }
+
+        // Both reads come from the minute rollups: five buckets of every series, and 16 of the restart counts.
+        var recent = await _reader.ReadAsync(series, MetricWindow.Recent(now), cancellationToken);
+        var quarter = await _reader.ReadAsync(
+            series.Where(one => one.Name == MetricNames.ContainerRestarts).ToList(),
+            MetricWindow.Covering(now - _restartsWindow, now, 15),
+            cancellationToken);
+
+        return ContainerView.Health(recent, quarter);
     }
 
     /// <inheritdoc />
@@ -215,7 +251,7 @@ internal sealed class MetricHealth(IMetricSearch search, IDatabaseActivitySearch
 
         var recent = await _reader.ReadAsync(series, MetricWindow.Recent(now), cancellationToken);
         var halfHour = await _reader.ReadAsync(
-            series.Where(one => one.Name == SqlServerNames.DeadlockRate).ToList(),
+            series.Where(one => _deadlocks.Contains(one.Name)).ToList(),
             MetricWindow.Covering(now - _deadlocksClearAfter, now, 30),
             cancellationToken);
 
@@ -225,7 +261,7 @@ internal sealed class MetricHealth(IMetricSearch search, IDatabaseActivitySearch
             {
                 var ofServer = recent.Where(one => one.Block == server.Key);
                 var deadlocks = DatabaseView.Deadlocks(halfHour.Where(one => one.Block == server.Key));
-                var blocked = ofServer.Levels(ofServer.Named(SqlServerNames.Blocked));
+                var blocked = ofServer.Levels(ofServer.Named(SqlServerNames.Blocked, MetricNames.PostgresBlocked));
 
                 // Blocked throughout means in every minute of the five: a server that started sending a minute ago
                 // has not shown that yet.
@@ -234,15 +270,19 @@ internal sealed class MetricHealth(IMetricSearch search, IDatabaseActivitySearch
                     .Where(pair => pair.Key >= ofServer.Window.Start)
                     .Select(pair => pair.Value)
                     .ToList();
-                var hasDeadlocks = ofServer.Named(SqlServerNames.DeadlockRate).Any();
+                var hasDeadlocks = ofServer.Named(_deadlocks).Any();
                 var longest = DatabaseView.LatestBy(
-                    ofServer,
-                    SqlServerNames.LongestQuery,
-                    SqlServerNames.DatabaseAttribute);
+                        ofServer,
+                        SqlServerNames.LongestQuery,
+                        SqlServerNames.DatabaseAttribute)
+                    .Concat(PostgresView.ByDatabase(ofServer, MetricNames.PostgresLongestQuery))
+                    .GroupBy(pair => pair.Key, StringComparer.Ordinal)
+                    .ToDictionary(group => group.Key, group => group.Max(pair => pair.Value), StringComparer.Ordinal);
                 var backups = DatabaseView.LatestBy(
                     ofServer,
                     SqlServerNames.BackupAge,
                     SqlServerNames.DatabaseAttribute);
+                var ages = PostgresView.ByDatabase(ofServer, MetricNames.PostgresTransactionIdAge);
                 var jobs = DatabaseView.LatestBy(ofServer, SqlServerNames.JobFailed, SqlServerNames.JobAttribute);
 
                 return new DatabaseHealth(
@@ -258,16 +298,25 @@ internal sealed class MetricHealth(IMetricSearch search, IDatabaseActivitySearch
                     hasDeadlocks ? Math.Round(deadlocks.Values.Sum()) : null,
                     longest.Keys
                         .Union(backups.Keys, StringComparer.Ordinal)
+                        .Union(ages.Keys, StringComparer.Ordinal)
                         .Order(StringComparer.Ordinal)
                         .Select(database => new DatabasePartHealth(
                             database,
                             longest.TryGetValue(database, out var seconds) ? seconds : null,
                             RecentMax(ofServer, database),
-                            backups.TryGetValue(database, out var age) ? age : null))
+                            backups.TryGetValue(database, out var age) ? age : null)
+                        {
+                            WraparoundRatio = ages.TryGetValue(database, out var transactions)
+                                ? transactions / MetricNames.PostgresWraparoundLimit
+                                : null,
+                        })
                         .ToList(),
                     jobs.OrderBy(job => job.Key, StringComparer.Ordinal)
                         .Select(job => new AgentJobHealth(job.Key, job.Value >= 1))
-                        .ToList());
+                        .ToList())
+                {
+                    ConnectionsRatio = PostgresView.ConnectionsRatio(ofServer),
+                };
             })
             .ToList();
     }
@@ -363,7 +412,9 @@ internal sealed class MetricHealth(IMetricSearch search, IDatabaseActivitySearch
     private static double? RecentMax(SeriesData data, string database)
     {
         var levels = data.Levels(data.Named(SqlServerNames.LongestQuery)
-            .Where(one => MetricNames.Attribute(one, SqlServerNames.DatabaseAttribute) == database));
+            .Where(one => MetricNames.Attribute(one, SqlServerNames.DatabaseAttribute) == database)
+            .Concat(data.Named(MetricNames.PostgresLongestQuery)
+                .Where(one => MetricNames.PostgresDatabaseOf(one) == database)));
 
         return levels.Count > 0 ? levels.Values.Max() : null;
     }

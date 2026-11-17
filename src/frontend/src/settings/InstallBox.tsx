@@ -20,9 +20,9 @@ export interface InstallBoxProps {
 /** What each installer does, in a sentence, beside its line. */
 const where: Record<InstallPlatform, string> = {
   Windows:
-    "Run it in PowerShell as an administrator, on any machine in that network that reaches its SQL Servers. It downloads the official OpenTelemetry Collector and supervisor from GitHub, checks them, and installs the Windows service “Veyra agent”.",
+    "Run it in PowerShell as an administrator, on any machine in that network that reaches its database servers. It downloads the official OpenTelemetry Collector and supervisor from GitHub, checks them, and installs the Windows service “Veyra agent”.",
   Linux:
-    "Run it as root, on any machine in that network that reaches its SQL Servers. It downloads the official OpenTelemetry Collector and supervisor from GitHub, checks them, and installs the systemd service veyra-agent.",
+    "Run it as root, on any machine in that network that reaches its database servers. It downloads the official OpenTelemetry Collector and supervisor from GitHub, checks them, and installs the systemd service veyra-agent.",
 };
 
 /**

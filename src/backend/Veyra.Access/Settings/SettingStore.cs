@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using Microsoft.AspNetCore.DataProtection;
 using Npgsql;
 using Veyra.Core;
+using Veyra.Core.Settings;
 
 namespace Veyra.Access.Settings;
 
@@ -29,12 +30,19 @@ internal sealed class SettingStore(
     /// <summary>The connection pool, for tests that look at the rows themselves.</summary>
     internal NpgsqlDataSource DataSource => dataSource;
 
-    /// <summary>The number of the last change, which a save must name.</summary>
+    /// <summary>
+    /// Reads the settings version: the number of the last change to a setting. Changes to monitored systems and
+    /// agents are left out, so adding a server does not refuse the save of an Admin who opened the screen before.
+    /// </summary>
+    internal const string VersionSql =
+        "SELECT coalesce(max(id), 0) FROM access.setting_change WHERE subject IS NULL";
+
+    /// <summary>The number of the last change to a setting, which a save must name.</summary>
     /// <param name="cancellationToken">Cancels the query.</param>
     /// <returns>The version; 0 before the first change.</returns>
     public async Task<long> VersionAsync(CancellationToken cancellationToken)
     {
-        await using var command = dataSource.CreateCommand("SELECT coalesce(max(id), 0) FROM access.setting_change");
+        await using var command = dataSource.CreateCommand(VersionSql);
 
         return (long)(await command.ExecuteScalarAsync(cancellationToken))!;
     }
@@ -104,8 +112,7 @@ internal sealed class SettingStore(
         // One save at a time, so the version check and the writes cannot interleave with another save.
         await ExecuteAsync(connection, "SELECT pg_advisory_xact_lock(hashtext('access.setting'))", cancellationToken);
 
-        await using (
-            var current = new NpgsqlCommand("SELECT coalesce(max(id), 0) FROM access.setting_change", connection))
+        await using (var current = new NpgsqlCommand(VersionSql, connection))
         {
             if ((long)(await current.ExecuteScalarAsync(cancellationToken))! != expectedVersion)
             {
@@ -134,6 +141,46 @@ internal sealed class SettingStore(
         return version;
     }
 
+    /// <summary>
+    /// Records a change to a monitored system or agent in the history: what it is, its name, and the fields that
+    /// changed, never their values. It is not a settings save, so the settings version stays where it was.
+    /// </summary>
+    /// <param name="change">The change.</param>
+    /// <param name="author">Who made it.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>A task that completes once the change is recorded.</returns>
+    public async Task RecordMonitoringAsync(
+        MonitoringChange change,
+        SettingAuthor author,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+        ArgumentNullException.ThrowIfNull(author);
+
+        var kind = change.Kind switch
+        {
+            MonitoringChangeKind.Added => SettingChangeKind.Added,
+            MonitoringChangeKind.Removed => SettingChangeKind.Removed,
+            _ => SettingChangeKind.Changed,
+        };
+
+        await using var command = dataSource.CreateCommand(
+            """
+            INSERT INTO access.setting_change
+                (name, secret, kind, changed_by, changed_by_name, changed_at, subject, fields)
+            VALUES ($1, false, $2, $3, $4, $5, $6, $7)
+            """);
+        command.Parameters.AddWithValue(change.Name);
+        command.Parameters.AddWithValue((short)kind);
+        command.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Uuid, (object?)author.UserId ?? DBNull.Value);
+        command.Parameters.AddWithValue(author.Name);
+        command.Parameters.AddWithValue(clock.GetUtcNow());
+        command.Parameters.AddWithValue((short)change.Subject);
+        command.Parameters.AddWithValue(change.Fields.ToArray());
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     /// <summary>Reads a page of the history, newest first.</summary>
     /// <param name="query">Which changes to read.</param>
     /// <param name="cancellationToken">Cancels the query.</param>
@@ -144,13 +191,14 @@ internal sealed class SettingStore(
 
         await using var command = dataSource.CreateCommand(
             """
-            SELECT id, name, old_value, new_value, secret, kind, changed_by, changed_by_name, changed_at, origin
+            SELECT id, name, old_value, new_value, secret, kind, changed_by, changed_by_name, changed_at, origin,
+                subject, fields
             FROM access.setting_change
-            WHERE ($1::text IS NULL OR name LIKE $1 || '%')
+            WHERE ($1::text IS NULL OR (subject IS NULL AND name LIKE $1 || '%'))
               AND ($2::uuid IS NULL OR changed_by = $2)
               AND ($3::timestamptz IS NULL OR changed_at >= $3)
               AND ($4::bigint IS NULL OR id < $4)
-              AND ($6::text[] IS NULL OR name = ANY($6))
+              AND ($6::text[] IS NULL OR (subject IS NULL AND name = ANY($6)) OR subject = ANY($7))
             ORDER BY id DESC
             LIMIT $5
             """);
@@ -162,6 +210,9 @@ internal sealed class SettingStore(
         command.Parameters.AddWithValue(
             NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Text,
             (object?)query.Names?.ToArray() ?? DBNull.Value);
+        command.Parameters.AddWithValue(
+            NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Smallint,
+            (query.Subjects ?? []).Select(subject => (short)subject).ToArray());
 
         var changes = new List<SettingChangeRecord>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -186,7 +237,8 @@ internal sealed class SettingStore(
     {
         await using var command = dataSource.CreateCommand(
             """
-            SELECT id, name, old_value, new_value, secret, kind, changed_by, changed_by_name, changed_at, origin
+            SELECT id, name, old_value, new_value, secret, kind, changed_by, changed_by_name, changed_at, origin,
+                subject, fields
             FROM access.setting_change WHERE id = $1
             """);
         command.Parameters.AddWithValue(id);
@@ -316,5 +368,7 @@ internal sealed class SettingStore(
         reader.IsDBNull(6) ? null : reader.GetGuid(6),
         reader.GetString(7),
         reader.GetFieldValue<DateTimeOffset>(8),
-        reader.IsDBNull(9) ? null : reader.GetString(9));
+        reader.IsDBNull(9) ? null : reader.GetString(9),
+        reader.IsDBNull(10) ? null : (MonitoringSubject)reader.GetInt16(10),
+        reader.IsDBNull(11) ? null : reader.GetFieldValue<string[]>(11));
 }

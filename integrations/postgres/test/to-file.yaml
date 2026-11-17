@@ -1,0 +1,13 @@
+# Merged over ../collector.yaml by the check: everything goes to a file instead of Veyra.
+exporters:
+  file:
+    path: /out/telemetry.jsonl
+
+service:
+  pipelines:
+    metrics:
+      exporters:
+        - file
+    metrics/queries:
+      exporters:
+        - file

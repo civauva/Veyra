@@ -37,6 +37,12 @@ public sealed class AlertingOptions
     /// <summary>The built-in latency rule, bound from <c>Veyra:Alerting:Latency</c>.</summary>
     public LatencyOptions Latency { get; set; } = new();
 
+    /// <summary>The restart rule for Docker containers (ADR 0018).</summary>
+    public ContainerRestartsOptions ContainerRestarts { get; set; } = new();
+
+    /// <summary>The memory rule for Docker containers (ADR 0018).</summary>
+    public ContainerMemoryOptions ContainerMemory { get; set; } = new();
+
     /// <summary>The blocking rule for database servers (ADR 0018).</summary>
     public DatabaseBlockingOptions DatabaseBlocking { get; set; } = new();
 
@@ -51,6 +57,12 @@ public sealed class AlertingOptions
 
     /// <summary>The SQL Agent job rule (ADR 0018).</summary>
     public DatabaseAgentJobOptions DatabaseAgentJob { get; set; } = new();
+
+    /// <summary>The connections rule for database servers that say their maximum (ADR 0018).</summary>
+    public DatabaseConnectionsOptions DatabaseConnections { get; set; } = new();
+
+    /// <summary>The transaction ID wraparound rule for PostgreSQL databases (ADR 0018).</summary>
+    public DatabaseWraparoundOptions DatabaseWraparound { get; set; } = new();
 
     /// <summary>
     /// The catalog rules' settings, by each rule's section, such as <c>HeadBlocker</c> (ADR 0020). A rule left out

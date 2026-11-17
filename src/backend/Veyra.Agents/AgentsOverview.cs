@@ -1,5 +1,6 @@
 using Veyra.Agents.Agents;
 using Veyra.Agents.Enrollment;
+using Veyra.Agents.PostgresServers;
 using Veyra.Agents.SqlServers;
 
 namespace Veyra.Agents;
@@ -10,25 +11,31 @@ namespace Veyra.Agents;
 /// </summary>
 /// <param name="agents">Where agents are stored.</param>
 /// <param name="servers">The SQL Servers agents read.</param>
+/// <param name="postgres">The PostgreSQL servers agents read (VEY-33).</param>
 /// <param name="signals">The agents' own errors and the servers' latest figures.</param>
 /// <param name="codes">The open one-time codes of agents waiting to be installed.</param>
 /// <param name="clock">The current time, for what counts as recent.</param>
 internal sealed class AgentsOverview(
     AgentStore agents,
     SqlServerService servers,
+    PostgresServerService postgres,
     SqlServerSignals signals,
     EnrollmentStore codes,
     TimeProvider clock)
 {
-    /// <summary>Lists the active agents with their states and how many servers each reads.</summary>
+    /// <summary>
+    /// Lists the active agents with their states and how many servers each reads, SQL Server and PostgreSQL together.
+    /// </summary>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The agents, the built-in one first.</returns>
     public async Task<IReadOnlyList<AgentView>> ListAgentsAsync(CancellationToken cancellationToken)
     {
         var now = clock.GetUtcNow();
         var all = await agents.ListAsync(cancellationToken);
-        var counts = (await servers.ListAsync(cancellationToken))
-            .GroupBy(server => server.AgentId)
+        var readers = (await servers.ListAsync(cancellationToken)).Select(server => server.AgentId)
+            .Concat((await postgres.ListAsync(cancellationToken)).Select(server => server.AgentId));
+        var counts = readers
+            .GroupBy(agentId => agentId)
             .ToDictionary(group => group.Key, group => group.Count());
         var open = await codes.OpenCodesAsync(now, cancellationToken);
 
@@ -65,6 +72,35 @@ internal sealed class AgentsOverview(
             var status = SqlServerStatuses.Of(server, agent?.Report ?? AgentReport.None, errors, lastData, now);
 
             views.Add(new SqlServerView(server, agent?.Name ?? "", status));
+        }
+
+        return views;
+    }
+
+    /// <summary>Lists every PostgreSQL server with its agent's name and its state (VEY-33).</summary>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The servers, by name.</returns>
+    public async Task<IReadOnlyList<PostgresServerView>> ListPostgresServersAsync(CancellationToken cancellationToken)
+    {
+        var now = clock.GetUtcNow();
+        var list = await postgres.ListAsync(cancellationToken);
+
+        if (list.Count == 0)
+        {
+            return [];
+        }
+
+        var byId = (await agents.ListAsync(cancellationToken)).ToDictionary(agent => agent.Id);
+        var errors = await signals.ReadErrorsAsync(now, cancellationToken);
+        var views = new List<PostgresServerView>(list.Count);
+
+        foreach (var server in list)
+        {
+            var agent = byId.GetValueOrDefault(server.AgentId);
+            var lastData = await signals.LastDataAsync(server, now, cancellationToken);
+            var status = PostgresServerStatuses.Of(server, agent?.Report ?? AgentReport.None, errors, lastData, now);
+
+            views.Add(new PostgresServerView(server, agent?.Name ?? "", status));
         }
 
         return views;

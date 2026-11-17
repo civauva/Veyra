@@ -1,4 +1,5 @@
 import { api } from "../../api/client";
+import { unreadText } from "./unread";
 import type { MetricRange, ServerView } from "../../api/types";
 import { LineChart } from "../LineChart";
 import { formatAmount, formatRate, formatSeconds, formatSpan } from "../metricFormat";
@@ -17,6 +18,8 @@ export interface ServerTabProps {
   range: MetricRange;
   /** Whether the Advanced view is on. */
   advanced: boolean;
+  /** Whether the login lacks a permission this tab needs, so an empty answer proves nothing (VEY-58). */
+  blind?: boolean;
 }
 
 /** Reads the server as a whole once for the Server and Waits tabs. */
@@ -31,7 +34,7 @@ function useServer(engine: string, server: string, range: MetricRange) {
  * CPU shared with other processes, workers, memory, dumps, SQL Server Agent, and its workload against the usual for
  * this hour of the week.
  */
-export function ServerTab({ engine, server, range, advanced }: ServerTabProps) {
+export function ServerTab({ engine, server, range, advanced, blind = false }: ServerTabProps) {
   const { data, notFound, error } = useServer(engine, server, range);
 
   if (notFound) {
@@ -62,7 +65,9 @@ export function ServerTab({ engine, server, range, advanced }: ServerTabProps) {
         </div>
         {data.findings.length === 0 ? (
           <p className="metrics-empty">
-            Nothing stands out: CPU, memory, workers, SQL Server Agent, and the version all look right.
+            {blind
+              ? unreadText
+              : "Nothing stands out: CPU, memory, workers, SQL Server Agent, and the version all look right."}
           </p>
         ) : (
           <ul className="live-findings">
@@ -73,7 +78,7 @@ export function ServerTab({ engine, server, range, advanced }: ServerTabProps) {
         )}
       </section>
       <AvailabilitySection engine={engine} server={server} advanced={advanced} />
-      <ConfigurationSection engine={engine} server={server} advanced={advanced} />
+      <ConfigurationSection engine={engine} server={server} advanced={advanced} blind={blind} />
       {advanced && <Figures data={data} />}
     </div>
   );

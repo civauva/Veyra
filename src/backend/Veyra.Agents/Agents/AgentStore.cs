@@ -11,7 +11,8 @@ internal sealed class AgentStore(NpgsqlDataSource dataSource)
 {
     private const string _columns =
         "id, name, placement, ingestion_key_id, created_at, instance_uid, version, host_name, os, healthy, " +
-        "health_error, config_hash, config_state, config_error, last_seen_at";
+        "health_error, config_hash, config_state, config_error, last_seen_at, watch_host, watch_event_log, " +
+        "watch_iis, watch_environment, watch_docker";
 
     /// <summary>Stores a new agent.</summary>
     /// <param name="agent">The agent. Its report is not stored; a new agent has none.</param>
@@ -128,14 +129,41 @@ internal sealed class AgentStore(NpgsqlDataSource dataSource)
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    /// <summary>Counts the SQL Servers an agent reads.</summary>
+    /// <summary>Stores what an agent reads of its host.</summary>
+    /// <param name="id">The agent's ID.</param>
+    /// <param name="watch">The setting, already checked.</param>
+    /// <param name="cancellationToken">Cancels the update.</param>
+    /// <returns>A task that completes when the setting is stored.</returns>
+    public async Task SaveWatchAsync(Guid id, HostWatch watch, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(
+            """
+            UPDATE agents.agent
+            SET watch_host = $2, watch_event_log = $3, watch_iis = $4, watch_environment = $5, watch_docker = $6
+            WHERE id = $1
+            """);
+
+        command.Parameters.AddWithValue(id);
+        command.Parameters.AddWithValue(watch.Host);
+        command.Parameters.AddWithValue(watch.EventLog);
+        command.Parameters.AddWithValue(watch.Iis);
+        command.Parameters.AddWithValue(watch.Environment);
+        command.Parameters.AddWithValue(watch.Docker);
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>Counts the database servers an agent reads, SQL Server and PostgreSQL.</summary>
     /// <param name="id">The agent's ID.</param>
     /// <param name="cancellationToken">Cancels the query.</param>
     /// <returns>The number of servers.</returns>
     public async Task<int> CountServersAsync(Guid id, CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(
-            "SELECT count(*)::int FROM agents.sql_server WHERE agent_id = $1");
+            """
+            SELECT ((SELECT count(*) FROM agents.sql_server WHERE agent_id = $1)
+                  + (SELECT count(*) FROM agents.postgres_server WHERE agent_id = $1))::int
+            """);
         command.Parameters.AddWithValue(id);
 
         return (int)(await command.ExecuteScalarAsync(cancellationToken))!;
@@ -184,7 +212,13 @@ internal sealed class AgentStore(NpgsqlDataSource dataSource)
                 Placement: (AgentPlacement)reader.GetInt16(2),
                 IngestionKeyId: reader.IsDBNull(3) ? null : reader.GetGuid(3),
                 CreatedAt: reader.GetFieldValue<DateTimeOffset>(4),
-                Report: report));
+                Report: report,
+                Watch: new HostWatch(
+                    Host: reader.GetBoolean(15),
+                    EventLog: reader.GetBoolean(16),
+                    Iis: reader.GetBoolean(17),
+                    Environment: reader.GetString(18),
+                    Docker: reader.GetBoolean(19))));
         }
 
         return agents;

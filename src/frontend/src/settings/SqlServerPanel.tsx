@@ -1,13 +1,14 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 
 import { api } from "../api/client";
-import type { Agent, SqlServer, SqlServerEncryption, SqlServerInput } from "../api/types";
+import type { Agent, SqlServer, SqlServerEncryption, SqlServerInput, SqlServerPlatform } from "../api/types";
 import {
   checkLines,
   encryptionLabels,
   loginScript,
   newPassword,
   passwordScript,
+  platformLabels,
   readerOf,
   serverStateWords,
 } from "./monitoringFormat";
@@ -55,6 +56,8 @@ export function SqlServerPanel({ server, agents, onClose, onSaved }: SqlServerPa
   const [login, setLogin] = useState(server?.login ?? "veyra_monitor");
   const [password, setPassword] = useState(() => (server ? "" : newPassword()));
   const [changingPassword, setChangingPassword] = useState(server === null);
+  const [platform, setPlatform] = useState<SqlServerPlatform>(server?.platform ?? "SqlServer");
+  const [database, setDatabase] = useState(server?.database ?? "");
   const [encryption, setEncryption] = useState<SqlServerEncryption>(server?.encryption ?? "Required");
   const [showPassword, setShowPassword] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -111,7 +114,11 @@ export function SqlServerPanel({ server, agents, onClose, onSaved }: SqlServerPa
     return () => window.clearInterval(timer);
   }, [saved]);
 
-  const script = server && changingPassword ? passwordScript(login, password) : loginScript(login, password);
+  const azureDatabase = platform === "AzureSqlDatabase";
+  const script =
+    server && changingPassword
+      ? passwordScript(login, password, platform)
+      : loginScript(login, password, platform, database.trim());
   const shownScript = showPassword ? script : script.replaceAll(password.replaceAll("'", "''"), "•".repeat(12));
 
   function input(): SqlServerInput {
@@ -124,6 +131,8 @@ export function SqlServerPanel({ server, agents, onClose, onSaved }: SqlServerPa
       login: login.trim(),
       password: changingPassword ? password : null,
       encryption,
+      platform,
+      database: azureDatabase ? database.trim() : null,
     };
   }
 
@@ -176,6 +185,24 @@ export function SqlServerPanel({ server, agents, onClose, onSaved }: SqlServerPa
               </span>
               <div>
                 <h3 id={`${titleId}-where`}>Where it is</h3>
+                <span className="monitor-label" aria-hidden="true">
+                  Kind
+                </span>
+                <fieldset className="monitor-segments">
+                  <legend className="visually-hidden">Kind of SQL Server</legend>
+                  {(Object.keys(platformLabels) as SqlServerPlatform[]).map((option) => (
+                    <label key={option} className={platform === option ? "on" : undefined}>
+                      <input
+                        type="radio"
+                        name={`${titleId}-platform`}
+                        value={option}
+                        checked={platform === option}
+                        onChange={() => setPlatform(option)}
+                      />
+                      {platformLabels[option]}
+                    </label>
+                  ))}
+                </fieldset>
                 <div className="monitor-fields">
                   <label className="monitor-field">
                     <span>Name in Veyra</span>
@@ -209,6 +236,21 @@ export function SqlServerPanel({ server, agents, onClose, onSaved }: SqlServerPa
                     />
                   </label>
                 </div>
+                {azureDatabase && (
+                  <div className="monitor-fields">
+                    <label className="monitor-field wide">
+                      <span>Database</span>
+                      <input
+                        value={database}
+                        required
+                        maxLength={128}
+                        placeholder="orders"
+                        onChange={(event) => setDatabase(event.target.value)}
+                      />
+                      <small>Azure SQL Database is read one database at a time</small>
+                    </label>
+                  </div>
+                )}
                 <div className="monitor-fields">
                   <label className="monitor-field">
                     <span>Environment</span>
@@ -239,9 +281,13 @@ export function SqlServerPanel({ server, agents, onClose, onSaved }: SqlServerPa
                 {changingPassword ? (
                   <>
                     <p>
-                      {server
-                        ? "Run this once in SQL Server Management Studio as an administrator: it gives the login its new password."
-                        : "Veyra reads server state, backups, and SQL Agent history, nothing else. Run this once in SQL Server Management Studio as an administrator; it creates the login with a password made here."}
+                      {azureDatabase
+                        ? server
+                          ? `Run this once in the database ${database.trim()}, connected as its administrator: it gives the user its new password.`
+                          : `Veyra reads one database's state and Query Store, nothing else. Run this once in the database ${database.trim() || "you named"}, connected as its administrator; it creates a contained user with a password made here.`
+                        : server
+                          ? "Run this once in SQL Server Management Studio as an administrator: it gives the login its new password."
+                          : "Veyra reads server state, backups, and SQL Agent history, nothing else. Run this once in SQL Server Management Studio as an administrator; it creates the login with a password made here."}
                     </p>
                     <div className="monitor-code">
                       <button type="button" className="link-button" onClick={() => void copyScript()}>

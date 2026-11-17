@@ -94,7 +94,7 @@ internal static class NotificationMessages
                     alert.Rule == AlertRules.DatabaseAgentJob
                         ? "Job:"
                         : RuleCatalog.Find(alert.Rule)?.PartLabel ?? "Database:"),
-                "container" => ("Container:", "Part:"),
+                "container" => ("Container:", "Host:"),
                 _ => ("Service:", "Part:"),
             };
             var blockName = alert.Block.Kind == "database" ? Server(alert.Block.Name) : alert.Block.Name;
@@ -143,6 +143,7 @@ internal static class NotificationMessages
     {
         AlertRules.DiskFilling => Days(value),
         AlertRules.LatencyP95 => Seconds(value),
+        AlertRules.ContainerRestarts => Count(value, "restart"),
         AlertRules.DatabaseBlocking => Count(value, "session"),
         AlertRules.DatabaseDeadlocks => Count(value, "deadlock"),
         AlertRules.DatabaseLongQuery or AlertRules.DatabaseBackupAge => Duration(TimeSpan.FromSeconds(value)),
@@ -178,6 +179,9 @@ internal static class NotificationMessages
         AlertRules.DiskSpace => $"{Disk(alert.Subject)} is {Percent(value)} full",
         AlertRules.DiskFilling => $"{Disk(alert.Subject)} is full in {Days(value)}",
         AlertRules.LatencyP95 => $"{alert.Subject.Name} answers slowly, p95 {Seconds(value)}",
+        AlertRules.ContainerRestarts =>
+            $"{Container(alert.Subject)} restarted {Count(value, "time")} in 15 minutes",
+        AlertRules.ContainerMemory => $"{Container(alert.Subject)} uses {Percent(value)} of its memory limit",
         AlertRules.DatabaseBlocking =>
             $"{Server(alert.Subject.Name)}: {Count(value, "session")} blocked for 5 min",
         AlertRules.DatabaseDeadlocks =>
@@ -188,6 +192,10 @@ internal static class NotificationMessages
             $"{Server(alert.Subject.Name)}: {alert.Subject.Part} has no backup for {Measure(alert.Rule, value)}",
         AlertRules.DatabaseAgentJob =>
             $"{Server(alert.Subject.Name)}: SQL Agent job {alert.Subject.Part} failed",
+        AlertRules.DatabaseConnections =>
+            $"{Server(alert.Subject.Name)}: connections at {Percent(value)} of the maximum",
+        AlertRules.DatabaseWraparound =>
+            $"{Server(alert.Subject.Name)}: {alert.Subject.Part} is at {Percent(value)} of transaction ID wraparound",
         _ when RuleCatalog.Find(alert.Rule) is { } catalog => CatalogWords.Fill(
             catalog.Headline,
             Server(alert.Subject.Name),
@@ -204,6 +212,9 @@ internal static class NotificationMessages
             $"{Disk(alert.Subject)} is no longer filling",
         AlertRules.DiskFilling => $"{Disk(alert.Subject)} is full in {Days(value)} again",
         AlertRules.LatencyP95 => $"{alert.Subject.Name} is back to p95 {Seconds(value)}",
+        AlertRules.ContainerRestarts => $"{Container(alert.Subject)} had no restart for 15 minutes",
+        AlertRules.ContainerMemory =>
+            $"{Container(alert.Subject)} is back to {Percent(value)} of its memory limit",
         AlertRules.DatabaseBlocking => $"{Server(alert.Subject.Name)} has no blocked sessions",
         AlertRules.DatabaseDeadlocks => $"{Server(alert.Subject.Name)} had no deadlock for 30 min",
         AlertRules.DatabaseLongQuery =>
@@ -212,6 +223,11 @@ internal static class NotificationMessages
             $"{Server(alert.Subject.Name)}: {alert.Subject.Part} has a new backup",
         AlertRules.DatabaseAgentJob =>
             $"{Server(alert.Subject.Name)}: SQL Agent job {alert.Subject.Part} succeeded",
+        AlertRules.DatabaseConnections =>
+            $"{Server(alert.Subject.Name)}: connections are back to {Percent(value)} of the maximum",
+        AlertRules.DatabaseWraparound =>
+            $"{Server(alert.Subject.Name)}: {alert.Subject.Part} is back to {Percent(value)} of transaction ID "
+            + "wraparound",
         _ when RuleCatalog.Find(alert.Rule) is { } catalog => CatalogWords.Fill(
             catalog.Recovery,
             Server(alert.Subject.Name),
@@ -239,6 +255,12 @@ internal static class NotificationMessages
             case AlertRules.LatencyP95:
                 Line(body, "Latency:", $"p95 {Seconds(alert.Value)} over {window} ({from})");
                 break;
+            case AlertRules.ContainerRestarts:
+                Line(body, "Restarts:", $"{Measure(alert.Rule, alert.Value)} in {window} ({from})");
+                break;
+            case AlertRules.ContainerMemory:
+                Line(body, "Memory:", $"{Percent(alert.Value)} of its limit ({from})");
+                break;
             case AlertRules.DatabaseBlocking:
                 Line(body, "Blocked:", $"{Measure(alert.Rule, alert.Value)} throughout {window} ({from})");
                 break;
@@ -254,6 +276,12 @@ internal static class NotificationMessages
             case AlertRules.DatabaseAgentJob:
                 Line(body, "Last run:", Measure(alert.Rule, alert.Value));
                 break;
+            case AlertRules.DatabaseConnections:
+                Line(body, "Connections:", $"{Percent(alert.Value)} of the maximum ({from})");
+                break;
+            case AlertRules.DatabaseWraparound:
+                Line(body, "Wraparound:", $"{Percent(alert.Value)} of the transaction ID limit ({from})");
+                break;
             case var rule when RuleCatalog.Find(rule) is { } catalog:
                 Line(body, catalog.MeasurementLabel, $"{Measure(alert.Rule, alert.Value)} ({from})");
                 break;
@@ -267,6 +295,7 @@ internal static class NotificationMessages
     {
         AlertRules.DiskFilling => "days",
         AlertRules.LatencyP95 or AlertRules.DatabaseLongQuery or AlertRules.DatabaseBackupAge => "seconds",
+        AlertRules.ContainerRestarts => "restarts",
         AlertRules.DatabaseBlocking => "sessions",
         AlertRules.DatabaseDeadlocks => "deadlocks",
         AlertRules.DatabaseAgentJob => "failed",
@@ -287,6 +316,10 @@ internal static class NotificationMessages
     }
 
     private static string Disk(AlertSubject subject) => $"disk {subject.Part ?? "?"} on {subject.Name}";
+
+    // "Container shop-api on web-01"; the host is the subject's part (ADR 0018).
+    private static string Container(AlertSubject subject) =>
+        subject.Part is { } host ? $"Container {subject.Name} on {host}" : $"Container {subject.Name}";
 
     // "9 days", "1 day", "less than a day".
     private static string Days(double days)

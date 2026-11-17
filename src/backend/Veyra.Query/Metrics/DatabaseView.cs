@@ -126,8 +126,9 @@ internal static class DatabaseView
     }
 
     /// <summary>
-    /// The deadlocks of each bucket, from SQL Server's running total of them. The first bucket of the window is the
-    /// baseline, so deadlocks from before the window are never counted again.
+    /// The deadlocks of each bucket, from the server's running totals of them: SQL Server's for the server, or
+    /// PostgreSQL's per database, added up. The first bucket of the window is the baseline, so deadlocks from before
+    /// the window are never counted again.
     /// </summary>
     /// <param name="data">The server's series.</param>
     /// <returns>The deadlocks per bucket start.</returns>
@@ -137,7 +138,7 @@ internal static class DatabaseView
 
         var seconds = data.Window.Bucket.TotalSeconds;
 
-        return Counted(data, SqlServerNames.DeadlockRate)
+        return data.Rates(data.Named(SqlServerNames.DeadlockRate, MetricNames.PostgresDeadlocks))
             .ToDictionary(pair => pair.Key, pair => pair.Value * seconds);
     }
 
@@ -146,13 +147,22 @@ internal static class DatabaseView
     /// <param name="name">The metric name.</param>
     /// <param name="attribute">The attribute that tells the series apart.</param>
     /// <returns>The newest value per attribute value; series without a point in the window are left out.</returns>
-    public static Dictionary<string, double> LatestBy(SeriesData data, string name, string attribute)
+    public static Dictionary<string, double> LatestBy(SeriesData data, string name, string attribute) =>
+        LatestBy(data, name, series => MetricNames.Attribute(series, attribute));
+
+    /// <summary>The newest value of a metric's series, per what tells them apart, such as their database.</summary>
+    /// <param name="data">The server's series.</param>
+    /// <param name="name">The metric name.</param>
+    /// <param name="keyOf">What tells a series apart from the others, or null for a series to leave out.</param>
+    /// <returns>The newest value per key; series without a point in the window are left out.</returns>
+    public static Dictionary<string, double> LatestBy(SeriesData data, string name, Func<MetricSeries, string?> keyOf)
     {
         ArgumentNullException.ThrowIfNull(data);
+        ArgumentNullException.ThrowIfNull(keyOf);
 
         return data.Named(name)
             .Select(series => (
-                Key: MetricNames.Attribute(series, attribute),
+                Key: keyOf(series),
                 Value: data.Latest(data.Levels([series]))))
             .Where(pair => pair.Key is not null && pair.Value is not null)
             .GroupBy(pair => pair.Key!, StringComparer.Ordinal)
@@ -170,8 +180,14 @@ internal static class DatabaseView
     private static Dictionary<DateTimeOffset, double> Levels(SeriesData data, string name) =>
         data.Levels(data.Named(name));
 
-    // The highest value of any series per bucket, where adding them up would mean nothing.
-    private static Dictionary<DateTimeOffset, double> Longest(SeriesData data, string name) =>
+    /// <summary>
+    /// The highest value of any series of a metric per bucket, where adding them up would mean nothing, such as the
+    /// longest query of each database.
+    /// </summary>
+    /// <param name="data">The server's series.</param>
+    /// <param name="name">The metric name.</param>
+    /// <returns>The highest value per bucket start.</returns>
+    public static Dictionary<DateTimeOffset, double> Longest(SeriesData data, string name) =>
         data.Named(name)
             .SelectMany(series => data.Levels([series]))
             .GroupBy(pair => pair.Key)

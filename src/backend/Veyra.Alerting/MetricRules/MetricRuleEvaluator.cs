@@ -8,8 +8,9 @@ namespace Veyra.Alerting.MetricRules;
 
 /// <summary>
 /// Runs the built-in metric rules once (ADR 0012, ADR 0018): disk space and disk filling for every disk of every
-/// host, latency for every service that sends request durations, and blocking, deadlocks, long queries, backup age,
-/// and SQL Agent jobs for every database server.
+/// host, latency for every service that sends request durations, restarts and memory for every Docker container, and
+/// blocking, deadlocks, long queries, backup age, SQL Agent jobs, connections, and transaction ID wraparound for every
+/// database server.
 /// </summary>
 /// <remarks>
 /// A subject the metrics no longer show, a host that stopped sending or a disk that was unmounted, keeps its open
@@ -75,6 +76,11 @@ internal sealed class MetricRuleEvaluator(
                 (latency, current) => Latency(latency, current, settings.Latency),
                 now,
                 cancellationToken);
+        }
+
+        if (settings.ContainerRestarts.Enabled || settings.ContainerMemory.Enabled)
+        {
+            await EvaluateContainersAsync(settings, now, cancellationToken);
         }
 
         if (DatabaseRulesOn(settings))
@@ -146,14 +152,52 @@ internal sealed class MetricRuleEvaluator(
         }
     }
 
+    // The two container rules over every container that sends, its figures read once (ADR 0018).
+    private async Task EvaluateContainersAsync(
+        AlertingOptions settings,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var containers = await health.ListContainersAsync(now, cancellationToken);
+
+        static Key Of(ContainerHealth container) =>
+            new(container.Environment, AlertSubject.Container(container.Container, container.Host));
+
+        if (settings.ContainerRestarts.Enabled)
+        {
+            await ApplyAsync(
+                AlertRules.ContainerRestarts,
+                Unique(containers
+                    .Where(container => container.Restarts is not null)
+                    .Select(container => (Of(container), container))),
+                (container, current) => Restarts(container, current, settings.ContainerRestarts),
+                now,
+                cancellationToken);
+        }
+
+        if (settings.ContainerMemory.Enabled)
+        {
+            await ApplyAsync(
+                AlertRules.ContainerMemory,
+                Unique(containers
+                    .Where(container => container.MemoryRatio is not null)
+                    .Select(container => (Of(container), container))),
+                (container, current) => Memory(container, current, settings.ContainerMemory),
+                now,
+                cancellationToken);
+        }
+    }
+
     private static bool DatabaseRulesOn(AlertingOptions settings) =>
         settings.DatabaseBlocking.Enabled
         || settings.DatabaseDeadlocks.Enabled
         || settings.DatabaseLongQuery.Enabled
         || settings.DatabaseBackupAge.Enabled
-        || settings.DatabaseAgentJob.Enabled;
+        || settings.DatabaseAgentJob.Enabled
+        || settings.DatabaseConnections.Enabled
+        || settings.DatabaseWraparound.Enabled;
 
-    // The five database rules over every server that sends, each server's figures read once.
+    // The seven database rules over every server that sends, each server's figures read once.
     private async Task EvaluateDatabasesAsync(
         AlertingOptions settings,
         DateTimeOffset now,
@@ -218,6 +262,30 @@ internal sealed class MetricRuleEvaluator(
                 Unique(servers.SelectMany(server => server.Jobs
                     .Select(job => (Of(server, job.Name), (Server: server, Job: job))))),
                 (pair, current) => AgentJob(pair.Server, pair.Job),
+                now,
+                cancellationToken);
+        }
+
+        if (settings.DatabaseConnections.Enabled)
+        {
+            await ApplyAsync(
+                AlertRules.DatabaseConnections,
+                Unique(servers
+                    .Where(server => server.ConnectionsRatio is not null)
+                    .Select(server => (Of(server), server))),
+                (server, current) => Connections(server, current, settings.DatabaseConnections),
+                now,
+                cancellationToken);
+        }
+
+        if (settings.DatabaseWraparound.Enabled)
+        {
+            await ApplyAsync(
+                AlertRules.DatabaseWraparound,
+                Unique(servers.SelectMany(server => server.Databases
+                    .Where(database => database.WraparoundRatio is not null)
+                    .Select(database => (Of(server, database.Name), (Server: server, Database: database))))),
+                (pair, current) => Wraparound(pair.Server, pair.Database, current, settings.DatabaseWraparound),
                 now,
                 cancellationToken);
         }
@@ -287,6 +355,39 @@ internal sealed class MetricRuleEvaluator(
             LatencyRule.Judges(latency.P95Seconds, latency.Requests, rule) ? latency.P95Seconds : null,
             next is { } severity ? LatencyRule.ThresholdFor(severity, rule) : 0,
             LatencyRule.Window);
+    }
+
+    private static RuleVerdict Restarts(
+        ContainerHealth container,
+        AlertState? current,
+        ContainerRestartsOptions rule)
+    {
+        var restarts = container.Restarts ?? 0;
+        var next = ContainerRestartsRule.Evaluate(restarts, current?.Severity, rule);
+
+        return new RuleVerdict(
+            AlertRules.ContainerRestarts,
+            container.Environment,
+            AlertSubject.Container(container.Container, container.Host),
+            next,
+            restarts,
+            next is { } severity ? ContainerRestartsRule.ThresholdFor(severity, rule) : 0,
+            ContainerRestartsRule.Window);
+    }
+
+    private static RuleVerdict Memory(ContainerHealth container, AlertState? current, ContainerMemoryOptions rule)
+    {
+        var ratio = container.MemoryRatio ?? 0;
+        var next = ContainerMemoryRule.Evaluate(ratio, current?.Severity, rule);
+
+        return new RuleVerdict(
+            AlertRules.ContainerMemory,
+            container.Environment,
+            AlertSubject.Container(container.Container, container.Host),
+            next,
+            ratio,
+            next is { } severity ? ContainerMemoryRule.ThresholdFor(severity, rule) : 0,
+            ContainerMemoryRule.Window);
     }
 
     private static RuleVerdict Blocking(DatabaseHealth server, AlertState? current, DatabaseBlockingOptions rule)
@@ -359,6 +460,43 @@ internal sealed class MetricRuleEvaluator(
             seconds,
             next is { } severity ? DatabaseBackupAgeRule.ThresholdFor(severity, rule) : 0,
             DatabaseBackupAgeRule.Window);
+    }
+
+    private static RuleVerdict Connections(
+        DatabaseHealth server,
+        AlertState? current,
+        DatabaseConnectionsOptions rule)
+    {
+        var ratio = server.ConnectionsRatio ?? 0;
+        var next = DatabaseConnectionsRule.Evaluate(ratio, current?.Severity, rule);
+
+        return new RuleVerdict(
+            AlertRules.DatabaseConnections,
+            server.Environment,
+            AlertSubject.Database(server.Server.Name),
+            next,
+            ratio,
+            next is { } severity ? DatabaseConnectionsRule.ThresholdFor(severity, rule) : 0,
+            DatabaseConnectionsRule.Window);
+    }
+
+    private static RuleVerdict Wraparound(
+        DatabaseHealth server,
+        DatabasePartHealth database,
+        AlertState? current,
+        DatabaseWraparoundOptions rule)
+    {
+        var ratio = database.WraparoundRatio ?? 0;
+        var next = DatabaseWraparoundRule.Evaluate(ratio, current?.Severity, rule);
+
+        return new RuleVerdict(
+            AlertRules.DatabaseWraparound,
+            server.Environment,
+            AlertSubject.Database(server.Server.Name, database.Name),
+            next,
+            ratio,
+            next is { } severity ? DatabaseWraparoundRule.ThresholdFor(severity, rule) : 0,
+            DatabaseWraparoundRule.Window);
     }
 
     private static RuleVerdict AgentJob(DatabaseHealth server, AgentJobHealth job) => new(

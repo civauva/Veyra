@@ -12,7 +12,7 @@ namespace Veyra.Agents.Api;
 /// <param name="OperatingSystem">Its operating system, once the agent has said.</param>
 /// <param name="LastSeenAt">When it last polled; <see langword="null"/> for never.</param>
 /// <param name="Error">Why its configuration failed or its Collector is unhealthy, in the Collector's words.</param>
-/// <param name="Servers">How many SQL Servers it reads.</param>
+/// <param name="Servers">How many database servers it reads, SQL Server and PostgreSQL.</param>
 /// <param name="CreatedAt">When it was set up.</param>
 public sealed record AgentResponse(
     Guid Id,
@@ -34,4 +34,19 @@ public sealed record AgentResponse(
 
     /// <summary>When its open one-time code stops working; <see langword="null"/> when it has none.</summary>
     public DateTimeOffset? CodeExpiresAt { get; init; }
+
+    /// <summary>Whether it reads its host's CPU, memory, disks, and network.</summary>
+    public bool Host { get; init; }
+
+    /// <summary>Whether it reads the Windows Event Log's errors.</summary>
+    public bool EventLog { get; init; }
+
+    /// <summary>Whether it reads IIS.</summary>
+    public bool Iis { get; init; }
+
+    /// <summary>Whether it reads the Docker containers on its Linux host.</summary>
+    public bool Docker { get; init; }
+
+    /// <summary>The environment its host belongs to, such as <c>production</c>.</summary>
+    public string HostEnvironment { get; init; } = "production";
 }

@@ -42,6 +42,11 @@ done
 
 sqlcmd -v MONITOR_PASSWORD="$MONITOR_PASSWORD" -i /dev/stdin < seed.sql > /dev/null
 
+# On a server that has run for days, system_health's ring buffer holds more than the 4 MB of XML SQL Server returns,
+# and the newest events are the ones cut off. Without it here, the agent must read the deadlock below from the
+# session's event files, as it does on such a server.
+sqlcmd -Q "ALTER EVENT SESSION system_health ON SERVER DROP TARGET package0.ring_buffer;" > /dev/null
+
 # One session holds a row; the next waits on it, so it is both blocked and the longest running query.
 sqlcmd -d shop -Q "BEGIN TRAN; UPDATE dbo.Orders SET Status = N'held' WHERE Id = 1; WAITFOR DELAY '00:03:00'; ROLLBACK;" > /dev/null 2>&1 &
 sleep 2
@@ -61,12 +66,22 @@ sqlcmd -d shop -Q "UPDATE dbo.Orders SET Status = N'paid' WHERE Id = 2;" > /dev/
 compose up --detach collector
 echo "Collecting for 90 seconds..."
 
+# Two transactions take rows 3 and 4 in opposite order, so SQL Server ends one as a deadlock victim; system_health
+# records it and the agent must send its graph (ADR 0020, area 3). Rows 1 and 2 are held by the blocking above.
+sqlcmd -d shop -Q "BEGIN TRAN; UPDATE dbo.Orders SET Status = N'a' WHERE Id = 3; WAITFOR DELAY '00:00:05';
+  UPDATE dbo.Orders SET Status = N'a' WHERE Id = 4; COMMIT;" > /dev/null 2>&1 &
+sleep 1
+sqlcmd -d shop -Q "BEGIN TRAN; UPDATE dbo.Orders SET Status = N'b' WHERE Id = 4; WAITFOR DELAY '00:00:05';
+  UPDATE dbo.Orders SET Status = N'b' WHERE Id = 3; COMMIT;" > /dev/null 2>&1 &
+
 # A query run once, as people run them in SQL Server Management Studio, after the agent's first read: its statement
 # must still arrive, counted in full (VEY-43).
 sleep 30
 sqlcmd -d shop -Q "SELECT COUNT_BIG(*) AS pairs FROM sys.all_columns AS a CROSS JOIN (SELECT TOP (2000) object_id FROM sys.all_columns) AS b WHERE a.object_id % 7 <> b.object_id % 5" > /dev/null
 sleep 60
 compose stop collector > /dev/null
+# The Collector's whole log, to read when a check fails: a query that fails may log only a warning.
+compose logs --no-color collector > out/collector.log 2>&1
 
 if compose logs collector 2>&1 | grep -q '"error"'; then
   echo "The Collector logged errors:"

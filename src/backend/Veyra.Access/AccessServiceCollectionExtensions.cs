@@ -11,6 +11,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Veyra.Access.Api;
 using Veyra.Access.History;
@@ -21,6 +22,7 @@ using Veyra.Access.Settings;
 using Veyra.Access.Setup;
 using Veyra.Access.Users;
 using Veyra.Core;
+using Veyra.Core.Maintenance;
 using Veyra.Core.Schema;
 using Veyra.Core.Security;
 using Veyra.Core.Settings;
@@ -96,6 +98,7 @@ public static class AccessServiceCollectionExtensions
         services.AddSingleton<SavedSettingsRuntime>();
         services.AddSingleton<SettingStore>();
         services.AddSingleton<SettingsService>();
+        services.AddSingleton<IMonitoringHistory, MonitoringHistory>();
         services.AddHostedService<SavedSettingsRefreshService>();
         services.AddSingleton<UserDirectory>();
         services.AddSingleton<AccessCleanup>();
@@ -144,6 +147,9 @@ public static class AccessServiceCollectionExtensions
         services.AddTransient(provider =>
             new IngestionKeysController(provider.GetRequiredService<IngestionKeyService>()));
         services.AddTransient(provider => new SettingsController(provider.GetRequiredService<SettingsService>()));
+        services.AddTransient(provider => new ClearTelemetryController(
+            provider.GetServices<ITelemetryClearer>(),
+            provider.GetRequiredService<ILogger<ClearTelemetryController>>()));
     }
 
     private static void AddSessions(IServiceCollection services, IConfiguration configuration)

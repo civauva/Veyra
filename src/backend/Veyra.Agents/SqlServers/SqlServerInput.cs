@@ -13,6 +13,10 @@ namespace Veyra.Agents.SqlServers;
 /// The login's password. Required to add a server; <see langword="null"/> when changing one keeps the stored password.
 /// </param>
 /// <param name="Encryption">How the connection is encrypted.</param>
+/// <param name="Platform">The kind of SQL Server it is; a SQL Server when left out.</param>
+/// <param name="Database">
+/// The database to read, required for an Azure SQL Database and left out for the other kinds.
+/// </param>
 public sealed record SqlServerInput(
     string Name,
     string Address,
@@ -21,7 +25,9 @@ public sealed record SqlServerInput(
     Guid? AgentId,
     string Login,
     string? Password,
-    SqlServerEncryption Encryption)
+    SqlServerEncryption Encryption,
+    SqlServerPlatform Platform = SqlServerPlatform.SqlServer,
+    string? Database = null)
 {
     /// <summary>Keeps the password out of logs and debugger views, which print records by their members.</summary>
     /// <returns>The server's name and address.</returns>

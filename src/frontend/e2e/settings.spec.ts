@@ -91,6 +91,8 @@ test.describe("Settings", () => {
     await page.getByRole("button", { name: "History" }).click();
     const history = page.getByRole("complementary", { name: "Settings history" });
     await expect(history).toContainText("3 s → 2 s");
+    await expect(history).toContainText("SQL Server · sql-prod-01");
+    await expect(history).toContainText("Changed port, password");
     expect(await scrollsSideways(page)).toBe(false);
 
     await page.keyboard.press("Escape");
@@ -120,5 +122,26 @@ test.describe("Settings", () => {
       return { background: style.backgroundColor, color: style.color };
     });
     expect(colors.background).not.toBe(colors.color);
+  });
+
+  test("clears all telemetry once the site's name is typed, at every size", async ({ page }) => {
+    await answerApi(page);
+    let cleared: unknown = null;
+    await page.route("**/api/v1/settings/clear-telemetry", async (route) => {
+      cleared = route.request().postDataJSON();
+      await route.fulfill({ status: 204 });
+    });
+    await page.goto("/settings?section=Data");
+
+    const panel = page.getByRole("region", { name: "Clear all telemetry" });
+    const button = panel.getByRole("button", { name: "Clear all telemetry" });
+    await expect(button).toBeDisabled();
+    expect(await scrollsSideways(page)).toBe(false);
+
+    await panel.getByRole("textbox").fill("localhost");
+    await button.click();
+
+    await expect(panel.getByRole("status")).toContainText("Cleared.");
+    expect(cleared).toEqual({ confirm: "localhost" });
   });
 });

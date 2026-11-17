@@ -344,6 +344,9 @@ internal static class LiveFindings
     private static string Capital(string words) =>
         words.Length == 0 ? words : char.ToUpperInvariant(words[0]) + words[1..];
 
+    // A statement's name in a sentence; a word in capitals, such as a statement's own text, stays as it is.
     private static string Lower(string words) =>
-        words.Length == 0 ? words : char.ToLowerInvariant(words[0]) + words[1..];
+        words.Length == 0 || (words.Length > 1 && char.IsUpper(words[1]))
+            ? words
+            : char.ToLowerInvariant(words[0]) + words[1..];
 }

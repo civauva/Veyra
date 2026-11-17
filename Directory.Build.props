@@ -17,6 +17,8 @@
     <RootNamespace>$(MSBuildProjectName)</RootNamespace>
     <Authors>Veyra contributors</Authors>
     <Product>Veyra</Product>
+    <!-- The release, shown on Settings → System. Each release is tagged v<Version> in git. -->
+    <Version>0.2.1</Version>
     <Copyright>Copyright 2026 Veyra contributors</Copyright>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
   </PropertyGroup>

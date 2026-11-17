@@ -5,9 +5,9 @@ using Veyra.Query.Metrics.Api;
 namespace Veyra.Query.Metrics;
 
 /// <summary>
-/// Puts together the Metrics screens: the overview of hosts, services, and database servers, one host, one service,
-/// and one metric for the browser. Each view reads its series once for the chosen window and once for the last five
-/// minutes.
+/// Puts together the Metrics screens: the overview of hosts, services, database servers, and containers, one host,
+/// one service, and one metric for the browser. Each view reads its series once for the chosen window and once for
+/// the last five minutes.
 /// </summary>
 /// <param name="search">The stored metrics.</param>
 /// <param name="clock">The clock that decides what now is.</param>
@@ -32,6 +32,22 @@ internal sealed class MetricViewBuilder(IMetricSearch search, TimeProvider clock
         MetricNames.ProcessMemory,
     ];
 
+    // What a container's card and row read over the window: its CPU line and its restarts.
+    private static readonly string[] _containerCard = [MetricNames.ContainerCpu, MetricNames.ContainerRestarts];
+
+    // Six series per container: room for well over a thousand containers.
+    private const int _maxContainerSeries = 10_000;
+
+    // What a database server's card reads, SQL Server's and PostgreSQL's alike (ADR 0018).
+    private static readonly string[] _databaseCard = [.. SqlServerNames.Card, .. MetricNames.PostgresScreen];
+
+    // What a database server's card line reads over the window: batch requests, or transactions.
+    private static readonly string[] _databaseLines =
+        [SqlServerNames.BatchRequests, MetricNames.PostgresCommits, MetricNames.PostgresRollbacks];
+
+    // What a database server's deadlocks are counted from over the last 15 minutes.
+    private static readonly string[] _databaseDeadlocks = [SqlServerNames.DeadlockRate, MetricNames.PostgresDeadlocks];
+
     private readonly MetricReader _reader = new(search);
 
     /// <summary>Builds the overview.</summary>
@@ -53,7 +69,10 @@ internal sealed class MetricViewBuilder(IMetricSearch search, TimeProvider clock
             new MetricSeriesQuery(now - _activeWithin, Names: _serviceCard),
             cancellationToken);
         var findingDatabases = search.FindSeriesAsync(
-            new MetricSeriesQuery(now - _activeWithin, Names: SqlServerNames.Card),
+            new MetricSeriesQuery(now - _activeWithin, Names: _databaseCard),
+            cancellationToken);
+        var findingContainers = search.FindSeriesAsync(
+            new MetricSeriesQuery(now - _activeWithin, Names: MetricNames.Container, Limit: _maxContainerSeries),
             cancellationToken);
         var measuringUsage = search.GetUsageAsync(now, cancellationToken);
         var listingNames = search.ListNamesAsync(null, window.Start, cancellationToken);
@@ -67,6 +86,7 @@ internal sealed class MetricViewBuilder(IMetricSearch search, TimeProvider clock
         var databaseSeries = (await findingDatabases)
             .Where(series => series.Block?.Kind == AlertBlockKind.Database)
             .ToList();
+        var containerSeries = (await findingContainers).Where(ContainerView.IsContainer).ToList();
 
         var readingHostWindow = _reader.ReadAsync(
             hostSeries.Where(series => series.Name == MetricNames.CpuTime).ToList(),
@@ -83,14 +103,19 @@ internal sealed class MetricViewBuilder(IMetricSearch search, TimeProvider clock
             cancellationToken);
         var readingServiceRecent = _reader.ReadAsync(serviceSeries, recent, cancellationToken);
         var readingDatabaseWindow = _reader.ReadAsync(
-            databaseSeries.Where(series => series.Name == SqlServerNames.BatchRequests).ToList(),
+            databaseSeries.Where(series => _databaseLines.Contains(series.Name)).ToList(),
             window,
             cancellationToken);
         var readingDatabaseRecent = _reader.ReadAsync(databaseSeries, recent, cancellationToken);
         var readingDatabaseQuarter = _reader.ReadAsync(
-            databaseSeries.Where(series => series.Name == SqlServerNames.DeadlockRate).ToList(),
+            databaseSeries.Where(series => _databaseDeadlocks.Contains(series.Name)).ToList(),
             DatabaseViewBuilder.Quarter(now),
             cancellationToken);
+        var readingContainerWindow = _reader.ReadAsync(
+            containerSeries.Where(series => _containerCard.Contains(series.Name)).ToList(),
+            window,
+            cancellationToken);
+        var readingContainerRecent = _reader.ReadAsync(containerSeries, recent, cancellationToken);
 
         await Task.WhenAll(
             readingHostWindow,
@@ -101,6 +126,8 @@ internal sealed class MetricViewBuilder(IMetricSearch search, TimeProvider clock
             readingDatabaseWindow,
             readingDatabaseRecent,
             readingDatabaseQuarter,
+            readingContainerWindow,
+            readingContainerRecent,
             measuringUsage,
             listingNames);
 
@@ -140,11 +167,17 @@ internal sealed class MetricViewBuilder(IMetricSearch search, TimeProvider clock
             .Select(series => series.Block!)
             .Distinct()
             .OrderBy(block => block.Name, StringComparer.Ordinal)
-            .Select(block => DatabaseView.Card(
-                block,
-                databaseWindow.Where(series => series.Block == block),
-                databaseRecent.Where(series => series.Block == block),
-                databaseQuarter.Where(series => series.Block == block)))
+            .Select(block => block.Engine == MetricNames.PostgresEngine
+                ? PostgresView.Card(
+                    block,
+                    databaseWindow.Where(series => series.Block == block),
+                    databaseRecent.Where(series => series.Block == block),
+                    databaseQuarter.Where(series => series.Block == block))
+                : DatabaseView.Card(
+                    block,
+                    databaseWindow.Where(series => series.Block == block),
+                    databaseRecent.Where(series => series.Block == block),
+                    databaseQuarter.Where(series => series.Block == block)))
             .ToList();
 
         var usage = await measuringUsage;
@@ -163,7 +196,8 @@ internal sealed class MetricViewBuilder(IMetricSearch search, TimeProvider clock
                 names.Count),
             hosts,
             services,
-            databases);
+            databases,
+            ContainerView.Cards(await readingContainerWindow, await readingContainerRecent));
     }
 
     /// <summary>Builds one host's view.</summary>
@@ -186,7 +220,17 @@ internal sealed class MetricViewBuilder(IMetricSearch search, TimeProvider clock
             return null;
         }
 
-        return HostView.Detail(
+        var containers = (await search.FindSeriesAsync(
+                new MetricSeriesQuery(
+                    window.Start,
+                    Names: MetricNames.Container,
+                    HostName: host,
+                    Limit: _maxContainerSeries),
+                cancellationToken))
+            .Where(ContainerView.IsContainer)
+            .ToList();
+
+        var view = HostView.Detail(
             host,
             await _reader.ReadAsync(series, window, cancellationToken),
             await _reader.ReadAsync(series, MetricWindow.Recent(now), cancellationToken),
@@ -194,6 +238,21 @@ internal sealed class MetricViewBuilder(IMetricSearch search, TimeProvider clock
                 series.Where(one => one.Name == MetricNames.Filesystem).ToList(),
                 MetricWindow.Day(now),
                 cancellationToken));
+
+        if (containers.Count == 0)
+        {
+            return view;
+        }
+
+        return view with
+        {
+            Containers = ContainerView.Cards(
+                await _reader.ReadAsync(
+                    containers.Where(one => _containerCard.Contains(one.Name)).ToList(),
+                    window,
+                    cancellationToken),
+                await _reader.ReadAsync(containers, MetricWindow.Recent(now), cancellationToken)),
+        };
     }
 
     /// <summary>Builds one service's view.</summary>

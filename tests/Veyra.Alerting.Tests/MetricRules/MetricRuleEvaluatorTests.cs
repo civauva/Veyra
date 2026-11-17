@@ -143,12 +143,64 @@ public class MetricRuleEvaluatorTests(PostgresFixture postgres)
         options.DatabaseLongQuery.Enabled = false;
         options.DatabaseBackupAge.Enabled = false;
         options.DatabaseAgentJob.Enabled = false;
+        options.ContainerRestarts.Enabled = false;
+        options.ContainerMemory.Enabled = false;
+        options.DatabaseConnections.Enabled = false;
+        options.DatabaseWraparound.Enabled = false;
 
         await Evaluator(database, options).EvaluateAsync(CancellationToken.None);
 
         Assert.Equal(0, _health.ListCalls);
         Assert.Empty(await new AlertStore(database).ListAsync(DateTimeOffset.MinValue, CancellationToken.None));
     }
+
+    [Fact]
+    public async Task EvaluateAsync_RestartingContainerNearItsLimit_OpensAnAlertPerRuleNamingItsHost()
+    {
+        await using var database = await AlertingDatabase.CreateAsync(postgres);
+        _health.Containers =
+        [
+            new ContainerHealth("shop-api", "web-01", "production", 3, 0.93, 930, 1000),
+            new ContainerHealth("worker", "web-01", "production", 0, 0.20, 200, 1000),
+        ];
+
+        await Evaluator(database).EvaluateAsync(CancellationToken.None);
+
+        var restarts = Assert.Single(await OpenAsync(database, AlertRules.ContainerRestarts));
+        Assert.Equal(
+            (AlertSubject.Container("shop-api", "web-01"), AlertSeverity.Caution, 3d, 2d, TimeSpan.FromMinutes(15)),
+            (restarts.Subject, restarts.Severity, restarts.Value, restarts.Threshold, restarts.Window));
+        var memory = Assert.Single(await OpenAsync(database, AlertRules.ContainerMemory));
+        Assert.Equal(
+            (AlertSubject.Container("shop-api", "web-01"), AlertSeverity.Caution, 0.93, 0.90),
+            (memory.Subject, memory.Severity, memory.Value, memory.Threshold));
+        Assert.Equal("production", memory.Environment);
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_ContainerQuietForFifteenMinutes_ResolvesItsRestartAlert()
+    {
+        await using var database = await AlertingDatabase.CreateAsync(postgres);
+        var evaluator = Evaluator(database);
+        _health.Containers = [Restarting(5)];
+        await evaluator.EvaluateAsync(CancellationToken.None);
+
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        _health.Containers = [Restarting(1)];
+        await evaluator.EvaluateAsync(CancellationToken.None);
+        var held = Assert.Single(await OpenAsync(database, AlertRules.ContainerRestarts));
+        Assert.Equal(AlertSeverity.Warning, held.Severity);
+
+        _clock.Advance(TimeSpan.FromMinutes(15));
+        _health.Containers = [Restarting(0)];
+        await evaluator.EvaluateAsync(CancellationToken.None);
+
+        Assert.Empty(await OpenAsync(database, AlertRules.ContainerRestarts));
+        Assert.Empty(await OpenAsync(database, AlertRules.ContainerMemory));
+    }
+
+    private static ContainerHealth Restarting(double restarts) =>
+        new("shop-api", "web-01", "production", restarts, null, null, null);
 
     private static DiskHealth Disk(string mountpoint, double ratio, double? days) =>
         new("web-01", "production", mountpoint, ratio * 100, 100, ratio, days);
@@ -223,6 +275,79 @@ public class MetricRuleEvaluatorTests(PostgresFixture postgres)
 
         Assert.Empty(await OpenAsync(database, AlertRules.DatabaseAgentJob));
     }
+
+    [Fact]
+    public async Task EvaluateAsync_PostgresTrouble_OpensConnectionsOnTheServerAndWraparoundOnItsDatabase()
+    {
+        await using var database = await AlertingDatabase.CreateAsync(postgres);
+        _health.Databases =
+        [
+            Postgres(
+                connections: 0.86,
+                databases:
+                [
+                    new DatabasePartHealth("shop", 420, 420, null) { WraparoundRatio = 0.52 },
+                    new DatabasePartHealth("reporting", 0, 0, null) { WraparoundRatio = 0.10 },
+                ]),
+        ];
+
+        await Evaluator(database).EvaluateAsync(CancellationToken.None);
+
+        const string server = "postgresql pg-main";
+        var connections = Assert.Single(await OpenAsync(database, AlertRules.DatabaseConnections));
+        Assert.Equal(
+            (AlertSubject.Database(server), AlertSeverity.Caution, 0.86, 0.80, TimeSpan.FromMinutes(5)),
+            (
+                connections.Subject,
+                connections.Severity,
+                connections.Value,
+                connections.Threshold,
+                connections.Window));
+        var wraparound = Assert.Single(await OpenAsync(database, AlertRules.DatabaseWraparound));
+        Assert.Equal(
+            (AlertSubject.Database(server, "shop"), AlertSeverity.Caution, 0.52, 0.50),
+            (wraparound.Subject, wraparound.Severity, wraparound.Value, wraparound.Threshold));
+        var longQuery = Assert.Single(await OpenAsync(database, AlertRules.DatabaseLongQuery));
+        Assert.Equal(AlertSubject.Database(server, "shop"), longQuery.Subject);
+        Assert.Empty(await OpenAsync(database, AlertRules.DatabaseBackupAge));
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        _health.Databases =
+        [
+            Postgres(
+                connections: 0.70,
+                databases: [new DatabasePartHealth("shop", 0, 0, null) { WraparoundRatio = 0.03 }]),
+        ];
+        await Evaluator(database).EvaluateAsync(CancellationToken.None);
+
+        Assert.Empty(await OpenAsync(database, AlertRules.DatabaseConnections));
+        Assert.Empty(await OpenAsync(database, AlertRules.DatabaseWraparound));
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_SqlServerWithoutConnectionLimit_HasNoConnectionsOrWraparoundAlert()
+    {
+        await using var database = await AlertingDatabase.CreateAsync(postgres);
+        _health.Databases = [SqlServer(databases: [new DatabasePartHealth("shop", 0, 0, 3600)])];
+
+        await Evaluator(database).EvaluateAsync(CancellationToken.None);
+
+        Assert.Empty(await OpenAsync(database, AlertRules.DatabaseConnections));
+        Assert.Empty(await OpenAsync(database, AlertRules.DatabaseWraparound));
+    }
+
+    private static DatabaseHealth Postgres(double connections, IReadOnlyList<DatabasePartHealth> databases) => new(
+        TelemetryBlock.Database("postgresql", "pg-main"),
+        "production",
+        0,
+        0,
+        0,
+        0,
+        databases,
+        [])
+    {
+        ConnectionsRatio = connections,
+    };
 
     private static DatabaseHealth SqlServer(
         double blockedLeast = 0,

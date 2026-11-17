@@ -1,0 +1,32 @@
+# Merged over ../collector.yaml and ../iis.yaml by the check: everything goes to a file instead of Veyra, and the
+# Event Logs are read from their start, so errors written before the Collector started count too.
+receivers:
+  windowseventlog/system:
+    start_at: beginning
+  windowseventlog/application:
+    start_at: beginning
+  filelog/iis:
+    start_at: beginning
+
+exporters:
+  file:
+    path: ${env:CHECK_OUT}/telemetry.jsonl
+
+service:
+  # The Collector's own metrics would take port 8888, which another program on the machine may hold.
+  telemetry:
+    metrics:
+      level: none
+  pipelines:
+    metrics:
+      exporters:
+        - file
+    logs/eventlog:
+      exporters:
+        - file
+    metrics/iis:
+      exporters:
+        - file
+    logs/iis:
+      exporters:
+        - file

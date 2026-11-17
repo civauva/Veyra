@@ -75,10 +75,11 @@ OpenTelemetry SDK or Collector at
 [`docs/api/otlp.md`](../api/otlp.md), for .NET [`docs/integrations/dotnet.md`](../integrations/dotnet.md), and for
 the host's own CPU, memory, and disks [`docs/integrations/linux.md`](../integrations/linux.md).
 
-SQL Servers need none of this: add them on **Settings → Database monitoring**. Veyra's built-in agent, the `agent`
-container beside Veyra, reads every server Veyra's host can reach. It sets itself up on Veyra's first start; its key
-and start-up file live in the `agent-config` volume, and **Settings → Agents** shows whether it runs. See
-[`docs/integrations/sqlserver.md`](../integrations/sqlserver.md#from-the-settings-screen).
+SQL Servers and PostgreSQL servers need none of this: add them on **Settings → Database monitoring**. Veyra's
+built-in agent, the `agent` container beside Veyra, reads every server Veyra's host can reach. It sets itself up on
+Veyra's first start; its key and start-up file live in the `agent-config` volume, and **Settings → Agents** shows
+whether it runs. See [`docs/integrations/sqlserver.md`](../integrations/sqlserver.md#from-the-settings-screen) and
+[`docs/integrations/postgres.md`](../integrations/postgres.md#from-the-settings-screen).
 
 ## Settings
 
@@ -100,6 +101,10 @@ server, sign-in and lockout, queue lengths, and a few advanced ones. A change ap
   the same review. Secrets are never in the file.
 - **Secrets.** The SMTP password set on the screen is stored encrypted with the keys in the `veyra-keys` volume and
   is never shown again. Back up that volume with the database (see [Backups](#backups)).
+- **Clear all telemetry.** At the end of the Data section, an Admin can delete every log, metric, trace, SQL Server
+  activity record, and alert at once, for example after testing. Users, settings, agents, monitored servers,
+  ingestion keys, and notification channels stay, and monitoring carries on from empty. The Admin types the site's
+  host name to confirm; Veyra's log records who cleared and when. It cannot be undone, except from a backup.
 - **Outside the screen.** The database connection, the ports, and `VEYRA_REMOVE_SECOND_FACTOR` stay in
   `deploy/.env`, because they are needed before the database can be read or when nobody can sign in. The screen's
   System section shows them read-only.

@@ -105,8 +105,8 @@ beyond those decisions are listed in [`docs/architecture/tech-stack.md`](docs/ar
 
 - [x] Change every setting on a Settings screen, applied without a restart, with review and history (ADR 0017)
 - [x] Simple and Advanced views on Settings and the monitoring screens: the fundamentals, or everything
-- [ ] Docker containers: resources, restarts, and logs per container (ADR 0018)
-- [ ] PostgreSQL: connections, size, long and blocked queries, deadlocks, wraparound
+- [x] Docker containers: resources, restarts, and logs per container (ADR 0018)
+- [x] PostgreSQL: connections, size, long and blocked queries, deadlocks, wraparound
 - [x] SQL Server: waits, blocking, deadlocks, backup age, failed SQL Agent jobs, with a tested Collector configuration
 - [x] Veyra's built-in agent: add a SQL Server on the Settings screen, with no file or variable to edit (ADR 0019)
 - [x] Agents in other networks, installed on Windows or Linux with a one-time code from the Settings screen
@@ -138,9 +138,9 @@ home, in the Log Explorer, on the Traces screens, and on the Metrics screens for
 roles and optional two-factor sign-in, and the Users screen shows each account's sign-ins and sessions; senders use
 ingestion keys. Built-in rules raise alerts on a service's error rate and request latency and on a host's disk space
 and growth, each with its own details screen; the Alerts screen keeps 90 days of history, and alerts go to webhook and
-email channels. Tested Collector configurations watch Linux hosts and sample traces. SQL Servers are added on the
-Settings screen: Veyra's built-in agent, which runs beside it in Docker Compose, reads them, and the page says how each
-one stands. User-defined rules are not built yet.
+email channels. Tested Collector configurations watch Linux hosts and sample traces. SQL Servers and PostgreSQL
+servers are added on the Settings screen: Veyra's built-in agent, which runs beside it in Docker Compose, reads them,
+and the page says how each one stands. User-defined rules are not built yet.
 
 ## Contributing
 

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useMemo, useRef, useState } from "react";
 
 import { api } from "../../api/client";
 import type { BlockingNode, DatabaseLive, Finding, LiveSession, WaitTerm } from "../../api/types";
@@ -7,6 +7,7 @@ import { useMetricData } from "../useMetricData";
 import { chainsMeeting, meets, useLiveFilters, type FilterKind, type LiveFilters } from "./liveFilters";
 import { clock, doingWords, programName, shortCount } from "./liveFormat";
 import { FilterChip, FindingActions, LiveTile, WaitPill } from "./liveParts";
+import { SelectedSession } from "./selectedSession";
 import { SessionPanel } from "./SessionPanel";
 
 /** How often the Live tab asks again: the agent reads every 10 seconds (ADR 0020). */
@@ -74,11 +75,13 @@ export function LiveTab({ engine, server, at, advanced, onNow, onAdvanced }: Liv
     <div className={`live-screen ${session ? "with-panel" : ""}`}>
       <LiveHeader live={data} error={error} onNow={onNow} />
       <div className="live-main">
-        {advanced ? (
-          <Advanced live={data} filters={filters} onSession={open} />
-        ) : (
-          <Simple live={data} filters={filters} onSession={open} onAdvanced={onAdvanced} />
-        )}
+        <SelectedSession.Provider value={session ? session.id : null}>
+          {advanced ? (
+            <Advanced live={data} filters={filters} onSession={open} />
+          ) : (
+            <Simple live={data} filters={filters} onSession={open} onAdvanced={onAdvanced} />
+          )}
+        </SelectedSession.Provider>
       </div>
       {session && (
         <SessionPanel
@@ -145,6 +148,7 @@ function Simple({ live, filters, onSession, onAdvanced }: ViewProps & { onAdvanc
   const [lead, ...rest] = live.findings;
   const byId = useMemo(() => new Map(live.sessions.map((session) => [session.id, session])), [live.sessions]);
   const running = live.sessions.filter((session) => session.status !== "sleeping" && meets(session, filters.filters));
+  const selected = useContext(SelectedSession);
   const { tiles } = live;
 
   return (
@@ -203,12 +207,14 @@ function Simple({ live, filters, onSession, onAdvanced }: ViewProps & { onAdvanc
         </div>
         {running.length === 0 ? (
           <p className="metrics-empty">
-            No request is running{filters.filters.length > 0 ? " that meets the filters" : ""}.
+            {filters.filters.length > 0
+              ? "No request that meets the filters is running."
+              : "Nothing is running right now. Veyra reads the server every 10 seconds; a request shows here while it runs."}
           </p>
         ) : (
           <ul className="live-plain">
             {running.map((session) => (
-              <li key={session.id}>
+              <li key={session.id} className={session.id === selected ? "selected" : undefined}>
                 <button type="button" className="live-row-open" onClick={() => onSession(session.id)}>
                   <span>
                     <b>{session.name}</b>
@@ -361,6 +367,7 @@ function Chain({ tree, byId, onSession }: ChainProps) {
 function Advanced({ live, filters, onSession }: ViewProps) {
   const byId = useMemo(() => new Map(live.sessions.map((session) => [session.id, session])), [live.sessions]);
   const sessions = live.sessions.filter((session) => meets(session, filters.filters));
+  const selected = useContext(SelectedSession);
   const { tiles } = live;
 
   return (
@@ -485,7 +492,7 @@ function Advanced({ live, filters, onSession }: ViewProps) {
               </thead>
               <tbody>
                 {sessions.map((session) => (
-                  <tr key={session.id}>
+                  <tr key={session.id} className={session.id === selected ? "selected" : undefined}>
                     <th scope="row">
                       <button type="button" className="link-button mono" onClick={() => onSession(session.id)}>
                         {session.id}
@@ -571,10 +578,11 @@ interface TreeNodeProps {
 function TreeNode({ node, byId, waits, filters, onSession }: TreeNodeProps) {
   const session = byId.get(node.session);
   const head = session?.blockedBy === null || session === undefined;
+  const open = useContext(SelectedSession) === node.session;
 
   return (
     <li className={head ? "head" : undefined}>
-      <div className="live-node">
+      <div className={`live-node ${open ? "selected" : ""}`} aria-current={open ? "true" : undefined}>
         <button type="button" className="live-node-id" onClick={() => onSession(node.session)} disabled={!session}>
           <small>session</small>
           <b>{node.session}</b>

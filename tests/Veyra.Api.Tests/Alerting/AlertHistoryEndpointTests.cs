@@ -34,7 +34,7 @@ public class AlertHistoryEndpointTests(PostgresFixture postgres)
         Assert.Equal(7, summary.Days.Count);
         Assert.Equal((1, "Warning"), (summary.Days[^1].Count, summary.Days[^1].Worst));
         Assert.Equal(1, summary.Rules.Single(rule => rule.Rule == "error-rate").Count);
-        Assert.Equal(9 + RuleCatalog.All.Count, summary.Rules.Count);
+        Assert.Equal(13 + RuleCatalog.All.Count, summary.Rules.Count);
     }
 
     [Fact]

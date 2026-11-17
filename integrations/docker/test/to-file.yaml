@@ -1,0 +1,17 @@
+# Merged over ../collector.yaml by the check: everything goes to a file instead of Veyra.
+exporters:
+  file:
+    path: /out/telemetry.jsonl
+
+service:
+  # The Collector's own metrics would take port 8888 on the host's network, which another program may hold.
+  telemetry:
+    metrics:
+      level: none
+  pipelines:
+    metrics/docker:
+      exporters:
+        - file
+    logs/docker:
+      exporters:
+        - file

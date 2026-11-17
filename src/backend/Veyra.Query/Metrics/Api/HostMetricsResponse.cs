@@ -19,4 +19,11 @@ public sealed record HostMetricsResponse(
     IReadOnlyList<DiskResponse> Disks,
     IReadOnlyList<ChartLineResponse> Network,
     IReadOnlyList<ChartLineResponse> DiskIo,
-    IReadOnlyList<ChartLineResponse> Load);
+    IReadOnlyList<ChartLineResponse> Load)
+{
+    /// <summary>
+    /// The Docker containers on the host that sent within the window, by name, from the Collector's
+    /// <c>docker_stats</c> receiver (ADR 0018). Empty when the host runs none or the receiver is not set up.
+    /// </summary>
+    public IReadOnlyList<ContainerCardResponse> Containers { get; init; } = [];
+}

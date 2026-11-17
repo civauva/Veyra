@@ -1,7 +1,15 @@
 import { useId } from "react";
 import { Link } from "react-router";
 
-import { databasePath, formatMeasure, ruleSentence, ruleSummary, serverName, subjectLabel } from "../alerts/ruleWords";
+import {
+  containerPath,
+  databasePath,
+  formatMeasure,
+  ruleSentence,
+  ruleSummary,
+  serverName,
+  subjectLabel,
+} from "../alerts/ruleWords";
 import type { HomeAlert, HomeSnapshot } from "../api/types";
 import { formatClock } from "../logs/format";
 import { defaultFilters, filtersToUrl } from "../logs/logFilters";
@@ -98,8 +106,8 @@ export function NeedsYou({ snapshot, selectedId, onSelect, now }: NeedsYouProps)
 }
 
 /**
- * The steps of one alert. A service's errors lead into its logs; a slow service and a host lead into their metrics.
- * Every alert leads to its details.
+ * The steps of one alert. A service's errors lead into its logs; a slow service and a host lead into their metrics;
+ * a container leads to its row on its host's screen and to its logs. Every alert leads to its details.
  */
 function AlertSteps({ alert }: { alert: HomeAlert }) {
   const since = formatClock(alert.since);
@@ -144,6 +152,25 @@ function AlertSteps({ alert }: { alert: HomeAlert }) {
               Open metrics
             </Link>
           </li>
+        )}
+        {alert.kind === "container" && (
+          <>
+            <li>
+              <span>See {alert.name} beside the other containers of its host</span>
+              <Link className="step-button primary" to={containerPath(alert)}>
+                Open metrics
+              </Link>
+            </li>
+            <li>
+              <span>What it logged when it started, {since}</span>
+              <Link
+                className="step-button"
+                to={`/logs?${filtersToUrl({ ...defaultFilters, services: [alert.name], around: new Date(alert.since).toISOString() })}`}
+              >
+                ± 1 minute
+              </Link>
+            </li>
+          </>
         )}
         {alert.kind === "host" && (
           <li>

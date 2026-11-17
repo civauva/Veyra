@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { unreadText } from "./unread";
 
 import { api } from "../../api/client";
 import type { DatabaseStorage, PlanWarning, StorageView } from "../../api/types";
@@ -14,6 +15,8 @@ export interface StorageTabProps {
   server: string;
   /** Whether the Advanced view is on. */
   advanced: boolean;
+  /** Whether the login lacks a permission this tab needs, so an empty answer proves nothing (VEY-58). */
+  blind?: boolean;
 }
 
 /**
@@ -21,7 +24,7 @@ export interface StorageTabProps {
  * statement to run; the volumes and when they fill; and in the Advanced view each database's settings, files, log,
  * backups, and integrity.
  */
-export function StorageTab({ engine, server, advanced }: StorageTabProps) {
+export function StorageTab({ engine, server, advanced, blind = false }: StorageTabProps) {
   const { data, notFound, error } = useMetricData(`storage-${engine}-${server}`, (signal) =>
     api.databaseStorage(engine, server, signal),
   );
@@ -54,7 +57,9 @@ export function StorageTab({ engine, server, advanced }: StorageTabProps) {
           <span>files, logs, backups, and integrity</span>
         </div>
         {findings.length === 0 ? (
-          <p className="metrics-empty">Nothing: files, logs, backups, and integrity checks all look right.</p>
+          <p className="metrics-empty">
+            {blind ? unreadText : "Nothing: files, logs, backups, and integrity checks all look right."}
+          </p>
         ) : (
           <ul className="live-findings">
             {findings.map((finding, index) => (

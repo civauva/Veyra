@@ -10,6 +10,7 @@ using Veyra.Alerting.Notifications;
 using Veyra.Alerting.Settings;
 using Veyra.Core;
 using Veyra.Core.Alerts;
+using Veyra.Core.Maintenance;
 using Veyra.Core.Schema;
 using Veyra.Core.Settings;
 
@@ -50,6 +51,7 @@ public static class AlertingServiceCollectionExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<ISchemaMigrationSource, AlertingMigrations>();
         services.AddSingleton<AlertStore>();
+        services.AddSingleton<ITelemetryClearer, AlertClearer>();
         services.AddSingleton<IAlertStates>(provider => provider.GetRequiredService<AlertStore>());
         services.AddSingleton<AlertTransitions>();
         services.AddSingleton<ErrorRateEvaluator>();

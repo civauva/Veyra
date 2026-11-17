@@ -8,6 +8,9 @@ namespace Veyra.Query.Metrics.Api;
 /// <param name="Hosts">The hosts, by name.</param>
 /// <param name="Services">The services, by name and environment.</param>
 /// <param name="Databases">A card per database server that sent within the last 15 minutes (ADR 0018).</param>
+/// <param name="Containers">
+/// A card per Docker container that sent within the last 15 minutes, by name and host (ADR 0018).
+/// </param>
 public sealed record MetricsOverviewResponse(
     DateTimeOffset At,
     string Range,
@@ -15,4 +18,5 @@ public sealed record MetricsOverviewResponse(
     MetricUsageResponse Usage,
     IReadOnlyList<HostCardResponse> Hosts,
     IReadOnlyList<ServiceCardResponse> Services,
-    IReadOnlyList<DatabaseCardResponse> Databases);
+    IReadOnlyList<DatabaseCardResponse> Databases,
+    IReadOnlyList<ContainerCardResponse> Containers);

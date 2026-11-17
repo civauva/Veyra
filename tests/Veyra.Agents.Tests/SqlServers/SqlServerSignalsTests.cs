@@ -1,3 +1,4 @@
+using Veyra.Agents.PostgresServers;
 using Veyra.Agents.SqlServers;
 using Veyra.Core.Alerts;
 using Veyra.Core.Metrics;
@@ -63,6 +64,21 @@ public class SqlServerSignalsTests
         var query = Assert.Single(metrics.Queries);
         Assert.Equal(new TelemetryBlock(AlertBlockKind.Database, "microsoft.sql_server sql-prod-01"), query.Block);
         Assert.Equal(_now - SqlServerSignals.DataWithin, query.SeenSince);
+    }
+
+    [Fact]
+    public async Task LastDataAsync_PostgresServer_AsksForItsPostgresqlBlock()
+    {
+        var metrics = new FakeMetrics { Series = [Series(_now.AddMinutes(-2))] };
+        var server = new PostgresServer(_server, "pg-main", "10.0.0.5", 5432, "production", Guid.Empty,
+            "veyra_monitor", PostgresEncryption.Required, _now, _now);
+
+        var last = await new SqlServerSignals(new FakeLogs(), metrics)
+            .LastDataAsync(server, _now, CancellationToken.None);
+
+        Assert.Equal(_now.AddMinutes(-2), last);
+        var query = Assert.Single(metrics.Queries);
+        Assert.Equal(new TelemetryBlock(AlertBlockKind.Database, "postgresql pg-main"), query.Block);
     }
 
     [Fact]

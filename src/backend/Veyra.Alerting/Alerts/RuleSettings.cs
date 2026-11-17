@@ -35,6 +35,16 @@ internal sealed record RuleSettings(double Caution, double Warning, double Clear
                 settings.Latency.WarningSeconds,
                 settings.Latency.CautionSeconds * settings.Latency.ClearFactor,
                 LatencyRule.Window),
+            AlertRules.ContainerRestarts => new(
+                settings.ContainerRestarts.CautionRestarts,
+                settings.ContainerRestarts.WarningRestarts,
+                0,
+                ContainerRestartsRule.Window),
+            AlertRules.ContainerMemory => new(
+                settings.ContainerMemory.CautionRatio,
+                settings.ContainerMemory.WarningRatio,
+                settings.ContainerMemory.CautionRatio - settings.ContainerMemory.ClearMargin,
+                ContainerMemoryRule.Window),
             AlertRules.DatabaseBlocking => new(
                 settings.DatabaseBlocking.CautionSessions,
                 settings.DatabaseBlocking.WarningSessions,
@@ -58,6 +68,16 @@ internal sealed record RuleSettings(double Caution, double Warning, double Clear
 
             // A failed run is a caution only; the warning level equals it, so it is never crossed separately.
             AlertRules.DatabaseAgentJob => new(1, 1, 1, DatabaseAgentJobRule.Window),
+            AlertRules.DatabaseConnections => new(
+                settings.DatabaseConnections.CautionRatio,
+                settings.DatabaseConnections.WarningRatio,
+                settings.DatabaseConnections.CautionRatio - settings.DatabaseConnections.ClearMargin,
+                DatabaseConnectionsRule.Window),
+            AlertRules.DatabaseWraparound => new(
+                settings.DatabaseWraparound.CautionRatio,
+                settings.DatabaseWraparound.WarningRatio,
+                settings.DatabaseWraparound.ClearRatio,
+                DatabaseWraparoundRule.Window),
             _ when RuleCatalog.Find(rule) is { } catalog => Catalog(catalog, settings),
             _ => new(
                 settings.ErrorRate.CautionRatio,

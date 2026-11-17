@@ -45,6 +45,25 @@ For SQL Servers the built-in agent cannot reach, such as those behind a company 
 add an agent for their network under **Settings → Agents** and install it there with one line; see
 [`agents.md`](agents.md#an-agent-in-another-network). Then choose it under **Read by**.
 
+## Azure SQL Managed Instance and Azure SQL Database
+
+Under **Kind**, the form also takes an Azure SQL Managed Instance or an Azure SQL Database (ADR 0020, VEY-57). The
+agent then reads only what that platform has, and the SQL Server screen says what it leaves out.
+
+- **Managed Instance** is read like SQL Server, with the same login script. Azure takes its backups and runs its
+  storage, host, and cluster, so Veyra leaves out backups, volumes, log shipping, cluster nodes, and replicas; the
+  Databases and Server tabs say so.
+- **Azure SQL Database** is one database, read one at a time: name it under **Database**. Its login is a contained
+  user, created in that database with `VIEW DATABASE STATE` and `VIEW DEFINITION`; the form writes the script, to run
+  in the database as its administrator. Azure SQL Database has no SQL Server Agent, msdb, system_health, or
+  server-wide views, so the Waits, Jobs, Events, and Server tabs are left out, with the reason under the tabs. The
+  agent reads instead the database's share of its service tier (`sys.dm_db_resource_stats`) and its size
+  (`integrations/sqlserver/azure-sql-database.yaml`).
+- **Deadlocks on Azure SQL Database** are recorded only by a database-scoped Extended Events session. The same script
+  creates `veyra_deadlocks`, which the agent reads like `system_health`.
+
+Both are built and tested against the agent's configuration, not yet against live Azure instances.
+
 ## With your own Collector
 
 ### 1. Create a monitoring login
@@ -203,10 +222,10 @@ part of a connection string; `p@ss` becomes `p%40ss`.
   the volumes under them (`sys.dm_os_volume_stats`, no agent on the machine needed), the age of log and differential
   backups, gaps in the log chain since the last full backup, the last good CHECKDB, and damaged pages. The Databases
   tab says what needs doing, with the statement to run, and when each volume fills at the pace of the last week.
-- **Errors and events (ADR 0020).** `sqlquery/events` also sends every other event `system_health` keeps in its ring
-  buffer, each once: errors of severity 20 and above and errors 823 and 824, memory errors, lock waits over 30
-  seconds and latch waits over 15, non-yielding schedulers, and security and connectivity records. The Events tab
-  words them. Errors below severity 20, such as 825 and failed SQL logins (18456), are only in SQL Server's error
+- **Errors and events (ADR 0020).** `sqlquery/events` also sends every other event `system_health` keeps in its
+  current event file, each once: errors of severity 20 and above and errors 823 and 824, memory errors, lock waits
+  over 30 seconds and latch waits over 15, non-yielding schedulers, and security and connectivity records. The Events
+  tab words them. Errors below severity 20, such as 825 and failed SQL logins (18456), are only in SQL Server's error
   log; reading it through an agent on the server's own machine comes with Windows hosts (VEY-35).
 - **Availability (ADR 0020).** `sqlquery/server` also reads each Availability Group replica's role and health, each
   database's send and redo queues, lag, and synchronization, log shipping's delay against its own thresholds, and
@@ -233,9 +252,11 @@ part of a connection string; `p@ss` becomes `p%40ss`.
   cache, over restarts. A database without Query Store is listed with the statement that turns it on, for a DBA.
   The `db-plan-regression` rule warns when a statement runs many times slower on its newest plan than its best.
 - **Blocking and deadlocks (ADR 0020).** Blocking episodes come from the live view: the same head blocker in reads
-  at most 35 seconds apart is one episode. Deadlocks come from the ring buffer of SQL Server's built-in
+  at most 35 seconds apart is one episode. Deadlocks come from the current event file of SQL Server's built-in
   `system_health` session: every minute `sqlquery/events` sends those of the last three minutes with a hash of their
-  graph, and Veyra keeps each once, for 90 days by default.
+  graph, and Veyra keeps each once, for 90 days by default. The session's ring buffer returns at most 4 MB of XML,
+  and on a server that has run for days the newest events are the ones it cuts off, so the agent reads it only where
+  `system_health` writes no file.
 - **The live view (ADR 0020).** Every 10 seconds `sqlquery/live` reads each session that runs a request, blocks or
   waits for another, holds a transaction open, or holds more than 8 MB of tempdb, at most 200, with its wait,
   blocker, transaction age, tempdb use, memory grant, program, host, login, and statement, plus one row of
@@ -296,6 +317,16 @@ Each rule has a switch and its levels on the **Settings** screen, under Alert ru
 The backup rule leaves `tempdb` alone, and every database that has never had a full backup. Databases that are not
 backed up on purpose can be listed by name on the Settings screen.
 
+## When a tab says Veyra cannot read it
+
+Every 5 minutes the agent asks SQL Server which of the permissions above its login has (`HAS_PERMS_BY_NAME`) and
+sends the answer as `sqlserver.login.permission.missing`: 1 for each permission the login lacks. A tab that needs a
+missing permission says so at the top: what it cannot read, which permission is missing, and the statements that grant
+it. Until then the tab does not claim that all is well, since an empty answer proves nothing.
+
+A login created before Veyra read job steps, Query Store, indexes, and the configuration lacks some of the newer
+grants. Run the statements the tab shows as an administrator; the notice goes away within 5 minutes.
+
 ## When Veyra is unreachable
 
 The `otlphttp` exporter holds up to 1,000 batches in memory and retries each one for up to 10 minutes; a batch that
@@ -311,6 +342,10 @@ Within a minute, the server appears under Databases on the **Metrics** page. If 
   from step 1.
 - `x509: negative serial number` or `certificate signed by unknown authority` for the certificate (step 4).
 - `401` from Veyra for a wrong key, and connection errors for a wrong endpoint.
+
+On an idle server, such as one on a developer's machine, the Live and Blocking tabs stay quiet. To see them at work,
+run [`samples/sqlserver-workload`](../../samples/sqlserver-workload/README.md) for a few minutes: a blocking chain, a
+long query, and a deadlock each minute, all in a database of its own.
 
 To check a change to the configuration, run the same check as CI, which needs Docker and Node.js:
 

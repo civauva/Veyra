@@ -188,9 +188,48 @@ export const settingsPage: SettingsPage = {
   ],
 };
 
-/** A history page with a change, a hidden secret change, and an import. */
+/**
+ * A history page with a SQL Server whose port and password changed, an agent added, a change, a hidden secret change,
+ * and an import.
+ */
 export const settingsHistory: SettingsHistory = {
   changes: [
+    {
+      id: 14,
+      key: "sql-prod-01",
+      label: "sql-prod-01",
+      group: "SQL Server",
+      section: "Databases",
+      oldValue: null,
+      newValue: null,
+      secret: false,
+      kind: "Changed",
+      changedBy: "u1",
+      changedByName: "Lena Adler",
+      changedAt: "2026-11-13T10:05:00Z",
+      origin: null,
+      canRevert: false,
+      subject: "SqlServer",
+      fields: ["port", "password"],
+    },
+    {
+      id: 13,
+      key: "Company network",
+      label: "Company network",
+      group: "Agent",
+      section: "Agents",
+      oldValue: null,
+      newValue: null,
+      secret: false,
+      kind: "Added",
+      changedBy: "u2",
+      changedByName: "Tom Okafor",
+      changedAt: "2026-11-13T10:01:00Z",
+      origin: null,
+      canRevert: false,
+      subject: "Agent",
+      fields: [],
+    },
     {
       id: 12,
       key: "Veyra:Alerting:Latency:WarningSeconds",

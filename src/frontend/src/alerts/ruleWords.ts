@@ -16,7 +16,8 @@ import {
  * Words of the built-in alert rules (ADR 0012), shared by the home, the Alerts screen, and the alert details, so an
  * alert reads the same wherever it shows: "payments-gateway logs 21.6% errors", "Disk / on web-01 is full in 9 days".
  * Each rule has its own unit: error rate a ratio, latency seconds, disk space a share, disk filling days until full,
- * and the database rules sessions, deadlocks, seconds, or a failed run (ADR 0018).
+ * container restarts a count and container memory a share of the limit, and the database rules sessions, deadlocks,
+ * seconds, a failed run, or a share of PostgreSQL's maximum connections or of its transaction ID limit (ADR 0018).
  */
 
 /** The built-in rules in the order every screen lists them. */
@@ -25,11 +26,15 @@ export const ruleOrder: AlertRule[] = [
   "latency-p95",
   "disk-space",
   "disk-filling",
+  "container-restarts",
+  "container-memory",
   "db-blocking",
   "db-deadlocks",
   "db-long-query",
   "db-backup-age",
   "db-agent-job",
+  "db-connections",
+  "db-wraparound",
   ...catalogRuleIds,
 ];
 
@@ -58,6 +63,38 @@ export function databasePath(block: string): string {
 }
 
 /**
+ * A container the way people say it, with the host it runs on, which a container alert keeps as its part (ADR 0018).
+ *
+ * @param subject - The container's subject: its name, and its host as the part.
+ * @returns For example `Container shop-api on web-01`.
+ */
+export function containerName(subject: Subject): string {
+  return subject.part ? `Container ${subject.name} on ${subject.part}` : `Container ${subject.name}`;
+}
+
+/**
+ * Where a container shows: its row on its host's screen.
+ *
+ * @param subject - The container's subject: its name, and its host as the part.
+ * @returns For example `/metrics/hosts/web-01#container-shop-api`; the Metrics overview when the host is unknown.
+ */
+export function containerPath(subject: Subject): string {
+  return subject.part
+    ? `/metrics/hosts/${encodeURIComponent(subject.part)}#${containerAnchor(subject.name)}`
+    : "/metrics";
+}
+
+/**
+ * The ID of a container's row on its host's screen, for links to it.
+ *
+ * @param name - The container name.
+ * @returns For example `container-shop-api`.
+ */
+export function containerAnchor(name: string): string {
+  return `container-${name.replace(/[^A-Za-z0-9_-]/g, "-")}`;
+}
+
+/**
  * An engine the way people say it.
  *
  * @param engine - As `db.system.name` spells it, such as `microsoft.sql_server`.
@@ -83,7 +120,7 @@ export interface Subject {
   kind: BlockKind;
   /** The service or host name. */
   name: string;
-  /** The part, for example a disk's mount point; null for none. */
+  /** The part, for example a disk's mount point, or the host a container runs on; null for none. */
   part: string | null;
 }
 
@@ -107,6 +144,10 @@ export function ruleName(rule: AlertRule): string {
       return "Disk space";
     case "disk-filling":
       return "Disk filling";
+    case "container-restarts":
+      return "Container restarts";
+    case "container-memory":
+      return "Container memory";
     case "db-blocking":
       return "Blocking";
     case "db-deadlocks":
@@ -117,6 +158,10 @@ export function ruleName(rule: AlertRule): string {
       return "Backup age";
     case "db-agent-job":
       return "SQL Agent job";
+    case "db-connections":
+      return "Connections";
+    case "db-wraparound":
+      return "Wraparound";
   }
 }
 
@@ -173,6 +218,10 @@ export function formatMeasure(rule: AlertRule, value: number): string {
       return formatDays(value);
     case "error-rate":
       return formatRatio(value);
+    case "container-restarts":
+      return count(value, "restart");
+    case "container-memory":
+      return formatDiskShare(value);
     case "db-blocking":
       return count(value, "session");
     case "db-deadlocks":
@@ -182,6 +231,9 @@ export function formatMeasure(rule: AlertRule, value: number): string {
       return formatSpan(value);
     case "db-agent-job":
       return value >= 1 ? "failed" : "succeeded";
+    case "db-connections":
+    case "db-wraparound":
+      return formatDiskShare(value);
   }
 }
 
@@ -230,6 +282,10 @@ export function alertTitle(rule: AlertRule, subject: Subject, value: number, res
       return resolved ? `${disk} was filling: full in ${formatDays(value)}` : `${disk} is full in ${formatDays(value)}`;
     case "error-rate":
       return `${subject.name} ${resolved ? "logged" : "logs"} ${formatRatio(value)} errors`;
+    case "container-restarts":
+      return `${containerName(subject)} restarted ${count(value, "time")} in 15 minutes`;
+    case "container-memory":
+      return `${containerName(subject)} ${resolved ? "used" : "uses"} ${formatDiskShare(value)} of its memory limit`;
     case "db-blocking":
       return `${server}: ${count(value, "session")} ${resolved ? "were" : "are"} blocked`;
     case "db-deadlocks":
@@ -240,6 +296,10 @@ export function alertTitle(rule: AlertRule, subject: Subject, value: number, res
       return `${server}: ${subject.part ?? "a database"} ${resolved ? "had" : "has"} no full backup for ${formatSpan(value)}`;
     case "db-agent-job":
       return `${server}: SQL Agent job ${subject.part ?? ""} ${resolved ? "had failed" : "failed"}`;
+    case "db-connections":
+      return `${server}: connections ${resolved ? "were at" : "at"} ${formatDiskShare(value)} of the maximum`;
+    case "db-wraparound":
+      return `${server}: ${subject.part ?? "a database"} ${resolved ? "was" : "is"} at ${formatDiskShare(value)} of transaction ID wraparound`;
   }
 }
 
@@ -267,6 +327,10 @@ export function ruleSummary(rule: AlertRule, threshold: number, windowSeconds: n
       return `Disk filling · full within ${formatDays(threshold)}`;
     case "error-rate":
       return `Error rate · above ${formatRatio(threshold)} for ${minutes} min`;
+    case "container-restarts":
+      return `Container restarts · ${count(threshold, "restart")} or more in ${minutes} min`;
+    case "container-memory":
+      return `Container memory · above ${formatDiskShare(threshold)} of its limit`;
     case "db-blocking":
       return `Blocking · ${count(threshold, "session")} or more for ${minutes} min`;
     case "db-deadlocks":
@@ -277,6 +341,10 @@ export function ruleSummary(rule: AlertRule, threshold: number, windowSeconds: n
       return `Backup age · no full backup for ${formatSpan(threshold)}`;
     case "db-agent-job":
       return "SQL Agent job · the last run failed";
+    case "db-connections":
+      return `Connections · above ${formatDiskShare(threshold)} of the maximum`;
+    case "db-wraparound":
+      return `Wraparound · transaction ID age above ${formatDiskShare(threshold)} of the limit`;
   }
 }
 
@@ -311,6 +379,10 @@ export function ruleSentence(
       return `Built-in rule: ${word} when a disk is full within ${formatDays(threshold)} at the pace of the last day.`;
     case "error-rate":
       return `Built-in rule: ${word} when ${formatRatio(threshold)} or more of records are errors over ${minutes} minutes.`;
+    case "container-restarts":
+      return `Built-in rule: ${word} at ${count(threshold, "restart")} or more in ${minutes} minutes. It clears after ${minutes} minutes without one.`;
+    case "container-memory":
+      return `Built-in rule: ${word} when a container uses ${formatDiskShare(threshold)} or more of its memory limit.`;
     case "db-blocking":
       return `Built-in rule: ${word} when ${count(threshold, "session")} or more stay blocked for ${minutes} minutes. It clears after 5 minutes without one.`;
     case "db-deadlocks":
@@ -321,6 +393,13 @@ export function ruleSentence(
       return `Built-in rule: ${word} when a database has had no full backup for ${formatSpan(threshold)}. A new backup clears it.`;
     case "db-agent-job":
       return `Built-in rule: ${word} when the last run of a SQL Agent job failed. The next successful run clears it.`;
+    case "db-connections":
+      return `Built-in rule: ${word} when ${formatDiskShare(threshold)} or more of the server's maximum connections are in use.`;
+    case "db-wraparound":
+      return (
+        `Built-in rule: ${word} when a database's oldest transaction ID is ${formatDiskShare(threshold)} or more ` +
+        "of the way to wraparound. A vacuum that freezes old rows clears it."
+      );
   }
 }
 
@@ -347,6 +426,10 @@ export function ruleMeasures(rule: AlertRule, windowSeconds: number): string {
       return "Full at the pace of the last day";
     case "error-rate":
       return `Of a service's log records over ${minutes} minutes`;
+    case "container-restarts":
+      return `Restarts of a container in ${minutes} minutes`;
+    case "container-memory":
+      return "Memory a container uses of its limit";
     case "db-blocking":
       return `Sessions of a database server blocked for ${minutes} minutes`;
     case "db-deadlocks":
@@ -357,6 +440,10 @@ export function ruleMeasures(rule: AlertRule, windowSeconds: number): string {
       return "Time since a database's last full backup";
     case "db-agent-job":
       return "The last run of a SQL Agent job";
+    case "db-connections":
+      return "Connections in use of a server's maximum (PostgreSQL)";
+    case "db-wraparound":
+      return "Transaction ID age of a database, of the wraparound limit (PostgreSQL)";
   }
 }
 

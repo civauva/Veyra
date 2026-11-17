@@ -42,7 +42,7 @@ test.describe("Metrics", () => {
     await answerApi(page);
     await page.goto("/metrics");
 
-    await page.getByRole("link", { name: /web-01/ }).click();
+    await page.getByRole("link", { name: /^web-01/ }).click();
 
     await expect(page.getByRole("heading", { level: 1, name: "web-01" })).toBeVisible();
     await expect(page.getByRole("meter", { name: "/ in use" })).toBeVisible();
@@ -53,6 +53,25 @@ test.describe("Metrics", () => {
     const chart = await holder.locator(".line-chart svg").first().boundingBox();
     const panel = await holder.boundingBox();
     expect(chart?.width ?? 0).toBeGreaterThan((panel?.width ?? 0) - 40);
+  });
+
+  test("leads from a container card to its row on its host, at every size", async ({ page }) => {
+    await answerApi(page);
+    await page.goto("/metrics");
+
+    const containers = page.getByRole("region", { name: "Containers" });
+    await expect(containers.getByRole("article")).toHaveCount(3);
+    expect(await scrollsSideways(page)).toBe(false);
+
+    await containers.getByRole("link", { name: /^shop-worker/ }).click();
+
+    await expect(page.getByRole("heading", { level: 1, name: "web-01" })).toBeVisible();
+    const row = page.locator("#container-shop-worker");
+    await expect(row).toHaveClass(/picked/);
+    await expect(row).toBeInViewport();
+    await expect(page.getByRole("meter", { name: "shop-worker memory of its limit" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Logs of shop-worker" })).toBeVisible();
+    expect(await scrollsSideways(page)).toBe(false);
   });
 
   test("opens a service and its routes", async ({ page }) => {

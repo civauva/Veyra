@@ -1,0 +1,195 @@
+# OpenTelemetry Collector (contrib distribution) for one PostgreSQL server (14 or newer): connections, database and
+# table sizes, deadlocks, locks, rows live and dead, vacuums, and replication from the postgresql receiver; transaction
+# ID age, blocked sessions, and the longest running query from sqlquery. All of it goes to Veyra over OTLP/HTTP.
+# See docs/integrations/postgres.md.
+#
+# Settings come from the environment, never from this file:
+#   VEYRA_OTLP_ENDPOINT       Veyra's OTLP/HTTP address, for example https://veyra.example.com or http://127.0.0.1:4318
+#   VEYRA_INGESTION_KEY       an ingestion key created in Veyra (vyk_...)
+#   VEYRA_ENVIRONMENT         the environment the server belongs to, for example production
+#   POSTGRES_SERVER           the name Veyra shows for this server, for example pg-main; keep it once chosen, since
+#                             Veyra files the server's history under it
+#   POSTGRES_HOST             the address the Collector connects to, for example pg-main.corp.local or 127.0.0.1
+#   POSTGRES_PORT             usually 5432
+#   POSTGRES_USER             the monitoring role, a member of pg_monitor (see the guide)
+#   POSTGRES_PASSWORD         its password, as it is; without spaces, quotes, or backslashes, which the postgresql
+#                             receiver cannot pass on
+#   POSTGRES_TLS_INSECURE     true to connect without TLS; false (the default) to require it
+#   POSTGRES_TLS_SKIP_VERIFY  true only for a server with a self-signed certificate the Collector cannot check
+#   POSTGRES_SSLMODE          the same choice for the sqlquery reads: verify-full (the default) checks the certificate
+#                             and the server's name, require encrypts without checking (with POSTGRES_TLS_SKIP_VERIFY
+#                             true), disable turns TLS off (with POSTGRES_TLS_INSECURE true)
+#
+# What arrives from the postgresql receiver (checked by test/run.sh against PostgreSQL 16 and 18). Each database's
+# series carry the resource attribute postgresql.database.name; each table's also postgresql.table.name, as
+# schema.table:
+#   postgresql.backends            sum    1              not monotonic; sessions per database, idle ones too
+#   postgresql.connection.max      gauge  {connections}  the server's max_connections; no database
+#   postgresql.db_size             sum    By             not monotonic; per database
+#   postgresql.deadlocks           sum    {deadlock}     cumulative, monotonic, per database
+#   postgresql.commits, .rollbacks sum    1              cumulative, monotonic, per database
+#   postgresql.rows                sum    1              not monotonic; per table, point attribute state dead or live
+#   postgresql.table.vacuum.count  sum    {vacuum}       cumulative, monotonic, per table; manual VACUUMs only
+#   postgresql.database.locks      gauge  {lock}         locks now, point attributes relation, mode, lock_type; no
+#                                                        database
+#
+# And from sqlquery, under the names Veyra reads (ADR 0018), each a gauge:
+#   postgresql.database.xid.age    {transactions}  age(datfrozenxid), per database (data point attribute
+#                                                  postgresql.database.name); wraparound comes at about 2 billion
+#   postgresql.sessions.blocked    {sessions}      sessions waiting for a lock for more than 30 seconds, server-wide
+#   postgresql.query.duration.max  s               the longest running active query now, per database; 0 when none
+
+receivers:
+  postgresql:
+    endpoint: ${env:POSTGRES_HOST}:${env:POSTGRES_PORT:-5432}
+    transport: tcp
+    username: ${env:POSTGRES_USER}
+    password: ${env:POSTGRES_PASSWORD}
+    # Veyra charts in one-minute buckets at the finest; two points a minute keep the newest bucket filled.
+    collection_interval: 30s
+    tls:
+      insecure: ${env:POSTGRES_TLS_INSECURE:-false}
+      insecure_skip_verify: ${env:POSTGRES_TLS_SKIP_VERIFY:-false}
+    events:
+      # Running queries from pg_stat_activity, sent as log events. Veyra has no screen for them yet, and
+      # postgresql.query.duration.max below already tells the longest one.
+      db.server.query_sample:
+        enabled: false
+      # Top queries need the pg_stat_statements extension in every database, and run EXPLAIN on them.
+      db.server.top_query:
+        enabled: false
+    # Beyond the receiver's defaults: what the database screen and the deadlock rule read.
+    metrics:
+      postgresql.deadlocks:
+        enabled: true
+      postgresql.database.locks:
+        enabled: true
+      postgresql.sequential_scans:
+        enabled: true
+      postgresql.temp_files:
+        enabled: true
+      postgresql.temp.io:
+        enabled: true
+      postgresql.blks_hit:
+        enabled: true
+      postgresql.blks_read:
+        enabled: true
+
+  # What the postgresql receiver does not measure, under the names Veyra reads (ADR 0018). pg_monitor lets the role see
+  # every session's state and start time; without it, other roles' queries stay hidden and are not counted. Query text
+  # is never read.
+  sqlquery:
+    driver: postgres
+    host: ${env:POSTGRES_HOST}
+    port: ${env:POSTGRES_PORT:-5432}
+    database: postgres
+    username: ${env:POSTGRES_USER}
+    password: ${env:POSTGRES_PASSWORD}
+    additional_params:
+      sslmode: ${env:POSTGRES_SSLMODE:-verify-full}
+      application_name: veyra-collector
+      connect_timeout: 10
+    # As often as the receiver, so a blocked session shows within half a minute of passing 30 seconds.
+    collection_interval: 30s
+    queries:
+      # How close each database is to transaction ID wraparound. VACUUM freezes old rows and lowers it; PostgreSQL
+      # stops taking writes when it nears 2^31.
+      - sql: >-
+          /* veyra-agent: transaction id age */
+          SELECT datname AS "postgresql.database.name", age(datfrozenxid) AS transactions
+          FROM pg_database
+          WHERE NOT datistemplate
+        metrics:
+          - metric_name: postgresql.database.xid.age
+            value_column: transactions
+            attribute_columns:
+              - postgresql.database.name
+            unit: "{transactions}"
+      # pg_locks knows since when each session waits (waitstart, PostgreSQL 14). A lock wait that long is a blocking
+      # chain, not ordinary contention.
+      - sql: >-
+          /* veyra-agent: blocked sessions */
+          SELECT count(DISTINCT pid) AS sessions
+          FROM pg_locks
+          WHERE NOT granted AND waitstart < clock_timestamp() - interval '30 seconds'
+        metrics:
+          - metric_name: postgresql.sessions.blocked
+            value_column: sessions
+            unit: "{sessions}"
+      # Applications' queries running now, in each database; the Collector's own session is left out, and background
+      # workers such as autovacuum, which run long by design.
+      - sql: >-
+          /* veyra-agent: longest query */
+          SELECT d.datname AS "postgresql.database.name",
+                 COALESCE(EXTRACT(EPOCH FROM max(clock_timestamp() - a.query_start)), 0)::float8 AS seconds
+          FROM pg_database AS d
+          LEFT JOIN pg_stat_activity AS a
+            ON a.datid = d.oid
+           AND a.state = 'active'
+           AND a.backend_type = 'client backend'
+           AND a.pid <> pg_backend_pid()
+          WHERE NOT d.datistemplate
+          GROUP BY d.datname
+        metrics:
+          - metric_name: postgresql.query.duration.max
+            value_column: seconds
+            value_type: double
+            attribute_columns:
+              - postgresql.database.name
+            unit: s
+
+processors:
+  # Veyra files everything from this server under one database block: db.system.name and server.address name it,
+  # deployment.environment.name places it (ADR 0018). The receiver names only the database, so two servers with a
+  # database of the same name could not be told apart without them.
+  resource:
+    attributes:
+      - key: db.system.name
+        value: postgresql
+        action: upsert
+      - key: server.address
+        value: ${env:POSTGRES_SERVER}
+        action: upsert
+      - key: deployment.environment.name
+        value: ${env:VEYRA_ENVIRONMENT:-production}
+        action: upsert
+  # Keeps the Collector's own memory bounded when Veyra is unreachable for a while.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 128
+  batch:
+    timeout: 10s
+
+exporters:
+  otlphttp:
+    endpoint: ${env:VEYRA_OTLP_ENDPOINT}
+    headers:
+      Authorization: Bearer ${env:VEYRA_INGESTION_KEY}
+    # Veyra answers 503 when a queue is full. The exporter retries and queues meanwhile.
+    retry_on_failure:
+      enabled: true
+      max_elapsed_time: 10m
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+
+service:
+  pipelines:
+    metrics:
+      receivers:
+        - postgresql
+      processors:
+        - memory_limiter
+        - resource
+        - batch
+      exporters:
+        - otlphttp
+    metrics/queries:
+      receivers:
+        - sqlquery
+      processors:
+        - memory_limiter
+        - resource
+        - batch
+      exporters:
+        - otlphttp

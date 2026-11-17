@@ -1,6 +1,8 @@
+using System.Security.Claims;
 using Microsoft.Extensions.Logging;
 using Veyra.Agents.Agents;
 using Veyra.Core.Security;
+using Veyra.Core.Settings;
 
 namespace Veyra.Agents.Enrollment;
 
@@ -13,12 +15,14 @@ namespace Veyra.Agents.Enrollment;
 /// <param name="codes">Where codes are stored, by their hashes.</param>
 /// <param name="issuer">Issues and revokes agent keys.</param>
 /// <param name="clock">The clock for creation and expiry.</param>
+/// <param name="history">The settings history, which names who added, reinstalled, or removed an agent.</param>
 /// <param name="logger">Records the security events: agents added, installed, and removed.</param>
 internal sealed partial class AgentEnrollment(
     AgentStore agents,
     EnrollmentStore codes,
     IIngestionKeyIssuer issuer,
     TimeProvider clock,
+    IMonitoringHistory history,
     ILogger<AgentEnrollment> logger)
 {
     /// <summary>How long a code works.</summary>
@@ -28,10 +32,11 @@ internal sealed partial class AgentEnrollment(
 
     /// <summary>Adds an agent for another network, not installed yet, with its first code.</summary>
     /// <param name="name">What the Agents page calls it, such as "Company network".</param>
+    /// <param name="by">Who adds it, for the settings history.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The agent and its code, shown once.</returns>
     /// <exception cref="AgentsValidationException">The name is empty or too long.</exception>
-    public async Task<AddedAgent> AddAsync(string name, CancellationToken cancellationToken)
+    public async Task<AddedAgent> AddAsync(string name, ClaimsPrincipal by, CancellationToken cancellationToken)
     {
         var trimmed = name?.Trim() ?? "";
 
@@ -46,27 +51,33 @@ internal sealed partial class AgentEnrollment(
             Placement: AgentPlacement.Remote,
             IngestionKeyId: null,
             CreatedAt: clock.GetUtcNow(),
-            Report: AgentReport.None);
+            Report: AgentReport.None,
+            Watch: HostWatch.None);
 
         await agents.InsertAsync(agent, cancellationToken);
         var code = await IssueAsync(agent.Id, cancellationToken);
         LogAdded(agent.Id, agent.Name);
+        await RecordAsync(agent.Name, MonitoringChangeKind.Added, [], by, cancellationToken);
 
         return new AddedAgent(agent, code.Code, code.ExpiresAt);
     }
 
     /// <summary>Gives an agent for another network a new code, to install it for the first time or again.</summary>
     /// <param name="agentId">The agent.</param>
+    /// <param name="by">Who asks for it, for the settings history: a code lets a machine become this agent.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The code, or <see langword="null"/> when there is no such agent in another network.</returns>
-    public async Task<IssuedCode?> NewCodeAsync(Guid agentId, CancellationToken cancellationToken)
+    public async Task<IssuedCode?> NewCodeAsync(Guid agentId, ClaimsPrincipal by, CancellationToken cancellationToken)
     {
-        if (await agents.FindAsync(agentId, cancellationToken) is not { Placement: AgentPlacement.Remote })
+        if (await agents.FindAsync(agentId, cancellationToken) is not { Placement: AgentPlacement.Remote } agent)
         {
             return null;
         }
 
-        return await IssueAsync(agentId, cancellationToken);
+        var code = await IssueAsync(agentId, cancellationToken);
+        await RecordAsync(agent.Name, MonitoringChangeKind.Changed, ["install code"], by, cancellationToken);
+
+        return code;
     }
 
     /// <summary>
@@ -116,13 +127,14 @@ internal sealed partial class AgentEnrollment(
     /// Removes an agent for another network: revokes its key, so it can no longer connect or send, and its codes.
     /// </summary>
     /// <param name="agentId">The agent.</param>
+    /// <param name="by">Who removes it, for the settings history.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>Whether there was such an agent.</returns>
     /// <exception cref="AgentsValidationException">
     /// The agent is the built-in one, which comes and goes with Veyra.
     /// </exception>
     /// <exception cref="AgentsConflictException">The agent still reads servers.</exception>
-    public async Task<bool> RemoveAsync(Guid agentId, CancellationToken cancellationToken)
+    public async Task<bool> RemoveAsync(Guid agentId, ClaimsPrincipal by, CancellationToken cancellationToken)
     {
         if (await agents.FindAsync(agentId, cancellationToken) is not { } agent)
         {
@@ -138,9 +150,9 @@ internal sealed partial class AgentEnrollment(
         {
             throw new AgentsConflictException(
                 servers == 1
-                    ? $"{agent.Name} still reads a SQL Server. Give it to another agent, or remove it, first."
-                    : $"{agent.Name} still reads {servers} SQL Servers. Give them to another agent, or remove them, "
-                        + "first.");
+                    ? $"{agent.Name} still reads a database server. Give it to another agent, or remove it, first."
+                    : $"{agent.Name} still reads {servers} database servers. Give them to another agent, or remove "
+                        + "them, first.");
         }
 
         await codes.DeleteForAgentAsync(agentId, cancellationToken);
@@ -152,9 +164,21 @@ internal sealed partial class AgentEnrollment(
         }
 
         LogRemoved(agent.Id, agent.Name);
+        await RecordAsync(agent.Name, MonitoringChangeKind.Removed, [], by, cancellationToken);
 
         return true;
     }
+
+    private Task RecordAsync(
+        string name,
+        MonitoringChangeKind kind,
+        IReadOnlyList<string> fields,
+        ClaimsPrincipal by,
+        CancellationToken cancellationToken) =>
+        history.RecordAsync(
+            new MonitoringChange(MonitoringSubject.Agent, name, kind, fields),
+            by,
+            cancellationToken);
 
     private async Task<IssuedCode> IssueAsync(Guid agentId, CancellationToken cancellationToken)
     {

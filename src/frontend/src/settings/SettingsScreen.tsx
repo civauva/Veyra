@@ -5,6 +5,7 @@ import { api, ApiError } from "../api/client";
 import { useViewMode, ViewToggle } from "../app/ViewToggle";
 import type { SettingChangeInput, SettingsFile, SettingsPage, SettingsReview } from "../api/types";
 import { AgentsPanel } from "./AgentsPanel";
+import { ClearTelemetry } from "./ClearTelemetry";
 import { DatabaseMonitoring } from "./DatabaseMonitoring";
 import { ReviewDialog } from "./ReviewDialog";
 import { SettingCard } from "./SettingCard";
@@ -85,8 +86,8 @@ export function SettingsScreen() {
   // The servers and agents give the Database monitoring and Agents sections their lines in the list. Refreshed when
   // the section changes, so a server just added is counted on the way back.
   useEffect(() => {
-    Promise.all([api.sqlServers(), api.agents()])
-      .then(([servers, agents]) => setWatched({ servers, agents }))
+    Promise.all([api.sqlServers(), api.postgresServers(), api.agents()])
+      .then(([servers, postgres, agents]) => setWatched({ servers, postgres, agents }))
       .catch(() => setWatched(null));
   }, [section]);
 
@@ -408,6 +409,7 @@ export function SettingsScreen() {
                 />
               ))
             )}
+            {section === "Data" && !query && <ClearTelemetry />}
             {query && shown.length === 0 && <p className="settings-empty">No setting matches “{query}”.</p>}
           </section>
         </div>

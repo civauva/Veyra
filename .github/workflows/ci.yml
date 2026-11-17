@@ -110,3 +110,81 @@ jobs:
         run: bash integrations/sqlserver/test/run.sh
         env:
           MSSQL_IMAGE_TAG: ${{ matrix.version }}
+
+  # The tested Collector configuration for PostgreSQL (integrations/postgres) against a real server of the oldest and
+  # newest supported versions, with and without TLS: every metric Veyra reads, under the attributes Veyra files them by
+  # (ADR 0018).
+  postgres:
+    name: PostgreSQL ${{ matrix.image }}, TLS ${{ matrix.tls }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: postgres:14
+            tls: "on"
+          - image: postgres:16
+            tls: "on"
+          - image: postgres:18-alpine
+            tls: "off"
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Check the Collector configuration
+        run: bash integrations/postgres/test/run.sh
+        env:
+          POSTGRES_IMAGE: ${{ matrix.image }}
+          POSTGRES_TLS: ${{ matrix.tls }}
+
+  # The tested Collector configuration for Docker (integrations/docker) against real containers on the runner's own
+  # Docker: every container metric Veyra reads, and container logs carrying the container's name (ADR 0018).
+  docker:
+    name: Docker containers
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Check the Collector configuration
+        run: bash integrations/docker/test/run.sh
+
+  # The Windows host configuration against a real Collector on a Windows runner, with IIS serving its default site and
+  # an Event Log error of the check's own (VEY-35).
+  windows:
+    name: Windows host and IIS
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install IIS
+        shell: pwsh
+        run: Install-WindowsFeature -Name Web-Server | Out-Null
+
+      - name: Download the Collector, checked against its release's checksum
+        shell: pwsh
+        run: |
+          $version = "0.140.1"
+          $base = "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v$version"
+          $file = "otelcol-contrib_${version}_windows_amd64.tar.gz"
+          Invoke-WebRequest "$base/$file" -OutFile $file
+          $sums = "opentelemetry-collector-releases_otelcol-contrib_windows_checksums.txt"
+          Invoke-WebRequest "$base/$sums" -OutFile sums.txt
+          $expected = ((Select-String -Path sums.txt -Pattern ([regex]::Escape($file) + '$')).Line -split '\s+')[0]
+          if ((Get-FileHash $file -Algorithm SHA256).Hash -ne $expected.ToUpperInvariant()) {
+            throw "The Collector's checksum does not match its release."
+          }
+          New-Item -ItemType Directory otelcol | Out-Null
+          tar -xzf $file -C otelcol
+
+      - name: Check the Collector configuration
+        shell: pwsh
+        run: integrations/windows/test/run.ps1 -Collector otelcol/otelcol-contrib.exe -WithIis -WriteEvent

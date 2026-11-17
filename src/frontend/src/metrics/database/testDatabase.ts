@@ -1,4 +1,5 @@
 import type {
+  PermissionsView,
   AgentJobView,
   AvailabilityView,
   ChartLine,
@@ -554,4 +555,30 @@ export const configurationView: ConfigurationView = {
   findings: [],
   sysadmins: ["sa", "VEYRA\\dba"],
   changes: [],
+};
+
+/** A login that may read everything (VEY-58). */
+export const permissionsGranted: PermissionsView = {
+  reported: true,
+  login: "veyra_monitor",
+  platform: "sqlserver",
+  gaps: [],
+  script: null,
+};
+
+/** An Azure SQL Database whose contained user may read everything (VEY-57). */
+export const permissionsAzureDatabase: PermissionsView = { ...permissionsGranted, platform: "azure-sql-database" };
+
+/** A Managed Instance whose login may read everything (VEY-57). */
+export const permissionsManagedInstance: PermissionsView = { ...permissionsGranted, platform: "managed-instance" };
+
+/** A login created before the job steps and schedules were read (VEY-58). */
+export const permissionsMissingJobSteps: PermissionsView = {
+  reported: true,
+  login: "veyra_monitor",
+  platform: "sqlserver",
+  gaps: [{ permission: "SELECT ON msdb.dbo.sysjobsteps", tabs: ["jobs"], reads: "the steps of each job run" }],
+  script:
+    "USE msdb;\nIF USER_ID(N'veyra_monitor') IS NULL CREATE USER [veyra_monitor] FOR LOGIN [veyra_monitor];\n" +
+    "GRANT SELECT ON dbo.sysjobsteps TO [veyra_monitor];\nGO",
 };

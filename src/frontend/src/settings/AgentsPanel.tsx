@@ -6,6 +6,7 @@ import { HostIcon } from "../metrics/MetricCards";
 import { AddAgentCard } from "./AddAgentCard";
 import { BuiltInAgentGuide } from "./BuiltInAgentGuide";
 import { CommandBlock } from "./CommandBlock";
+import { HostWatchForm } from "./HostWatchForm";
 import { InstallBox } from "./InstallBox";
 import { agentStateWords, ago, uninstallCommand, type StateWords } from "./monitoringFormat";
 import { StateChip } from "./StateChip";
@@ -45,7 +46,7 @@ function agentLine(agent: Agent, now: Date): string {
   const place = agent.placement === "BuiltIn" ? "Beside Veyra" : "In another network";
   const parts = [
     agent.hostName ? `${place} on ${agent.hostName}` : place,
-    agent.servers === 1 ? "reads 1 SQL Server" : `reads ${agent.servers} SQL Servers`,
+    agent.servers === 1 ? "reads 1 database server" : `reads ${agent.servers} database servers`,
   ];
 
   if (agent.version) {
@@ -178,6 +179,9 @@ export function AgentsPanel() {
                 )}
                 {remote && !agent.installed && (
                   <span className="monitor-why wait">Install it on a machine in its network with a one-time code.</span>
+                )}
+                {remote && agent.installed && (
+                  <HostWatchForm key={agent.id} agent={agent} onSaved={() => void load()} />
                 )}
                 {removing === agent.id && (
                   <div className="monitor-remove">

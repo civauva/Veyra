@@ -20,8 +20,15 @@ interface SettingsHistoryPanelProps {
   onClose: () => void;
 }
 
-/** What a change did, in words: "3 s → 2 s", "Changed, hidden", "14 days → default". */
+/**
+ * What a change did, in words: "3 s → 2 s", "Changed, hidden", "14 days → default", or for a monitored system
+ * "Added", "Removed", or "Changed port, password", which names fields but never their values.
+ */
 function whatChanged(change: SettingHistoryItem, setting: Setting | undefined): string {
+  if (change.subject) {
+    return change.kind === "Changed" && change.fields?.length ? `Changed ${change.fields.join(", ")}` : change.kind;
+  }
+
   if (change.secret) {
     return "Changed, hidden";
   }

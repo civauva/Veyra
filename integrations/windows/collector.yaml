@@ -1,0 +1,130 @@
+# OpenTelemetry Collector (contrib distribution) for one Windows host: CPU, memory, disks, network, and the errors of
+# the System and Application Event Logs, sent to Veyra over OTLP/HTTP (ADR 0018). See docs/integrations/windows.md.
+# With IIS on the host, add iis.yaml beside it: --config collector.yaml --config iis.yaml.
+#
+# Settings come from the environment, never from this file:
+#   VEYRA_OTLP_ENDPOINT   Veyra's OTLP/HTTP address, for example https://veyra.example.com
+#   VEYRA_INGESTION_KEY   an ingestion key created in Veyra (vyk_...)
+#   VEYRA_ENVIRONMENT     the environment the host belongs to, for example production
+
+receivers:
+  hostmetrics:
+    # Veyra charts in one-minute buckets at the finest; two points a minute keep the newest bucket filled.
+    collection_interval: 30s
+    scrapers:
+      # system.cpu.time per CPU and state. Veyra turns it into the share of time busy.
+      cpu:
+      # system.memory.usage per state. The states add up to the host's memory.
+      memory:
+      # system.filesystem.usage per drive and state. Veyra estimates when each disk fills. CD and DVD drives never
+      # fill.
+      filesystem:
+        exclude_fs_types:
+          fs_types:
+            - CDFS
+            - UDF
+          match_type: strict
+      # system.disk.io per disk and direction.
+      disk:
+      # system.network.io per interface and direction. Loopback is local traffic only.
+      network:
+        exclude:
+          interfaces:
+            - Loopback.*
+          match_type: regexp
+      # system.paging.usage: the page file, which Windows fills when memory runs short.
+      paging:
+
+  # Errors and critical events of the System and Application logs (ADR 0018). The receiver maps each event's level to
+  # the log severity: Critical to fatal, Error to error, Warning to warn, Information to info. Only new events are
+  # read; the filter below keeps errors and worse.
+  windowseventlog/system:
+    channel: System
+    start_at: end
+  windowseventlog/application:
+    channel: Application
+    start_at: end
+
+processors:
+  # host.name and os.description from the host, deployment.environment.name from the environment. Veyra names the
+  # host card after host.name, and files Event Log errors under the same host.
+  resourcedetection:
+    detectors:
+      - system
+    system:
+      hostname_sources:
+        - os
+      resource_attributes:
+        os.description:
+          enabled: true
+  resource:
+    attributes:
+      - key: deployment.environment.name
+        value: ${env:VEYRA_ENVIRONMENT:-production}
+        action: upsert
+  # Warnings and information stay on the host: a busy server writes thousands of them a day.
+  filter/errors:
+    error_mode: ignore
+    logs:
+      log_record:
+        - severity_number < SEVERITY_NUMBER_ERROR
+  # An event arrives as a map of its parts. Its message becomes the log's text, and its ID, provider, and channel
+  # attributes Veyra can filter by. An event whose provider's message files are gone, such as an uninstalled driver's,
+  # has no message: it reads "Event 7023 from Service Control Manager".
+  transform/eventlog:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - set(attributes["windows.event.id"], body["event_id"]["id"]) where IsMap(body)
+          - set(attributes["windows.event.provider"], body["provider"]["name"]) where IsMap(body)
+          - set(attributes["windows.event.channel"], body["channel"]) where IsMap(body)
+          - set(body, body["message"]) where IsMap(body) and body["message"] != nil and body["message"] != ""
+          - >-
+            set(body, Format("Event %v from %v", [attributes["windows.event.id"],
+            attributes["windows.event.provider"]])) where IsMap(body)
+  # Keeps the Collector's own memory bounded when Veyra is unreachable for a while.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 128
+  batch:
+    timeout: 10s
+
+exporters:
+  otlphttp:
+    endpoint: ${env:VEYRA_OTLP_ENDPOINT}
+    headers:
+      Authorization: Bearer ${env:VEYRA_INGESTION_KEY}
+    # Veyra answers 503 when its queues are full. The exporter retries and queues meanwhile.
+    retry_on_failure:
+      enabled: true
+      max_elapsed_time: 10m
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+
+service:
+  pipelines:
+    metrics:
+      receivers:
+        - hostmetrics
+      processors:
+        - memory_limiter
+        - resourcedetection
+        - resource
+        - batch
+      exporters:
+        - otlphttp
+    logs/eventlog:
+      receivers:
+        - windowseventlog/system
+        - windowseventlog/application
+      processors:
+        - memory_limiter
+        - filter/errors
+        - transform/eventlog
+        - resourcedetection
+        - resource
+        - batch
+      exporters:
+        - otlphttp

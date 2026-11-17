@@ -61,9 +61,12 @@ test.describe("Log Explorer", () => {
     await page.goto("/logs");
     await expect(page.getByText(/Showing 100 of/)).toBeVisible();
 
-    await page.locator(".log-list").evaluate((list) => list.scrollTo(0, list.scrollHeight));
-
-    await expect(page.getByText(/Showing 150 of/)).toBeVisible();
+    // Under load the first scroll can come before the list watches its end, so a person would scroll again; so does
+    // the test, until the next page arrives.
+    await expect(async () => {
+      await page.locator(".log-list").evaluate((list) => list.scrollTo(0, list.scrollHeight));
+      await expect(page.getByText(/Showing 150 of/)).toBeVisible({ timeout: 1000 });
+    }).toPass();
     expect(searches.some((search) => search.url().includes("cursor=page-2"))).toBe(true);
   });
 

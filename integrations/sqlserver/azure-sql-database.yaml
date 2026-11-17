@@ -1,0 +1,127 @@
+# What Veyra's agent reads on an Azure SQL Database beyond the reads of collector.yaml that apply there (ADR 0020,
+# VEY-57). Azure SQL Database is one database: it has no SQL Server Agent, no msdb, no system_health, and no
+# server-wide views, so Veyra leaves those reads of collector.yaml out and adds these, scoped to the database. The
+# connection names the database, and the login is a contained user created in it (see the SQL Server guide).
+#
+# Veyra merges this file into an agent's configuration for each Azure SQL Database; it is not a Collector
+# configuration of its own. Each receiver joins the pipeline of collector.yaml named under service.pipelines below.
+#
+# Not yet verified against a live Azure SQL Database: VEY-57 stays open until it is.
+
+receivers:
+  # The database's share of its service tier, and its size, every minute.
+  sqlquery/azure:
+    driver: sqlserver
+    datasource: >-
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
+    collection_interval: 60s
+    queries:
+      # The newest 15-second row of sys.dm_db_resource_stats, as shares of the tier's limits. CPU goes under the name
+      # the screens already read for a server's CPU.
+      - sql: >-
+          /* veyra-agent: resource stats */
+          SELECT TOP (1) avg_cpu_percent / 100.0 AS cpu, avg_data_io_percent / 100.0 AS data_io,
+                 avg_log_write_percent / 100.0 AS log_write, avg_memory_usage_percent / 100.0 AS memory,
+                 max_worker_percent / 100.0 AS workers
+          FROM sys.dm_db_resource_stats
+          ORDER BY end_time DESC
+        metrics:
+          - metric_name: sqlserver.cpu.sql.ratio
+            value_column: cpu
+            value_type: double
+            data_type: gauge
+          - metric_name: sqlserver.azure.data_io.ratio
+            value_column: data_io
+            value_type: double
+            data_type: gauge
+          - metric_name: sqlserver.azure.log_write.ratio
+            value_column: log_write
+            value_type: double
+            data_type: gauge
+          - metric_name: sqlserver.azure.memory.ratio
+            value_column: memory
+            value_type: double
+            data_type: gauge
+          - metric_name: sqlserver.workers.ratio
+            value_column: workers
+            value_type: double
+            data_type: gauge
+      # Data and log size, as collector.yaml's "database size" reports it for a server.
+      - sql: >-
+          /* veyra-agent: database size */
+          SELECT DB_NAME() AS database_name, CASE type WHEN 1 THEN 'log' ELSE 'data' END AS file_type,
+                 SUM(CAST(size AS bigint)) * 8192 AS bytes
+          FROM sys.database_files
+          WHERE type IN (0, 1)
+          GROUP BY CASE type WHEN 1 THEN 'log' ELSE 'data' END
+        metrics:
+          - metric_name: sqlserver.database.size
+            value_column: bytes
+            attribute_columns: [database_name, file_type]
+            value_type: int
+            data_type: gauge
+            unit: By
+
+  # What the contained user may read, every 5 minutes, as collector.yaml reports it for a server (VEY-58).
+  sqlquery/azurestorage:
+    driver: sqlserver
+    datasource: >-
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
+    collection_interval: 5m
+    queries:
+      - sql: >-
+          /* veyra-agent: permissions */
+          SELECT p.permission, USER_NAME() AS login, 'azure-sql-database' AS platform,
+                 CASE WHEN ISNULL(p.granted, 0) = 1 THEN 0 ELSE 1 END AS missing
+          FROM (VALUES
+            (N'VIEW DATABASE STATE', HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'VIEW DATABASE STATE')),
+            (N'VIEW DEFINITION', HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'VIEW DEFINITION'))
+          ) AS p(permission, granted)
+        metrics:
+          - metric_name: sqlserver.login.permission.missing
+            value_column: missing
+            attribute_columns: [permission, login, platform]
+            value_type: int
+            data_type: gauge
+
+  # Deadlocks of the last three minutes, every minute. Azure SQL Database keeps none unless a database-scoped
+  # session records them: the SQL Server guide's script creates veyra_deadlocks, read here like system_health.
+  sqlquery/azureevents:
+    driver: sqlserver
+    datasource: >-
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
+    collection_interval: 60s
+    queries:
+      - sql: >-
+          /* veyra-agent: deadlocks */
+          WITH target AS (
+            SELECT CAST(t.target_data AS xml) AS data
+            FROM sys.dm_xe_database_session_targets AS t
+            JOIN sys.dm_xe_database_sessions AS s ON s.address = t.event_session_address
+            WHERE s.name = 'veyra_deadlocks' AND t.target_name = 'ring_buffer'
+          ),
+          found AS (
+            SELECT e.value('@timestamp', 'datetime2') AS at,
+                   CONVERT(nvarchar(max), e.query('data/value/deadlock')) AS graph
+            FROM target
+            CROSS APPLY data.nodes('RingBufferTarget/event[@name="xml_deadlock_report"]') AS x(e)
+          )
+          SELECT 'sqlserver.deadlock' AS veyra_record,
+                 CONVERT(varchar(30), DATEDIFF_BIG(MILLISECOND, '1970-01-01', at)) AS sample,
+                 CONVERT(varchar(64), HASHBYTES('SHA2_256', graph), 2) AS [key],
+                 graph
+          FROM found
+          WHERE at > DATEADD(MINUTE, -3, SYSUTCDATETIME())
+        logs:
+          - body_column: graph
+            attribute_columns: [veyra_record, sample, key]
+
+service:
+  pipelines:
+    metrics/queries:
+      receivers:
+        - sqlquery/azure
+        - sqlquery/azurestorage
+    logs/live:
+      receivers:
+        - sqlquery/azureevents

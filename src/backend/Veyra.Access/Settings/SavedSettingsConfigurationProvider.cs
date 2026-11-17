@@ -75,9 +75,7 @@ internal sealed class SavedSettingsConfigurationProvider(string connectionString
                 }
             }
 
-            using (var version = new NpgsqlCommand(
-                "SELECT coalesce(max(id), 0) FROM access.setting_change",
-                connection))
+            using (var version = new NpgsqlCommand(SettingStore.VersionSql, connection))
             {
                 Version = (long)version.ExecuteScalar()!;
             }

@@ -1,4 +1,5 @@
 import { api } from "../../api/client";
+import { unreadText } from "./unread";
 import { formatClockTime } from "../metricFormat";
 import { useMetricData } from "../useMetricData";
 import { FindingItem } from "./StorageTab";
@@ -11,6 +12,8 @@ export interface ConfigurationSectionProps {
   server: string;
   /** Whether the Advanced view is on. */
   advanced: boolean;
+  /** Whether the login lacks a permission this tab needs, so an empty answer proves nothing (VEY-58). */
+  blind?: boolean;
 }
 
 /**
@@ -18,7 +21,7 @@ export interface ConfigurationSectionProps {
  * statement to run; the Advanced view adds every setting worth knowing, the sysadmin members, and the changes of the
  * last 30 days.
  */
-export function ConfigurationSection({ engine, server, advanced }: ConfigurationSectionProps) {
+export function ConfigurationSection({ engine, server, advanced, blind = false }: ConfigurationSectionProps) {
   const { data } = useMetricData(`configuration-${engine}-${server}`, (signal) =>
     api.databaseConfiguration(engine, server, signal),
   );
@@ -34,7 +37,7 @@ export function ConfigurationSection({ engine, server, advanced }: Configuration
         <span>read every hour</span>
       </div>
       {data.findings.length === 0 ? (
-        <p className="metrics-empty">The settings and security posture look right.</p>
+        <p className="metrics-empty">{blind ? unreadText : "The settings and security posture look right."}</p>
       ) : (
         <ul className="live-findings">
           {data.findings.map((finding, index) => (

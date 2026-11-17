@@ -22,25 +22,44 @@ public sealed class DatabaseServerController : ControllerBase
 
     private readonly ConfigurationViewBuilder _configuration;
 
+    private readonly PermissionsViewBuilder _permissions;
+
     /// <summary>Creates the controller.</summary>
     /// <param name="server">Builds the Server tab.</param>
     /// <param name="jobs">Builds the Jobs tab.</param>
     /// <param name="events">Builds the Events tab.</param>
     /// <param name="availability">Builds the availability.</param>
     /// <param name="configuration">Builds the configuration and security posture.</param>
+    /// <param name="permissions">Reads what the monitoring login lacks.</param>
     internal DatabaseServerController(
         ServerViewBuilder server,
         JobsViewBuilder jobs,
         EventsViewBuilder events,
         AvailabilityViewBuilder availability,
-        ConfigurationViewBuilder configuration)
+        ConfigurationViewBuilder configuration,
+        PermissionsViewBuilder permissions)
     {
         _server = server;
         _jobs = jobs;
         _events = events;
         _availability = availability;
         _configuration = configuration;
+        _permissions = permissions;
     }
+
+    /// <summary>
+    /// The permissions the monitoring login lacks, the tabs they leave empty, and the script to grant them.
+    /// </summary>
+    /// <param name="engine">The engine.</param>
+    /// <param name="server">The server.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The gaps; none when the login may read everything.</returns>
+    [HttpGet("permissions")]
+    public Task<PermissionsResponse> PermissionsAsync(
+        string engine,
+        string server,
+        CancellationToken cancellationToken) =>
+        _permissions.PermissionsAsync(engine, server, cancellationToken);
 
     /// <summary>The server's settings, security posture, and their changes.</summary>
     /// <param name="engine">The engine.</param>

@@ -1,0 +1,103 @@
+/* ---- PostgreSQL servers (VEY-33, ADR 0018) ---- */
+
+.pg-now {
+  margin-bottom: 14px;
+}
+
+.pg-now-body {
+  display: grid;
+  grid-template-columns: minmax(200px, auto) minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+}
+
+.pg-rings {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(96px, 1fr));
+  gap: 10px;
+  padding: 6px 16px 6px 0;
+  border-right: 1px solid var(--line);
+}
+
+.pg-tiles {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  margin-bottom: 0;
+}
+
+/* The databases and the tables each take the whole width: their columns need it. */
+.metric-panels.pg-panels {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.pg-table .number {
+  white-space: nowrap;
+}
+
+.pg-table small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pg-table th code {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.pg-xid-cell {
+  min-width: 150px;
+}
+
+.pg-meter {
+  display: grid;
+  grid-template-columns: minmax(60px, 1fr) 46px;
+  gap: 8px;
+  align-items: center;
+}
+
+.pg-meter b {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: right;
+}
+
+.pg-muted {
+  color: var(--faint);
+}
+
+@media (max-width: 1199px) {
+  .pg-now-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pg-rings {
+    padding: 0 0 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+}
+
+@media (max-width: 767px) {
+  .pg-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* Two figures a line on a phone, each with its label, and the bars across the whole row. */
+  .route-table.pg-table tr {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 12px;
+  }
+
+  .pg-table .number {
+    white-space: normal;
+  }
+
+  .pg-xid-cell {
+    grid-column: 1 / -1;
+    min-width: 0;
+  }
+
+  .pg-table-database {
+    display: block;
+  }
+}

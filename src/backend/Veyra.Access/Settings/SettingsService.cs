@@ -49,6 +49,20 @@ internal sealed class SettingsService(
             ? _definitions.Values.Where(definition => definition.Section == parsed).Select(d => d.Key).ToList()
             : [];
 
+    /// <summary>
+    /// The kinds of monitored systems a section of the Settings screen sets up, for filtering the history by section.
+    /// They are not settings, so they have sections of their own: Database monitoring and Agents.
+    /// </summary>
+    /// <param name="section">The section's name, such as <c>Databases</c>.</param>
+    /// <returns>The kinds; empty for a section of settings or an unknown one.</returns>
+    public static IReadOnlyList<MonitoringSubject> SubjectsOf(string section) =>
+        section.ToUpperInvariant() switch
+        {
+            "DATABASES" => [MonitoringSubject.SqlServer, MonitoringSubject.PostgresServer],
+            "AGENTS" => [MonitoringSubject.Agent],
+            _ => [],
+        };
+
     /// <summary>Every setting in screen order, with its value, default, and who saved it.</summary>
     /// <param name="cancellationToken">Cancels the queries.</param>
     /// <returns>The page.</returns>
@@ -121,7 +135,7 @@ internal sealed class SettingsService(
             return null;
         }
 
-        if (change.Secret || !_definitions.ContainsKey(change.Name))
+        if (change.Secret || change.Subject is not null || !_definitions.ContainsKey(change.Name))
         {
             return SettingsSaveResult.Refused(new SettingsReviewResponse(
                 [new SettingProblemResponse(change.Name, "This change cannot be set back from the history.")],
@@ -152,6 +166,11 @@ internal sealed class SettingsService(
 
         var changes = page.Changes.Select(change =>
         {
+            if (change.Subject is { } subject)
+            {
+                return MonitoringItem(change, subject);
+            }
+
             var definition = _definitions.GetValueOrDefault(change.Name);
 
             return new SettingHistoryItemResponse(
@@ -173,6 +192,32 @@ internal sealed class SettingsService(
 
         return new SettingsHistoryResponse(changes, page.Next);
     }
+
+    // A change to a monitored system or agent: named after it, with the fields it touched and no values. It cannot be
+    // reverted from the history, because the old values, a password among them, were never kept.
+    private static SettingHistoryItemResponse MonitoringItem(SettingChangeRecord change, MonitoringSubject subject) =>
+        new(
+            change.Id,
+            change.Name,
+            change.Name,
+            subject switch
+            {
+                MonitoringSubject.SqlServer => "SQL Server",
+                MonitoringSubject.PostgresServer => "PostgreSQL server",
+                _ => "Agent",
+            },
+            subject == MonitoringSubject.Agent ? "Agents" : "Databases",
+            null,
+            null,
+            false,
+            change.Kind.ToString(),
+            change.ChangedBy,
+            change.ChangedByName,
+            change.ChangedAt,
+            null,
+            CanRevert: false,
+            Subject: subject.ToString(),
+            Fields: change.Fields ?? []);
 
     /// <summary>Every saved value except secrets, as a file to import elsewhere.</summary>
     /// <param name="cancellationToken">Cancels the query.</param>

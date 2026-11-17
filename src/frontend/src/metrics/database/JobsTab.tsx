@@ -1,4 +1,5 @@
 import { api } from "../../api/client";
+import { unreadText } from "./unread";
 import type { AgentJobView } from "../../api/types";
 import { formatClockTime, formatSpan } from "../metricFormat";
 import { useMetricData } from "../useMetricData";
@@ -12,13 +13,15 @@ export interface JobsTabProps {
   server: string;
   /** Whether the Advanced view is on. */
   advanced: boolean;
+  /** Whether the login lacks a permission this tab needs, so an empty answer proves nothing (VEY-58). */
+  blind?: boolean;
 }
 
 /**
  * A SQL Server's Jobs tab (ADR 0020, area 10). The Simple view lists the jobs that need a look, failed, late, or
  * running long, with when each runs next; the Advanced view lists every job with its runs and steps of the last week.
  */
-export function JobsTab({ engine, server, advanced }: JobsTabProps) {
+export function JobsTab({ engine, server, advanced, blind = false }: JobsTabProps) {
   const { data, error } = useMetricData(`jobs-${engine}-${server}`, (signal) =>
     api.databaseJobs(engine, server, signal),
   );
@@ -40,9 +43,11 @@ export function JobsTab({ engine, server, advanced }: JobsTabProps) {
         <span>{advanced ? "every job, the ones that need a look first" : "the ones that need a look"}</span>
       </div>
       {data.length === 0 ? (
-        <p className="metrics-empty">The server has no enabled SQL Agent job.</p>
+        <p className="metrics-empty">{blind ? unreadText : "The server has no enabled SQL Agent job."}</p>
       ) : shown.length === 0 ? (
-        <p className="metrics-empty">Every job ran when it should, succeeded, and took its usual time.</p>
+        <p className="metrics-empty">
+          {blind ? unreadText : "Every job ran when it should, succeeded, and took its usual time."}
+        </p>
       ) : (
         <ul className="live-findings">
           {shown.map((job) => (

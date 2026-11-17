@@ -16,6 +16,13 @@ tests
 samples
 scripts
 integrations
+# The Collector templates the Agents module embeds (deploy/Dockerfile copies each one).
 !integrations/sqlserver/collector.yaml
+!integrations/sqlserver/azure-sql-database.yaml
+!integrations/windows/collector.yaml
+!integrations/windows/iis.yaml
+!integrations/linux/collector.yaml
+!integrations/docker/collector.yaml
+!integrations/postgres/collector.yaml
 deploy
 **/dist

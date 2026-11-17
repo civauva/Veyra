@@ -8,6 +8,7 @@ import type {
   AddedAgent,
   Agent,
   AgentCode,
+  AgentHostInput,
   AlertDetails,
   AlertList,
   CatalogRule,
@@ -22,6 +23,7 @@ import type {
   ServerEvent,
   AvailabilityView,
   ConfigurationView,
+  PermissionsView,
   AlertQuery,
   AlertSummary,
   ChannelInput,
@@ -40,6 +42,8 @@ import type {
   NewUser,
   NotificationChannel,
   PasswordStep,
+  PostgresServer,
+  PostgresServerInput,
   SecondFactorPolicy,
   SecondFactorSetup,
   SendResult,
@@ -379,6 +383,13 @@ export const api = {
       { signal },
     ),
 
+  /** What the monitoring login lacks on a database server, and the statements that grant it (VEY-58). */
+  databasePermissions: (engine: string, server: string, signal?: AbortSignal) =>
+    request<PermissionsView>(
+      `/api/v1/metrics/databases/${encodeURIComponent(engine)}/${encodeURIComponent(server)}/permissions`,
+      { signal },
+    ),
+
   /** The catalog rules with the words their alerts use (ADR 0020). */
   alertCatalog: (signal?: AbortSignal) => request<CatalogRule[]>("/api/v1/alerts/catalog", { signal }),
 
@@ -582,6 +593,10 @@ export const api = {
   saveSettings: (version: number, changes: SettingChangeInput[], confirmed: boolean, origin: string | null = null) =>
     request<SettingsPage>("/api/v1/settings", { method: "PUT", body: { version, changes, confirmed, origin } }),
 
+  /** Deletes all telemetry, once the person typed the site's host name (VEY-59). Admins only. */
+  clearTelemetry: (confirm: string) =>
+    request<undefined>("/api/v1/settings/clear-telemetry", { method: "POST", body: { confirm } }),
+
   /** A page of the settings history, newest first. */
   settingsHistory: (params: URLSearchParams, signal?: AbortSignal) =>
     request<SettingsHistory>(`/api/v1/settings/history?${params}`, { signal }),
@@ -616,6 +631,10 @@ export const api = {
   /** Removes an agent in another network and revokes its key. */
   deleteAgent: (id: string) => request<undefined>(`/api/v1/agents/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
+  /** Sets what an installed agent reads of its own host; answers with the agent, or 400 with the reason. */
+  setAgentHost: (id: string, input: AgentHostInput) =>
+    request<Agent>(`/api/v1/agents/${encodeURIComponent(id)}/host`, { method: "PUT", body: input }),
+
   /** The SQL Servers Veyra's agents read, by name, each with its state. */
   sqlServers: (signal?: AbortSignal) => request<SqlServer[]>("/api/v1/sql-servers", { signal }),
 
@@ -630,4 +649,19 @@ export const api = {
   /** Removes a SQL Server; the data it sent stays until retention removes it. */
   deleteSqlServer: (id: string) =>
     request<undefined>(`/api/v1/sql-servers/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+  /** The PostgreSQL servers Veyra's agents read, by name, each with its state. */
+  postgresServers: (signal?: AbortSignal) => request<PostgresServer[]>("/api/v1/postgres-servers", { signal }),
+
+  /** Adds a PostgreSQL server; its agent starts reading it within 30 seconds. */
+  createPostgresServer: (input: PostgresServerInput) =>
+    request<PostgresServer>("/api/v1/postgres-servers", { method: "POST", body: input }),
+
+  /** Changes a PostgreSQL server; a null password keeps the stored one. */
+  updatePostgresServer: (id: string, input: PostgresServerInput) =>
+    request<PostgresServer>(`/api/v1/postgres-servers/${encodeURIComponent(id)}`, { method: "PUT", body: input }),
+
+  /** Removes a PostgreSQL server; the data it sent stays until retention removes it. */
+  deletePostgresServer: (id: string) =>
+    request<undefined>(`/api/v1/postgres-servers/${encodeURIComponent(id)}`, { method: "DELETE" }),
 };

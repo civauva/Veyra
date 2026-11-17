@@ -58,6 +58,34 @@ internal static class SqlServerStatuses
         DateTimeOffset? lastData,
         DateTimeOffset now)
     {
+        ArgumentNullException.ThrowIfNull(server);
+
+        return Of(server.Id, server.ChangedAt, agent, errors, lastData, now, _reasons);
+    }
+
+    /// <summary>
+    /// Tells the state of any server an agent reads, SQL Server or PostgreSQL (VEY-33), from the words its errors are
+    /// matched against.
+    /// </summary>
+    /// <param name="serverId">The server's ID, which its Collector components are named after.</param>
+    /// <param name="changedAt">When the server was last changed; older errors belong to its old settings.</param>
+    /// <param name="agent">What its agent last reported.</param>
+    /// <param name="errors">Recent reader errors of the agent's servers; other servers' errors are ignored.</param>
+    /// <param name="lastData">When the server's figures last arrived, or <see langword="null"/> for not lately.</param>
+    /// <param name="now">The current time.</param>
+    /// <param name="reasons">Words in the engine's errors and the state each means, first match wins.</param>
+    /// <returns>The state, with the error or time behind it.</returns>
+    public static SqlServerStatus Of(
+        Guid serverId,
+        DateTimeOffset changedAt,
+        AgentReport agent,
+        IEnumerable<ReaderError> errors,
+        DateTimeOffset? lastData,
+        DateTimeOffset now,
+        IReadOnlyList<(string Words, SqlServerState State)> reasons)
+    {
+        ArgumentNullException.ThrowIfNull(agent);
+
         if (agent.LastSeenAt is not { } seen)
         {
             return new SqlServerStatus(SqlServerState.AgentNotConnected, null, null);
@@ -75,14 +103,14 @@ internal static class SqlServerStatuses
 
         // An error from before the server was last changed belongs to the old settings.
         var latest = errors
-            .Where(error => error.ServerId == server.Id
-                && error.At > server.ChangedAt
+            .Where(error => error.ServerId == serverId
+                && error.At > changedAt
                 && now - error.At <= ErrorsWithin)
             .MaxBy(error => error.At);
 
         if (latest is not null)
         {
-            var state = _reasons
+            var state = reasons
                 .Where(reason => latest.Message.Contains(reason.Words, StringComparison.OrdinalIgnoreCase))
                 .Select(reason => (SqlServerState?)reason.State)
                 .FirstOrDefault() ?? SqlServerState.Failing;

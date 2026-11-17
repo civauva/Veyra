@@ -14,4 +14,10 @@ internal enum SettingChangeKind
 
     /// <summary>Set from an imported file.</summary>
     Imported = 4,
+
+    /// <summary>A monitored system or agent was set up.</summary>
+    Added = 5,
+
+    /// <summary>A monitored system or agent was removed.</summary>
+    Removed = 6,
 }

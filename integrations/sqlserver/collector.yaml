@@ -20,7 +20,7 @@
 receivers:
   sqlserver:
     datasource: >-
-      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
     # Veyra charts in one-minute buckets at the finest; several points a minute keep the newest bucket filled.
     collection_interval: 15s
     events:
@@ -60,12 +60,12 @@ receivers:
   sqlquery:
     driver: sqlserver
     datasource: >-
-      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
     collection_interval: 60s
     queries:
       # Data and log files per database. Veyra shows the size and its growth per day.
       - sql: >-
-          /* veyra-agent */
+          /* veyra-agent: database size */
           SELECT DB_NAME(database_id) AS database_name,
                  CASE type WHEN 1 THEN 'log' ELSE 'data' END AS file_type,
                  SUM(CAST(size AS bigint)) * 8192 AS bytes
@@ -85,7 +85,7 @@ receivers:
       # Seconds since the last full backup finished, for each database that has ever had one. tempdb cannot be
       # backed up; a database never backed up has no point, so the backup rule leaves it alone.
       - sql: >-
-          /* veyra-agent */
+          /* veyra-agent: backup age */
           SELECT d.name AS database_name,
                  DATEDIFF_BIG(SECOND, MAX(b.backup_finish_date), GETDATE()) AS seconds
           FROM sys.databases AS d
@@ -104,7 +104,7 @@ receivers:
       # The last run of every enabled SQL Agent job: whether it failed, when it started (Unix seconds in UTC; SQL Agent
       # keeps the server's local time), and how long it took in seconds. Jobs that never ran have no point.
       - sql: >-
-          /* veyra-agent */
+          /* veyra-agent: job last run */
           SELECT j.name AS job_name,
                  CASE WHEN h.run_status = 0 THEN 1 ELSE 0 END AS failed,
                  DATEDIFF_BIG(SECOND, '1970-01-01',
@@ -145,7 +145,7 @@ receivers:
       # The longest running user request now, per online database; 0 when nothing runs, so the long-query alert
       # clears as soon as the query ends.
       - sql: >-
-          /* veyra-agent */
+          /* veyra-agent: longest request */
           SELECT d.name AS database_name,
                  COALESCE(MAX(r.total_elapsed_time), 0) / 1000.0 AS seconds
           FROM sys.databases AS d
@@ -245,7 +245,7 @@ receivers:
   sqlquery/live:
     driver: sqlserver
     datasource: >-
-      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
     collection_interval: 10s
     queries:
       - sql: >-
@@ -366,7 +366,7 @@ receivers:
   sqlquery/plans:
     driver: sqlserver
     datasource: >-
-      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
     collection_interval: 15m
     queries:
       - sql: >-
@@ -395,28 +395,46 @@ receivers:
           - body_column: plan_xml
             attribute_columns: [veyra_record, sample, key, query_hash, database_name]
 
-  # Rare events from the built-in system_health session's ring buffer (ADR 0020): every minute, those of the last
-  # three minutes. Each is sent with a hash of its XML as its key, so Veyra keeps it once although it is read three
-  # times. Deadlocks carry their graph.
+  # Rare events from the built-in system_health session (ADR 0020): every minute, those of the last three minutes.
+  # They are read from the session's current event file. Its ring buffer, which these reads used first, returns at
+  # most 4 MB of XML, and on a server that has run for days the newest events are the ones it cuts off. A server whose
+  # system_health writes no file falls back to the ring buffer. The file's timestamp_utc is compared inside DATEADD:
+  # compared directly, SQL Server pushes the filter into the function and it matches nothing (2022 CU14). Each is
+  # sent with a hash of its XML as its key, so Veyra keeps it once although it is read three times. Deadlocks carry
+  # their graph.
   sqlquery/events:
     driver: sqlserver
     datasource: >-
-      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
     collection_interval: 60s
     queries:
       - sql: >-
           /* veyra-agent: deadlocks */
-          WITH target AS (
-            SELECT CAST(t.target_data AS xml) AS data
+          SET NOCOUNT ON;
+          DECLARE @file nvarchar(520) = (
+            SELECT TOP (1) CAST(t.target_data AS xml).value('(EventFileTarget/File/@name)[1]', 'nvarchar(520)')
             FROM sys.dm_xe_session_targets AS t
             JOIN sys.dm_xe_sessions AS s ON s.address = t.event_session_address
-            WHERE s.name = 'system_health' AND t.target_name = 'ring_buffer'
-          ),
-          found AS (
+            WHERE s.name = 'system_health' AND t.target_name = 'event_file');
+          DECLARE @events TABLE (data xml NOT NULL);
+          IF @file IS NOT NULL
+            INSERT @events (data)
+            SELECT CAST(f.event_data AS xml)
+            FROM sys.fn_xe_file_target_read_file(@file, NULL, NULL, NULL) AS f
+            WHERE f.object_name = N'xml_deadlock_report' AND DATEADD(MINUTE, 3, f.timestamp_utc) > SYSUTCDATETIME();
+          ELSE
+            INSERT @events (data)
+            SELECT x.e.query('.')
+            FROM (SELECT CAST(t.target_data AS xml) AS data
+                  FROM sys.dm_xe_session_targets AS t
+                  JOIN sys.dm_xe_sessions AS s ON s.address = t.event_session_address
+                  WHERE s.name = 'system_health' AND t.target_name = 'ring_buffer') AS r
+            CROSS APPLY r.data.nodes('RingBufferTarget/event[@name="xml_deadlock_report"]') AS x(e);
+          WITH found AS (
             SELECT e.value('@timestamp', 'datetime2') AS at,
                    CONVERT(nvarchar(max), e.query('data/value/deadlock')) AS graph
-            FROM target
-            CROSS APPLY data.nodes('RingBufferTarget/event[@name="xml_deadlock_report"]') AS x(e)
+            FROM @events AS v
+            CROSS APPLY v.data.nodes('event') AS x(e)
           )
           SELECT 'sqlserver.deadlock' AS veyra_record,
                  CONVERT(varchar(30), DATEDIFF_BIG(MILLISECOND, '1970-01-01', at)) AS sample,
@@ -431,13 +449,29 @@ receivers:
       # waits, non-yielding schedulers, and security and connectivity records, of the last three minutes.
       - sql: >-
           /* veyra-agent: events */
-          WITH target AS (
-            SELECT CAST(t.target_data AS xml) AS data
+          SET NOCOUNT ON;
+          DECLARE @file nvarchar(520) = (
+            SELECT TOP (1) CAST(t.target_data AS xml).value('(EventFileTarget/File/@name)[1]', 'nvarchar(520)')
             FROM sys.dm_xe_session_targets AS t
             JOIN sys.dm_xe_sessions AS s ON s.address = t.event_session_address
-            WHERE s.name = 'system_health' AND t.target_name = 'ring_buffer'
-          ),
-          found AS (
+            WHERE s.name = 'system_health' AND t.target_name = 'event_file');
+          DECLARE @events TABLE (data xml NOT NULL);
+          IF @file IS NOT NULL
+            INSERT @events (data)
+            SELECT CAST(f.event_data AS xml)
+            FROM sys.fn_xe_file_target_read_file(@file, NULL, NULL, NULL) AS f
+            WHERE f.object_name NOT IN (N'xml_deadlock_report', N'sp_server_diagnostics_component_result')
+              AND DATEADD(MINUTE, 3, f.timestamp_utc) > SYSUTCDATETIME();
+          ELSE
+            INSERT @events (data)
+            SELECT x.e.query('.')
+            FROM (SELECT CAST(t.target_data AS xml) AS data
+                  FROM sys.dm_xe_session_targets AS t
+                  JOIN sys.dm_xe_sessions AS s ON s.address = t.event_session_address
+                  WHERE s.name = 'system_health' AND t.target_name = 'ring_buffer') AS r
+            CROSS APPLY r.data.nodes('RingBufferTarget/event[@name != "xml_deadlock_report"
+              and @name != "sp_server_diagnostics_component_result"]') AS x(e);
+          WITH found AS (
             SELECT e.value('@name', 'varchar(100)') AS event_name,
                    e.value('@timestamp', 'datetime2') AS at,
                    ISNULL(e.value('(data[@name="severity"]/value)[1]', 'int'), 0) AS severity,
@@ -447,9 +481,8 @@ receivers:
                    ISNULL(e.value('(data[@name="duration"]/value)[1]', 'bigint'), 0) AS duration,
                    LEFT(ISNULL(e.value('(data[@name="message"]/value)[1]', 'nvarchar(2000)'), ''), 2000) AS message,
                    CONVERT(nvarchar(max), e.query('.')) AS xml
-            FROM target
-            CROSS APPLY data.nodes('RingBufferTarget/event[@name != "xml_deadlock_report"
-              and @name != "sp_server_diagnostics_component_result"]') AS x(e)
+            FROM @events AS v
+            CROSS APPLY v.data.nodes('event') AS x(e)
           )
           SELECT 'sqlserver.event' AS veyra_record,
                  CONVERT(varchar(30), DATEDIFF_BIG(MILLISECOND, '1970-01-01', at)) AS sample,
@@ -470,7 +503,7 @@ receivers:
   sqlquery/querystore:
     driver: sqlserver
     datasource: >-
-      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
     collection_interval: 15m
     queries:
       - sql: >-
@@ -518,9 +551,42 @@ receivers:
   sqlquery/storage:
     driver: sqlserver
     datasource: >-
-      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
     collection_interval: 5m
     queries:
+      # Each permission Veyra's queries need, 1 when the login lacks it, so a tab can say why it is empty and how to
+      # grant what is missing (VEY-58). A login without a user in msdb lacks every msdb object. It also says which
+      # platform the agent reads (VEY-57), so the screen leaves out what that platform does not have.
+      - sql: >-
+          /* veyra-agent: permissions */
+          SELECT p.permission, SUSER_NAME() AS login, '${env:SQLSERVER_PLATFORM:-sqlserver}' AS platform,
+                 CASE WHEN ISNULL(p.granted, 0) = 1 THEN 0 ELSE 1 END AS missing
+          FROM (VALUES
+            (N'VIEW SERVER STATE', HAS_PERMS_BY_NAME(NULL, NULL, 'VIEW SERVER STATE')),
+            (N'VIEW ANY DEFINITION', HAS_PERMS_BY_NAME(NULL, NULL, 'VIEW ANY DEFINITION')),
+            (N'CONNECT ANY DATABASE', HAS_PERMS_BY_NAME(NULL, NULL, 'CONNECT ANY DATABASE')),
+            (N'SELECT ON msdb.dbo.backupset', HAS_PERMS_BY_NAME('msdb.dbo.backupset', 'OBJECT', 'SELECT')),
+            (N'SELECT ON msdb.dbo.backupmediafamily',
+              HAS_PERMS_BY_NAME('msdb.dbo.backupmediafamily', 'OBJECT', 'SELECT')),
+            (N'SELECT ON msdb.dbo.suspect_pages', HAS_PERMS_BY_NAME('msdb.dbo.suspect_pages', 'OBJECT', 'SELECT')),
+            (N'SELECT ON msdb.dbo.sysjobs', HAS_PERMS_BY_NAME('msdb.dbo.sysjobs', 'OBJECT', 'SELECT')),
+            (N'SELECT ON msdb.dbo.sysjobhistory', HAS_PERMS_BY_NAME('msdb.dbo.sysjobhistory', 'OBJECT', 'SELECT')),
+            (N'EXECUTE ON msdb.dbo.agent_datetime', HAS_PERMS_BY_NAME('msdb.dbo.agent_datetime', 'OBJECT', 'EXECUTE')),
+            (N'SELECT ON msdb.dbo.sysjobsteps', HAS_PERMS_BY_NAME('msdb.dbo.sysjobsteps', 'OBJECT', 'SELECT')),
+            (N'SELECT ON msdb.dbo.sysjobactivity', HAS_PERMS_BY_NAME('msdb.dbo.sysjobactivity', 'OBJECT', 'SELECT')),
+            (N'SELECT ON msdb.dbo.sysjobschedules', HAS_PERMS_BY_NAME('msdb.dbo.sysjobschedules', 'OBJECT', 'SELECT')),
+            (N'SELECT ON msdb.dbo.sysschedules', HAS_PERMS_BY_NAME('msdb.dbo.sysschedules', 'OBJECT', 'SELECT')),
+            (N'SELECT ON msdb.dbo.log_shipping_monitor_primary',
+              HAS_PERMS_BY_NAME('msdb.dbo.log_shipping_monitor_primary', 'OBJECT', 'SELECT')),
+            (N'SELECT ON msdb.dbo.log_shipping_monitor_secondary',
+              HAS_PERMS_BY_NAME('msdb.dbo.log_shipping_monitor_secondary', 'OBJECT', 'SELECT'))
+          ) AS p(permission, granted)
+        metrics:
+          - metric_name: sqlserver.login.permission.missing
+            value_column: missing
+            attribute_columns: [permission, login, platform]
+            value_type: int
+            data_type: gauge
       # Each database's state and the settings worth knowing; 1 when it is not online.
       - sql: >-
           /* veyra-agent: databases */
@@ -702,7 +768,7 @@ receivers:
   sqlquery/indexes:
     driver: sqlserver
     datasource: >-
-      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
     collection_interval: 1h
     queries:
       - sql: >-
@@ -779,7 +845,7 @@ receivers:
   sqlquery/server:
     driver: sqlserver
     datasource: >-
-      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
     collection_interval: 60s
     queries:
       - sql: >-
@@ -973,7 +1039,7 @@ receivers:
   sqlquery/jobs:
     driver: sqlserver
     datasource: >-
-      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
     collection_interval: 60s
     queries:
       - sql: >-
@@ -1048,7 +1114,7 @@ receivers:
   sqlquery/config:
     driver: sqlserver
     datasource: >-
-      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
     collection_interval: 1h
     queries:
       - sql: >-

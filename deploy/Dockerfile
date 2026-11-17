@@ -24,6 +24,12 @@ COPY src/backend/ src/backend/
 
 # The tested Collector template the Agents module builds its agents' configuration from (ADR 0019).
 COPY integrations/sqlserver/collector.yaml integrations/sqlserver/collector.yaml
+COPY integrations/sqlserver/azure-sql-database.yaml integrations/sqlserver/azure-sql-database.yaml
+COPY integrations/windows/collector.yaml integrations/windows/collector.yaml
+COPY integrations/windows/iis.yaml integrations/windows/iis.yaml
+COPY integrations/linux/collector.yaml integrations/linux/collector.yaml
+COPY integrations/docker/collector.yaml integrations/docker/collector.yaml
+COPY integrations/postgres/collector.yaml integrations/postgres/collector.yaml
 
 RUN dotnet restore src/backend/Veyra.Api/Veyra.Api.csproj
 

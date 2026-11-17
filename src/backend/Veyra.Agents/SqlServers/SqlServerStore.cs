@@ -7,7 +7,7 @@ namespace Veyra.Agents.SqlServers;
 internal sealed class SqlServerStore(NpgsqlDataSource dataSource)
 {
     private const string _columns =
-        "id, name, address, port, environment, agent_id, login, encryption, created_at, changed_at, password";
+        "id, name, address, port, environment, agent_id, login, encryption, created_at, changed_at, password, platform, database_name";
 
     // PostgreSQL's code for a unique violation, raised when another server has the name.
     private const string _uniqueViolation = "23505";
@@ -21,7 +21,7 @@ internal sealed class SqlServerStore(NpgsqlDataSource dataSource)
     public async Task InsertAsync(SqlServer server, string protectedPassword, CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(
-            $"INSERT INTO agents.sql_server ({_columns}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)");
+            $"INSERT INTO agents.sql_server ({_columns}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)");
         AddAll(command, server, protectedPassword);
 
         await ExecuteAsync(command, server.Name, cancellationToken);
@@ -44,7 +44,8 @@ internal sealed class SqlServerStore(NpgsqlDataSource dataSource)
             """
             UPDATE agents.sql_server
             SET name = $2, address = $3, port = $4, environment = $5, agent_id = $6, login = $7, encryption = $8,
-                changed_at = $10, password = COALESCE($11, password)
+                changed_at = $10, password = COALESCE($11, password), platform = $12,
+                database_name = $13
             WHERE id = $1
             """);
         AddAll(command, server, protectedPassword);
@@ -119,6 +120,8 @@ internal sealed class SqlServerStore(NpgsqlDataSource dataSource)
         command.Parameters.AddWithValue(server.CreatedAt);
         command.Parameters.AddWithValue(server.ChangedAt);
         command.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Text, (object?)protectedPassword ?? DBNull.Value);
+        command.Parameters.AddWithValue((short)server.Platform);
+        command.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Text, (object?)server.Database ?? DBNull.Value);
     }
 
     private static async Task<int> ExecuteAsync(NpgsqlCommand command, string name, CancellationToken cancellationToken)
@@ -153,7 +156,9 @@ internal sealed class SqlServerStore(NpgsqlDataSource dataSource)
                 Login: reader.GetString(6),
                 Encryption: (SqlServerEncryption)reader.GetInt16(7),
                 CreatedAt: reader.GetFieldValue<DateTimeOffset>(8),
-                ChangedAt: reader.GetFieldValue<DateTimeOffset>(9));
+                ChangedAt: reader.GetFieldValue<DateTimeOffset>(9),
+                Platform: (SqlServerPlatform)reader.GetInt16(11),
+                Database: reader.IsDBNull(12) ? null : reader.GetString(12));
 
             servers.Add((server, reader.GetString(10)));
         }

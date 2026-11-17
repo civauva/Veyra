@@ -19,6 +19,9 @@ public class StatementNamesTests
     [InlineData("INSERT INTO dbo.OrderEvents (OrderId) VALUES (@id)", "Insert into OrderEvents")]
     [InlineData("DELETE FROM dbo.Sessions WHERE ExpiresAt < @now", "Delete from Sessions by ExpiresAt")]
     [InlineData("MERGE INTO dbo.Stock AS t USING @rows AS s ON t.Id = s.Id", "Merge into Stock")]
+    [InlineData("WAITFOR DELAY '00:03:00';", "Pause (WAITFOR 00:03:00)")]
+    [InlineData("BEGIN TRAN; WAITFOR DELAY '00:00:05';", "Transaction: pause (WAITFOR 00:00:05)")]
+    [InlineData("BEGIN TRAN; DBCC CHECKDB (shop)", "Transaction: DBCC CHECKDB (shop)")]
     [InlineData("EXEC dbo.RefreshTokens @batch = 100", "Run RefreshTokens")]
     [InlineData("/* app */ EXECUTE reporting.MonthlyReport @month", "Run reporting.MonthlyReport")]
     [InlineData(
@@ -35,7 +38,7 @@ public class StatementNamesTests
     [Fact]
     public void Describe_LongTextItCannotRead_IsShortened()
     {
-        var text = "WAITFOR DELAY '00:00:10'; " + new string('x', 100);
+        var text = "DBCC CHECKDB (shop) WITH NO_INFOMSGS; " + new string('x', 100);
 
         var name = StatementNames.Describe(text);
 

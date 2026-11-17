@@ -1,3 +1,4 @@
+using Veyra.Agents.PostgresServers;
 using Veyra.Core.Metrics;
 using Veyra.Core.Telemetry;
 
@@ -69,16 +70,43 @@ internal sealed class SqlServerSignals(ILogSearch logs, IMetricSearch metrics)
     /// <returns>
     /// The time, to the minute, or <see langword="null"/> when none arrived in the last five minutes.
     /// </returns>
-    public async Task<DateTimeOffset?> LastDataAsync(
+    public Task<DateTimeOffset?> LastDataAsync(
         SqlServer server,
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(server);
+
+        return LastDataAsync(TelemetryBlock.Database(SqlServerEngine, server.Name), now, cancellationToken);
+    }
+
+    /// <summary>Finds when a PostgreSQL server's figures last arrived (VEY-33).</summary>
+    /// <param name="server">The server.</param>
+    /// <param name="now">The current time.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    /// <returns>
+    /// The time, to the minute, or <see langword="null"/> when none arrived in the last five minutes.
+    /// </returns>
+    public Task<DateTimeOffset?> LastDataAsync(
+        PostgresServer server,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(server);
+
+        return LastDataAsync(
+            TelemetryBlock.Database(PostgresServerStatuses.Engine, server.Name),
+            now,
+            cancellationToken);
+    }
+
+    private async Task<DateTimeOffset?> LastDataAsync(
+        TelemetryBlock block,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
         var series = await metrics.FindSeriesAsync(
-            new MetricSeriesQuery(
-                SeenSince: now - DataWithin,
-                Limit: 1,
-                Block: TelemetryBlock.Database(SqlServerEngine, server.Name)),
+            new MetricSeriesQuery(SeenSince: now - DataWithin, Limit: 1, Block: block),
             cancellationToken);
 
         return series.Count == 0 ? null : series.Max(one => one.LastSeen);

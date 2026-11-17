@@ -15,6 +15,10 @@ namespace Veyra.Agents.SqlServers;
 /// <param name="Encryption">How the connection is encrypted.</param>
 /// <param name="CreatedAt">When it was added.</param>
 /// <param name="ChangedAt">When it was last changed.</param>
+/// <param name="Platform">The kind of SQL Server it is.</param>
+/// <param name="Database">
+/// The one database it is read in, for an Azure SQL Database; otherwise <see langword="null"/>.
+/// </param>
 internal sealed record SqlServer(
     Guid Id,
     string Name,
@@ -25,4 +29,6 @@ internal sealed record SqlServer(
     string Login,
     SqlServerEncryption Encryption,
     DateTimeOffset CreatedAt,
-    DateTimeOffset ChangedAt);
+    DateTimeOffset ChangedAt,
+    SqlServerPlatform Platform = SqlServerPlatform.SqlServer,
+    string? Database = null);

@@ -141,6 +141,29 @@ export function shareTone(share: number | null): "ok" | "warn" | "bad" {
 }
 
 /**
+ * Whether a container needs a look: it uses 90 % or more of its memory limit, or restarted twice or more in the range,
+ * the caution levels of the container rules (ADR 0018). The rules decide alerts; this only marks the card.
+ *
+ * @param container - The container's memory of its limit and its restarts in the range.
+ * @param container.memoryRatio - Memory in use of its limit, from 0 to 1, or null when unknown.
+ * @param container.restarts - Restarts in the range, or null when unknown.
+ * @returns True when it is near its limit or restarting.
+ */
+export function containerIsHot(container: { memoryRatio: number | null; restarts: number | null }): boolean {
+  return (container.memoryRatio ?? 0) >= 0.9 || (container.restarts ?? 0) >= 2;
+}
+
+/**
+ * A container's CPU in use as a share of one CPU: above 100 % when it uses more than one.
+ *
+ * @param percent - Percent of one CPU, as Docker reports it, or null when unknown.
+ * @returns For example `12%`, `148%`, `0.8%`, or `—`.
+ */
+export function formatCpuPercent(percent: number | null): string {
+  return formatShare(percent === null ? null : percent / 100);
+}
+
+/**
  * When a disk is full, in words.
  *
  * @param days - Days until full, or null when it is not filling.

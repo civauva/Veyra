@@ -4,7 +4,7 @@ import { api } from "../api/client";
 import { useShell } from "../app/shellContext";
 import { useViewMode, ViewToggle } from "../app/ViewToggle";
 import type { MetricsOverview, MetricRange } from "../api/types";
-import { DatabaseCardView, HostCardView, ServiceCardView } from "./MetricCards";
+import { ContainerCardView, DatabaseCardView, HostCardView, ServiceCardView } from "./MetricCards";
 import { MetricBrowser } from "./MetricBrowser";
 import { formatAmount, formatRate } from "./metricFormat";
 import { RangePicker, rangeFrom } from "./RangePicker";
@@ -12,8 +12,8 @@ import { useMetricData } from "./useMetricData";
 import "./metrics.css";
 
 /**
- * The Metrics screen: every host and service that sends metrics, as cards, and a browser of every metric name. The
- * range, the tab, and the search are kept in the URL, so a link shows the same view.
+ * The Metrics screen: every host, database server, container, and service that sends metrics, as cards, and a browser
+ * of every metric name. The range, the tab, and the search are kept in the URL, so a link shows the same view.
  */
 export function MetricsScreen() {
   const [params, setParams] = useSearchParams();
@@ -135,10 +135,19 @@ function Overview({ overview, range, search, environment, advanced }: OverviewPr
   const databases = overview.databases.filter(
     (database) => inEnvironment(database.environment, true) && database.server.toLowerCase().includes(needle),
   );
+  const containers = overview.containers.filter(
+    (container) => inEnvironment(container.environment, true) && container.name.toLowerCase().includes(needle),
+  );
   const filling = overview.hosts.filter((host) => host.fillingDisk).length;
+  const restarting = overview.containers.filter((container) => (container.restarts ?? 0) > 0).length;
   const { usage } = overview;
 
-  if (overview.hosts.length === 0 && overview.services.length === 0 && overview.databases.length === 0) {
+  if (
+    overview.hosts.length === 0 &&
+    overview.services.length === 0 &&
+    overview.databases.length === 0 &&
+    overview.containers.length === 0
+  ) {
     return (
       <div className="metrics-empty">
         <b>No metrics yet</b>
@@ -171,6 +180,15 @@ function Overview({ overview, range, search, environment, advanced }: OverviewPr
             <dt>Databases</dt>
             <dd>
               {overview.databases.length} <small>{overview.databases.length === 1 ? "server" : "servers"}</small>
+            </dd>
+          </div>
+        )}
+        {overview.containers.length > 0 && (
+          <div>
+            <dt>Containers</dt>
+            <dd>
+              {overview.containers.length}{" "}
+              <small>{restarting === 0 ? "none restarting" : `${restarting} restarting`}</small>
             </dd>
           </div>
         )}
@@ -231,6 +249,25 @@ function Overview({ overview, range, search, environment, advanced }: OverviewPr
         </section>
       )}
 
+      {containers.length > 0 && (
+        <section aria-labelledby="metrics-containers">
+          <div className="metrics-section">
+            <h2 id="metrics-containers">Containers</h2>
+            <span>from the Collector&apos;s docker_stats receiver</span>
+          </div>
+          <div className="metric-cards">
+            {containers.map((container) => (
+              <ContainerCardView
+                key={`${container.host ?? ""}-${container.name}`}
+                container={container}
+                range={range}
+                now={now}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
       {services.length > 0 && (
         <section aria-labelledby="metrics-services">
           <div className="metrics-section">
@@ -250,7 +287,7 @@ function Overview({ overview, range, search, environment, advanced }: OverviewPr
         </section>
       )}
 
-      {hosts.length === 0 && services.length === 0 && (
+      {hosts.length === 0 && services.length === 0 && databases.length === 0 && containers.length === 0 && (
         <p className="metrics-empty">No host or service matches “{search}”.</p>
       )}
     </>

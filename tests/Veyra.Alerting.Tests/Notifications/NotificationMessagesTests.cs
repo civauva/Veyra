@@ -218,6 +218,82 @@ public class NotificationMessagesTests
         Assert.Null(message.Alert.Service);
     }
 
+    [Theory]
+    [InlineData(
+        "db-connections",
+        null,
+        AlertEventKind.Opened,
+        0.86,
+        "Warning: PostgreSQL pg-main: connections at 86% of the maximum (production)")]
+    [InlineData(
+        "db-connections",
+        null,
+        AlertEventKind.Resolved,
+        0.7,
+        "Resolved: PostgreSQL pg-main: connections are back to 70% of the maximum (production) after 36 min")]
+    [InlineData(
+        "db-wraparound",
+        "shop",
+        AlertEventKind.Opened,
+        0.52,
+        "Warning: PostgreSQL pg-main: shop is at 52% of transaction ID wraparound (production)")]
+    [InlineData(
+        "db-wraparound",
+        "shop",
+        AlertEventKind.Resolved,
+        0.03,
+        "Resolved: PostgreSQL pg-main: shop is back to 3% of transaction ID wraparound (production) after 36 min")]
+    [InlineData(
+        "db-blocking",
+        null,
+        AlertEventKind.Opened,
+        2,
+        "Warning: PostgreSQL pg-main: 2 sessions blocked for 5 min (production)")]
+    public void For_PostgresRules_NameTheServerAndDatabaseInWords(
+        string rule,
+        string? part,
+        AlertEventKind kind,
+        double value,
+        string expected)
+    {
+        var alert = Alert() with
+        {
+            Rule = rule,
+            Subject = AlertSubject.Database("postgresql pg-main", part),
+            Value = value,
+            Peak = value,
+        };
+
+        var message = NotificationMessages.For(Event(kind, value) with { At = _opened.AddMinutes(36) }, alert, _site);
+
+        Assert.Equal(expected, message.Text);
+        Assert.Equal(("database", part), (message.Alert!.Block.Kind, message.Alert.Block.Part));
+    }
+
+    [Fact]
+    public void ToEmailBody_WraparoundAlert_SaysTheShareOfTheLimit()
+    {
+        var alert = Alert() with
+        {
+            Rule = "db-wraparound",
+            Subject = AlertSubject.Database("postgresql pg-main", "shop"),
+            Value = 0.52,
+            Peak = 0.52,
+            Threshold = 0.5,
+        };
+
+        var body = NotificationMessages.ToEmailBody(
+            NotificationMessages.For(Event(AlertEventKind.Opened, 0.52), alert, _site),
+            "on call");
+
+        Assert.Contains("Server:       PostgreSQL pg-main", body, StringComparison.Ordinal);
+        Assert.Contains("Database:     shop", body, StringComparison.Ordinal);
+        Assert.Contains(
+            "Wraparound:   52% of the transaction ID limit (warning from 50%)",
+            body,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public void ToEmailBody_DatabaseAlert_NamesTheServerAndDatabase()
     {
@@ -237,6 +313,70 @@ public class NotificationMessagesTests
         Assert.Contains("Server:       SQL Server sql-prod-01", body, StringComparison.Ordinal);
         Assert.Contains("Database:     shop", body, StringComparison.Ordinal);
         Assert.Contains("Last backup:  1 d 7 h ago (warning from 1 d 2 h)", body, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(
+        "container-restarts",
+        AlertEventKind.Opened,
+        3,
+        "Warning: Container shop-api on web-01 restarted 3 times in 15 minutes (production)")]
+    [InlineData(
+        "container-restarts",
+        AlertEventKind.Resolved,
+        0,
+        "Resolved: Container shop-api on web-01 had no restart for 15 minutes (production) after 36 min")]
+    [InlineData(
+        "container-memory",
+        AlertEventKind.Opened,
+        0.93,
+        "Warning: Container shop-api on web-01 uses 93% of its memory limit (production)")]
+    [InlineData(
+        "container-memory",
+        AlertEventKind.Resolved,
+        0.8,
+        "Resolved: Container shop-api on web-01 is back to 80% of its memory limit (production) after 36 min")]
+    public void For_ContainerRules_NameTheContainerAndItsHostInWords(
+        string rule,
+        AlertEventKind kind,
+        double value,
+        string expected)
+    {
+        var alert = Alert() with
+        {
+            Rule = rule,
+            Subject = AlertSubject.Container("shop-api", "web-01"),
+            Value = value,
+            Peak = value,
+        };
+
+        var message = NotificationMessages.For(Event(kind, value) with { At = _opened.AddMinutes(36) }, alert, _site);
+
+        Assert.Equal(expected, message.Text);
+        var block = message.Alert!.Block;
+        Assert.Equal(("container", "shop-api", "web-01"), (block.Kind, block.Name, block.Part));
+        Assert.Null(message.Alert.Service);
+    }
+
+    [Fact]
+    public void ToEmailBody_ContainerAlert_NamesTheContainerItsHostAndTheMemory()
+    {
+        var alert = Alert() with
+        {
+            Rule = "container-memory",
+            Subject = AlertSubject.Container("shop-api", "web-01"),
+            Value = 0.93,
+            Peak = 0.96,
+            Threshold = 0.9,
+        };
+
+        var body = NotificationMessages.ToEmailBody(
+            NotificationMessages.For(Event(AlertEventKind.Opened, 0.93), alert, _site),
+            "on call");
+
+        Assert.Contains("Container:    shop-api", body, StringComparison.Ordinal);
+        Assert.Contains("Host:         web-01", body, StringComparison.Ordinal);
+        Assert.Contains("Memory:       93% of its limit (warning from 90%)", body, StringComparison.Ordinal);
     }
 
     private static AlertState Disk(string rule, double value, double threshold) => Alert() with

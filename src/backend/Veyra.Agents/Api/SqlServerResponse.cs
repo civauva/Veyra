@@ -17,6 +17,8 @@ namespace Veyra.Agents.Api;
 /// <param name="Since">When that error or the last data was seen, when known.</param>
 /// <param name="CreatedAt">When it was added.</param>
 /// <param name="ChangedAt">When it was last changed.</param>
+/// <param name="Platform">The kind of SQL Server it is.</param>
+/// <param name="Database">The one database it is read in, for an Azure SQL Database.</param>
 public sealed record SqlServerResponse(
     Guid Id,
     string Name,
@@ -31,4 +33,6 @@ public sealed record SqlServerResponse(
     string? Detail,
     DateTimeOffset? Since,
     DateTimeOffset CreatedAt,
-    DateTimeOffset ChangedAt);
+    DateTimeOffset ChangedAt,
+    SqlServerPlatform Platform,
+    string? Database);

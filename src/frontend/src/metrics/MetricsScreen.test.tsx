@@ -128,7 +128,7 @@ describe("MetricsScreen", () => {
     const user = userEvent.setup();
     renderAt("/metrics");
 
-    await user.click(await screen.findByRole("link", { name: /web-01/ }));
+    await user.click(await screen.findByRole("link", { name: /^web-01/ }));
 
     expect(await screen.findByRole("heading", { level: 1, name: "web-01" })).toBeVisible();
     expect(api.hostMetrics).toHaveBeenCalledWith("web-01", "6h", expect.any(AbortSignal));
@@ -153,6 +153,38 @@ describe("MetricsScreen", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("web-01 is fine.");
   });
 
+  it("lists the host's recent errors from its own logs, with a way to all of them", async () => {
+    vi.mocked(api.searchLogs).mockResolvedValue({
+      items: [
+        {
+          id: 7,
+          timestamp: "2026-11-10T06:58:00Z",
+          observedTimestamp: "2026-11-10T06:58:01Z",
+          severity: "Error",
+          severityText: "ERROR",
+          body: "The Veyra agent service terminated unexpectedly.",
+          serviceName: "web-01",
+          environment: "production",
+          traceId: null,
+          spanId: null,
+          attributes: { "windows.event.id": "7034" },
+          resourceAttributes: { "host.name": "web-01" },
+        },
+      ],
+      nextCursor: null,
+    });
+    renderAt("/metrics/hosts/web-01");
+
+    const issues = await screen.findByRole("region", { name: "Recent errors" });
+    expect(issues).toHaveTextContent("The Veyra agent service terminated unexpectedly.");
+    expect(within(issues).getByRole("link", { name: /All of the last day/ })).toHaveAttribute(
+      "href",
+      expect.stringContaining("service=web-01"),
+    );
+    const [params] = vi.mocked(api.searchLogs).mock.lastCall ?? [new URLSearchParams()];
+    expect([params.get("service"), params.get("severity")]).toEqual(["web-01", "Error"]);
+  });
+
   it("says what the open alert of a host is, with a way to it", async () => {
     vi.mocked(api.alerts).mockResolvedValue({ items: [diskAlert], next: null });
 
@@ -164,6 +196,73 @@ describe("MetricsScreen", () => {
       "href",
       `/alerts/${diskAlert.id}`,
     );
+  });
+
+  it("lists the containers with a count, each leading to its row on its host", async () => {
+    renderAt("/metrics");
+
+    const containers = await screen.findByRole("region", { name: "Containers" });
+    expect(within(containers).getAllByRole("article")).toHaveLength(3);
+    const worker = within(containers).getByRole("article", { name: "shop-worker" });
+    expect(worker).toHaveClass("hot");
+    expect(worker).toHaveTextContent("CPU148%");
+    expect(worker).toHaveTextContent("Memory93%");
+    expect(worker).toHaveTextContent("Restarts3");
+    expect(within(worker).getByRole("link")).toHaveAttribute(
+      "href",
+      "/metrics/hosts/web-01?range=6h#container-shop-worker",
+    );
+    expect(within(containers).getByRole("article", { name: "redis" })).not.toHaveClass("hot");
+    expect(screen.getByText("Containers", { selector: "dt" }).nextSibling).toHaveTextContent("3 1 restarting");
+  });
+
+  it("shows the containers of a host with memory of their limit, restarts, uptime, and logs", async () => {
+    renderAt("/metrics/hosts/web-01");
+
+    const containers = await screen.findByRole("region", { name: "Containers" });
+    const rows = within(containers).getAllByRole("row");
+    expect(rows).toHaveLength(3);
+    const worker = within(containers).getByRole("row", { name: /shop-worker/ });
+    expect(worker).toHaveAttribute("id", "container-shop-worker");
+    expect(worker).toHaveTextContent("ghcr.io/example/shop-worker:1.4.2");
+    expect(worker).toHaveTextContent("148%");
+    expect(within(worker).getByRole("meter", { name: "shop-worker memory of its limit" })).toHaveAttribute(
+      "aria-valuenow",
+      "93",
+    );
+    expect(worker).toHaveTextContent("476 MB of 512 MB");
+    expect(worker).toHaveTextContent("3 in 6h");
+    expect(worker).toHaveTextContent("7 in all");
+    expect(worker).toHaveTextContent("4 min");
+    expect(within(worker).getByRole("link", { name: "Logs of shop-worker" })).toHaveAttribute(
+      "href",
+      "/logs?service=shop-worker",
+    );
+    expect(within(containers).getByRole("row", { name: /shop-api/ })).toHaveTextContent("3 d 4 h");
+  });
+
+  it("marks a container with an open alert and leads to it", async () => {
+    vi.mocked(api.alerts).mockResolvedValue({
+      items: [
+        {
+          ...diskAlert,
+          id: "0193a2b4-0000-7000-8000-000000000077",
+          rule: "container-memory",
+          block: { kind: "container", name: "shop-worker", part: "web-01", id: "container:production/shop-worker" },
+          severity: "Caution",
+          value: 0.93,
+          threshold: 0.9,
+        },
+      ],
+      next: null,
+    });
+
+    renderAt("/metrics/hosts/web-01");
+
+    const containers = await screen.findByRole("region", { name: "Containers" });
+    const alert = await within(containers).findByRole("link", { name: /uses 93% of its memory limit/ });
+    expect(alert).toHaveAttribute("href", "/alerts/0193a2b4-0000-7000-8000-000000000077");
+    expect(within(containers).getByRole("row", { name: /shop-worker/ })).toHaveClass("caution");
   });
 
   it("shows a service's three figures and slowest routes in the Simple view", async () => {
@@ -226,7 +325,7 @@ describe("MetricsScreen", () => {
   });
 
   it("explains how to send metrics when there are none", async () => {
-    vi.mocked(api.metricsOverview).mockResolvedValue({ ...overview, hosts: [], services: [] });
+    vi.mocked(api.metricsOverview).mockResolvedValue({ ...overview, hosts: [], services: [], containers: [] });
 
     renderAt("/metrics");
 

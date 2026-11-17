@@ -28,4 +28,10 @@ internal sealed record AgentReport(
     /// <summary>The report of an agent that has never connected.</summary>
     public static AgentReport None { get; } =
         new(null, null, null, null, null, null, null, AgentConfigState.Unknown, null, null);
+
+    /// <summary>
+    /// Whether the agent runs on Windows. The Collector reports <c>os.description</c>, such as
+    /// <c>Windows Server 2022 Datacenter</c>, or else <c>os.type</c>, which is <c>windows</c>.
+    /// </summary>
+    public bool IsWindows => OperatingSystem?.Contains("windows", StringComparison.OrdinalIgnoreCase) == true;
 }

@@ -43,6 +43,35 @@ test.describe("Database monitoring and agents", () => {
     await expect(panel).toBeHidden();
   });
 
+  test("shows a PostgreSQL server and adds another, keyboard and all (VEY-33)", async ({ page }) => {
+    await answerApi(page);
+    await page.goto("/settings?section=Databases");
+
+    const main = page.getByRole("article", { name: "pg-main" });
+    await expect(main).toContainText("PostgreSQL · pg-main.corp.local:5432");
+    await expect(main.getByRole("link", { name: "Open" })).toHaveAttribute(
+      "href",
+      "/metrics/databases/postgresql/pg-main",
+    );
+    expect(await scrollsSideways(page)).toBe(false);
+
+    await page.getByRole("button", { name: "+ Add PostgreSQL" }).click();
+    const panel = page.getByRole("dialog", { name: "Add a PostgreSQL server" });
+    await expect(panel.getByRole("textbox", { name: /Name in Veyra/ })).toBeFocused();
+    await page.keyboard.type("pg-branch");
+    await page.keyboard.press("Tab");
+    await page.keyboard.type("10.20.0.16");
+    await expect(panel.getByLabel("Role script")).toContainText('GRANT pg_monitor TO "veyra_monitor";');
+    expect(await scrollsSideways(page)).toBe(false);
+
+    await panel.getByRole("button", { name: "Save and start watching" }).click();
+
+    await expect(panel.getByRole("status")).toContainText("Waiting for first data");
+    await expect(panel.getByText("Reached 10.20.0.16:5432")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(panel).toBeHidden();
+  });
+
   test("shows the built-in agent online", async ({ page }) => {
     await answerApi(page);
     await page.goto("/settings?section=Agents");

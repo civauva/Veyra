@@ -29,7 +29,9 @@ public sealed class MetricsController : ControllerBase
         _databases = databases;
     }
 
-    /// <summary>Returns every host, service, and database server that sent metrics in the last 15 minutes.</summary>
+    /// <summary>
+    /// Returns every host, service, database server, and container that sent metrics in the last 15 minutes.
+    /// </summary>
     /// <param name="range">The window of the lines.</param>
     /// <param name="cancellationToken">Cancels the reads when the client goes away.</param>
     /// <returns>The overview.</returns>
@@ -39,7 +41,7 @@ public sealed class MetricsController : ControllerBase
         CancellationToken cancellationToken) =>
         _views.OverviewAsync(range, cancellationToken);
 
-    /// <summary>Returns one host's CPU, memory, disks, network, and load.</summary>
+    /// <summary>Returns one host's CPU, memory, disks, network, load, and its Docker containers.</summary>
     /// <param name="host">The host name, from <c>host.name</c>.</param>
     /// <param name="range">The window.</param>
     /// <param name="cancellationToken">Cancels the reads when the client goes away.</param>

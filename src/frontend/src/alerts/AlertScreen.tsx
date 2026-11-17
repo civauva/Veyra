@@ -13,7 +13,15 @@ import { DiskChart } from "./DiskChart";
 import { ErrorRateChart } from "./ErrorRateChart";
 import { HostDisks } from "./HostDisks";
 import { LatencyChart } from "./LatencyChart";
-import { databasePath, formatDays, formatDiskShare, formatMeasure, formatThreshold, serverName } from "./ruleWords";
+import {
+  containerPath,
+  databasePath,
+  formatDays,
+  formatDiskShare,
+  formatMeasure,
+  formatThreshold,
+  serverName,
+} from "./ruleWords";
 import { SlowRoutes } from "./SlowRoutes";
 import { TopErrors } from "./TopErrors";
 import { useAlertDetails } from "./useAlertDetails";
@@ -143,6 +151,21 @@ function Onward({ alert }: { alert: AlertDetails }) {
       <Link className="step-button primary" to={databasePath(name)}>
         Open {serverName(name)}
       </Link>
+    );
+  }
+
+  if (alert.block.kind === "container") {
+    const around = filtersToUrl({ ...defaultFilters, services: [name], around: alert.openedAt });
+
+    return (
+      <>
+        <Link className="step-button primary" to={containerPath(alert.block)}>
+          Open {alert.block.part ? `${alert.block.part}'s containers` : "Metrics"}
+        </Link>
+        <Link className="step-button" to={`/logs?${around}`}>
+          Its logs ± 1 minute around {formatClock(alert.openedAt)}
+        </Link>
+      </>
     );
   }
 

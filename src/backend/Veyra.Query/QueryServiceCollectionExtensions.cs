@@ -58,6 +58,7 @@ public static class QueryServiceCollectionExtensions
         services.AddSingleton<EventsViewBuilder>();
         services.AddSingleton<AvailabilityViewBuilder>();
         services.AddSingleton<ConfigurationViewBuilder>();
+        services.AddSingleton<PermissionsViewBuilder>();
         services.AddSingleton<IMetricHealth, MetricHealth>();
 
         // The controller is public, as MVC requires, but its builder is internal, so the module builds it. The host's
@@ -81,7 +82,8 @@ public static class QueryServiceCollectionExtensions
                 provider.GetRequiredService<JobsViewBuilder>(),
                 provider.GetRequiredService<EventsViewBuilder>(),
                 provider.GetRequiredService<AvailabilityViewBuilder>(),
-                provider.GetRequiredService<ConfigurationViewBuilder>()));
+                provider.GetRequiredService<ConfigurationViewBuilder>(),
+                provider.GetRequiredService<PermissionsViewBuilder>()));
 
         return services;
     }

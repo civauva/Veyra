@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Google.Protobuf;
 using OpAmp.Proto.V1;
 using Veyra.Agents.Agents;
@@ -56,6 +57,35 @@ public sealed class AgentsEndpointTests(PostgresFixture postgres) : IDisposable
         using var removed = await admin.DeleteAsync(new Uri($"/api/v1/sql-servers/{id}", UriKind.Relative));
         Assert.Equal(HttpStatusCode.NoContent, removed.StatusCode);
         Assert.Empty((await admin.GetFromJsonAsync<JsonElement[]>("/api/v1/sql-servers"))!);
+    }
+
+    [Fact]
+    public async Task SqlServers_AzureSqlDatabase_PlatformAndDatabaseComeBack()
+    {
+        await using var factory = await CreateAsync();
+        using var admin = await factory.CreateAdminClientAsync();
+
+        using var created = await admin.PostAsJsonAsync(
+            "/api/v1/sql-servers",
+            Server("Correct-Horse-7") with { Platform = "AzureSqlDatabase", Database = "orders" });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+
+        var listed = Assert.Single((await admin.GetFromJsonAsync<JsonElement[]>("/api/v1/sql-servers"))!);
+        Assert.Equal("AzureSqlDatabase", listed.GetProperty("platform").GetString());
+        Assert.Equal("orders", listed.GetProperty("database").GetString());
+    }
+
+    [Fact]
+    public async Task SqlServers_AzureSqlDatabaseWithoutDatabase_IsABadRequest()
+    {
+        await using var factory = await CreateAsync();
+        using var admin = await factory.CreateAdminClientAsync();
+
+        using var response = await admin.PostAsJsonAsync(
+            "/api/v1/sql-servers",
+            Server("Correct-Horse-7") with { Platform = "AzureSqlDatabase" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
@@ -139,6 +169,140 @@ public sealed class AgentsEndpointTests(PostgresFixture postgres) : IDisposable
         Assert.Equal("WaitingForData", server.GetProperty("state").GetString());
     }
 
+    [Fact]
+    public async Task Host_WindowsAgent_IsSavedShownAndSentToTheAgent()
+    {
+        await using var factory = await CreateAsync();
+        using var admin = await factory.CreateAdminClientAsync();
+        var (id, key) = await InstallAgentAsync(factory, admin, "Windows Server 2022 Datacenter");
+
+        using var saved = await admin.PutAsJsonAsync(
+            $"/api/v1/agents/{id}/host",
+            new { host = true, eventLog = true, iis = true, environment = "staging" });
+
+        Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        var agent = JsonDocument.Parse(await saved.Content.ReadAsStringAsync()).RootElement;
+        Assert.True(agent.GetProperty("host").GetBoolean());
+        Assert.True(agent.GetProperty("eventLog").GetBoolean());
+        Assert.True(agent.GetProperty("iis").GetBoolean());
+        Assert.Equal("staging", agent.GetProperty("hostEnvironment").GetString());
+        var listed = (await admin.GetFromJsonAsync<JsonElement[]>("/api/v1/agents"))!
+            .Single(one => one.GetProperty("id").GetString() == id);
+        Assert.True(listed.GetProperty("iis").GetBoolean());
+
+        using var agentClient = factory.CreateHttpsClient();
+        using var poll = Poll(key, "Windows Server 2022 Datacenter");
+        using var response = await agentClient.SendAsync(poll);
+        var reply = ServerToAgent.Parser.ParseFrom(await response.Content.ReadAsByteArrayAsync());
+        Assert.Contains("staging", reply.RemoteConfig.Config.ConfigMap[""].Body.ToStringUtf8(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Host_LinuxAgentWithDocker_IsSavedShownAndSentToTheAgent()
+    {
+        await using var factory = await CreateAsync();
+        using var admin = await factory.CreateAdminClientAsync();
+        var (id, key) = await InstallAgentAsync(factory, admin, "Ubuntu 24.04.1 LTS");
+
+        using var saved = await admin.PutAsJsonAsync(
+            $"/api/v1/agents/{id}/host",
+            new { host = true, eventLog = false, iis = false, docker = true, environment = "production" });
+
+        Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        var agent = JsonDocument.Parse(await saved.Content.ReadAsStringAsync()).RootElement;
+        Assert.True(agent.GetProperty("docker").GetBoolean());
+        var listed = (await admin.GetFromJsonAsync<JsonElement[]>("/api/v1/agents"))!
+            .Single(one => one.GetProperty("id").GetString() == id);
+        Assert.True(listed.GetProperty("docker").GetBoolean());
+
+        using var agentClient = factory.CreateHttpsClient();
+        using var poll = Poll(key, "Ubuntu 24.04.1 LTS");
+        using var response = await agentClient.SendAsync(poll);
+        var reply = ServerToAgent.Parser.ParseFrom(await response.Content.ReadAsByteArrayAsync());
+        Assert.Contains(
+            "docker_stats:",
+            reply.RemoteConfig.Config.ConfigMap[""].Body.ToStringUtf8(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Host_DockerOnWindows_IsABadRequest()
+    {
+        await using var factory = await CreateAsync();
+        using var admin = await factory.CreateAdminClientAsync();
+        var (id, _) = await InstallAgentAsync(factory, admin, "Windows Server 2022 Datacenter");
+
+        using var response = await admin.PutAsJsonAsync(
+            $"/api/v1/agents/{id}/host",
+            new { host = true, eventLog = false, iis = false, docker = true, environment = "production" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("Linux only", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Host_BuiltInAgent_IsABadRequest()
+    {
+        await using var factory = await CreateAsync();
+        using var admin = await factory.CreateAdminClientAsync();
+        var builtIn = Assert.Single((await admin.GetFromJsonAsync<JsonElement[]>("/api/v1/agents"))!);
+
+        using var response = await admin.PutAsJsonAsync(
+            $"/api/v1/agents/{builtIn.GetProperty("id").GetString()}/host",
+            new { host = true, eventLog = false, iis = false, environment = "production" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("runs in a container", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Host_EventLogOnLinux_IsABadRequest()
+    {
+        await using var factory = await CreateAsync();
+        using var admin = await factory.CreateAdminClientAsync();
+        var (id, _) = await InstallAgentAsync(factory, admin, "Ubuntu 24.04.1 LTS");
+
+        using var response = await admin.PutAsJsonAsync(
+            $"/api/v1/agents/{id}/host",
+            new { host = true, eventLog = true, iis = false, environment = "production" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("Windows only", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Host_UnknownAgent_IsNotFound()
+    {
+        await using var factory = await CreateAsync();
+        using var admin = await factory.CreateAdminClientAsync();
+
+        using var response = await admin.PutAsJsonAsync(
+            $"/api/v1/agents/{Guid.NewGuid()}/host",
+            new { host = true, eventLog = false, iis = false, environment = "production" });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("Viewer")]
+    [InlineData("Editor")]
+    public async Task Host_ViewerOrEditor_IsForbidden(string role)
+    {
+        await using var factory = await CreateAsync();
+        using var admin = await factory.CreateAdminClientAsync();
+        using var user = await admin.PostAsJsonAsync(
+            "/api/v1/users",
+            new { email = "user@example.com", displayName = "User", role, password = _password });
+        user.EnsureSuccessStatusCode();
+        using var client = await factory.CreateSignedInClientAsync("user@example.com", _password);
+
+        using var response = await client.PutAsJsonAsync(
+            $"/api/v1/agents/{Guid.NewGuid()}/host",
+            new { host = true, eventLog = false, iis = false, environment = "production" });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
     public void Dispose() => Directory.Delete(_directory, recursive: true);
 
     private Task<VeyraApiFactory> CreateAsync() =>
@@ -155,7 +319,33 @@ public sealed class AgentsEndpointTests(PostgresFixture postgres) : IDisposable
             Password: password,
             Encryption: "TrustServerCertificate");
 
-    private static HttpRequestMessage Poll(string? key)
+    // Adds an agent, installs it with its code, and lets it report its operating system, as its Collector does.
+    private static async Task<(string Id, string Key)> InstallAgentAsync(
+        VeyraApiFactory factory,
+        HttpClient admin,
+        string operatingSystem)
+    {
+        using var added = await admin.PostAsJsonAsync("/api/v1/agents", new { name = "Web server" });
+        added.EnsureSuccessStatusCode();
+        var body = JsonDocument.Parse(await added.Content.ReadAsStringAsync()).RootElement;
+        var id = body.GetProperty("agent").GetProperty("id").GetString()!;
+
+        using var installer = factory.CreateHttpsClient();
+        using var enrolled = await installer.PostAsJsonAsync(
+            "/v1/agents/enroll",
+            new { code = body.GetProperty("code").GetString(), platform = "Windows" });
+        enrolled.EnsureSuccessStatusCode();
+        var key = Regex.Match(await enrolled.Content.ReadAsStringAsync(), "Bearer (vyk_[A-Za-z0-9_-]{43})")
+            .Groups[1].Value;
+
+        using var poll = Poll(key, operatingSystem);
+        using var reported = await installer.SendAsync(poll);
+        reported.EnsureSuccessStatusCode();
+
+        return (id, key);
+    }
+
+    private static HttpRequestMessage Poll(string? key, string? operatingSystem = null)
     {
         var message = new AgentToServer
         {
@@ -169,6 +359,13 @@ public sealed class AgentsEndpointTests(PostgresFixture postgres) : IDisposable
             },
             Health = new ComponentHealth { Healthy = true },
         };
+
+        if (operatingSystem is not null)
+        {
+            message.AgentDescription.NonIdentifyingAttributes.Add(
+                new KeyValue { Key = "os.description", Value = new AnyValue { StringValue = operatingSystem } });
+        }
+
 
         var request = new HttpRequestMessage(HttpMethod.Post, new Uri("/v1/opamp", UriKind.Relative))
         {
@@ -192,5 +389,7 @@ public sealed class AgentsEndpointTests(PostgresFixture postgres) : IDisposable
         Guid? AgentId,
         string Login,
         string? Password,
-        string Encryption);
+        string Encryption,
+        string Platform = "SqlServer",
+        string? Database = null);
 }

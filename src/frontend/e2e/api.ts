@@ -8,6 +8,7 @@ import {
   availabilityView,
   blockingView,
   configurationView,
+  permissionsGranted,
   eventsView,
   indexesView,
   jobsView,
@@ -26,7 +27,7 @@ import {
   serviceMetrics,
 } from "../src/metrics/testMetrics";
 import { channels, emailServer } from "../src/notifications/testChannels";
-import { builtInAgent, sqlServers } from "../src/settings/testMonitoring";
+import { builtInAgent, postgresServers, sqlServers } from "../src/settings/testMonitoring";
 import { settingsHistory, settingsPage } from "../src/settings/testSettings";
 import { checkoutTrace, durations, pspLog, tracesPage } from "../src/traces/testTraces";
 import { lenaAccount, people, tomDetail } from "../src/users/testUsers";
@@ -119,6 +120,8 @@ function databaseAnswer(pathname: string): unknown {
       return availabilityView;
     case "configuration":
       return configurationView;
+    case "permissions":
+      return permissionsGranted;
     default:
       return databaseMetrics;
   }
@@ -255,6 +258,25 @@ export async function answerApi(
         }
 
         return route.fulfill({ json: sqlServers });
+      }
+      case "/api/v1/postgres-servers": {
+        if (request.method() === "POST") {
+          const input = request.postDataJSON() as { name: string; address: string };
+
+          return route.fulfill({
+            status: 201,
+            json: {
+              ...postgresServers[0],
+              id: "p2",
+              name: input.name,
+              address: input.address,
+              state: "WaitingForData",
+              since: null,
+            },
+          });
+        }
+
+        return route.fulfill({ json: postgresServers });
       }
       case "/api/v1/alerts/catalog":
         return route.fulfill({ json: [] });

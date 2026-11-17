@@ -69,7 +69,8 @@ internal sealed partial class BuiltInAgentSetup(
                 Placement: AgentPlacement.BuiltIn,
                 IngestionKeyId: key.KeyId,
                 CreatedAt: clock.GetUtcNow(),
-                Report: AgentReport.None);
+                Report: AgentReport.None,
+                Watch: HostWatch.None);
 
             await agents.InsertAsync(agent, cancellationToken);
             LogCreated(agent.Id);

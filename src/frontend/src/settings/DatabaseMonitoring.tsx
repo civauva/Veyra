@@ -3,10 +3,11 @@ import { Link } from "react-router";
 
 import { databasePath } from "../alerts/ruleWords";
 import { api } from "../api/client";
-import type { Agent, SqlServer } from "../api/types";
+import type { Agent, MonitoredServer, PostgresServer, SqlServer } from "../api/types";
 import { DatabaseIcon } from "../metrics/MetricCards";
 import { AgentStrip } from "./AgentStrip";
-import { readerOf, serverExplanation, serverStateWords } from "./monitoringFormat";
+import { platformLabels, readerOf, serverExplanation, serverStateWords, type ServerEngine } from "./monitoringFormat";
+import { PostgresServerPanel } from "./PostgresServerPanel";
 import { SqlServerPanel } from "./SqlServerPanel";
 import { StateChip } from "./StateChip";
 import "./monitoring.css";
@@ -19,26 +20,107 @@ function messageOf(failure: unknown): string {
   return failure instanceof Error ? failure.message : String(failure);
 }
 
+/** The server the panel is open for, or null to add one, with what it runs. */
+type Editing =
+  { engine: "SqlServer"; server: SqlServer | null } | { engine: "PostgreSQL"; server: PostgresServer | null };
+
+/** Props for {@link ServerCard}. */
+interface ServerCardProps {
+  /** The server with its state. */
+  server: MonitoredServer;
+  /** What it runs, for its words and its database screen. */
+  engine: ServerEngine;
+  /** Its kind as the card names it, such as "PostgreSQL" or "Azure SQL Database". */
+  kind: string;
+  /** Every agent, to name the one that reads it. */
+  agents: Agent[];
+  /** The current time, for "last figures 8 s ago". */
+  now: Date;
+  /** Whether its removal waits for a second click. */
+  removing: boolean;
+  /** Opens the panel to change or fix it. */
+  onEdit: () => void;
+  /** Asks for the second click, or takes it back with null. */
+  onAskRemove: (asking: boolean) => void;
+  /** Removes it. */
+  onRemove: () => void;
+}
+
 /**
- * Settings → Database monitoring (ADR 0019): the SQL Servers Veyra's agents read, each with its state in words, and
- * the panel to add or change one. Nothing else needs editing: Veyra sends each agent its settings.
+ * One server on the page: its name, where it is, its state in words and what to do, and its actions.
+ *
+ * @param props - The server and what its buttons do.
+ * @returns The card.
+ */
+function ServerCard({ server, engine, kind, agents, now, removing, onEdit, onAskRemove, onRemove }: ServerCardProps) {
+  const words = serverStateWords(server.state);
+  const reader = readerOf(server, agents);
+  const block = `${engine === "PostgreSQL" ? "postgresql" : "microsoft.sql_server"} ${server.name}`;
+
+  return (
+    <article className={`monitor-card monitor-server${words.tone === "bad" ? " bad" : ""}`} aria-label={server.name}>
+      <span className="monitor-icon">
+        <DatabaseIcon />
+      </span>
+      <div className="monitor-main">
+        <b>{server.name}</b>
+        <span className="monitor-meta">
+          {kind} · {server.address}:{server.port} · {server.environment} · read by {reader}
+        </span>
+        <span className={`monitor-why ${words.tone}`}>{serverExplanation(server, now, reader, engine)}</span>
+      </div>
+      <div className="monitor-actions">
+        <StateChip label={words.label} tone={words.tone} />
+        {server.state === "Receiving" && (
+          <Link className="button small" to={databasePath(block)}>
+            Open
+          </Link>
+        )}
+        <button type="button" className={`button small${words.tone === "bad" ? "" : " quiet"}`} onClick={onEdit}>
+          {words.tone === "bad" ? "Fix" : "Edit"}
+        </button>
+        {removing ? (
+          <>
+            <button type="button" className="button small danger" onClick={onRemove}>
+              Remove {server.name}
+            </button>
+            <button type="button" className="button small quiet" onClick={() => onAskRemove(false)}>
+              Keep
+            </button>
+          </>
+        ) : (
+          <button type="button" className="button small quiet" onClick={() => onAskRemove(true)}>
+            Remove
+          </button>
+        )}
+      </div>
+    </article>
+  );
+}
+
+/**
+ * Settings → Database monitoring (ADR 0019): the SQL Servers and PostgreSQL servers (VEY-33) Veyra's agents read,
+ * each with its state in words, and the panels to add or change one. Nothing else needs editing: Veyra sends each
+ * agent its settings.
  *
  * @returns The page's content, inside the Settings screen.
  */
 export function DatabaseMonitoring() {
   const [servers, setServers] = useState<SqlServer[] | null>(null);
+  const [postgres, setPostgres] = useState<PostgresServer[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [editing, setEditing] = useState<{ server: SqlServer | null } | null>(null);
+  const [editing, setEditing] = useState<Editing | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
   const addHelpId = useId();
 
   const load = useCallback(
     () =>
-      Promise.all([api.sqlServers(), api.agents()])
-        .then(([listed, known]) => {
+      Promise.all([api.sqlServers(), api.postgresServers(), api.agents()])
+        .then(([listed, listedPostgres, known]) => {
           setServers(listed);
+          setPostgres(listedPostgres);
           setAgents(known);
           setNow(new Date());
           setError(null);
@@ -54,9 +136,9 @@ export function DatabaseMonitoring() {
     return () => window.clearInterval(timer);
   }, [load]);
 
-  async function remove(server: SqlServer) {
+  async function remove(engine: ServerEngine, id: string) {
     try {
-      await api.deleteSqlServer(server.id);
+      await (engine === "PostgreSQL" ? api.deletePostgresServer(id) : api.deleteSqlServer(id));
       setRemoving(null);
       await load();
     } catch (failure) {
@@ -64,9 +146,28 @@ export function DatabaseMonitoring() {
     }
   }
 
-  // Both lists load together, so a loaded server list means the agents are known too.
+  function close() {
+    setEditing(null);
+    void load();
+  }
+
+  // The lists load together, so a loaded server list means the agents are known too.
   const loaded = servers !== null;
   const noAgent = loaded && agents.length === 0;
+  const card = (server: MonitoredServer, engine: ServerEngine, kind: string, edit: () => void) => (
+    <ServerCard
+      key={server.id}
+      server={server}
+      engine={engine}
+      kind={kind}
+      agents={agents}
+      now={now}
+      removing={removing === server.id}
+      onEdit={edit}
+      onAskRemove={(asking) => setRemoving(asking ? server.id : null)}
+      onRemove={() => void remove(engine, server.id)}
+    />
+  );
 
   return (
     <div className="monitor">
@@ -78,20 +179,31 @@ export function DatabaseMonitoring() {
             <DatabaseIcon size={16} />
             SQL Server <small>{servers?.length ?? "…"}</small>
           </span>
-          <span className="monitor-kind soon">
+          <span className="monitor-kind on">
             <DatabaseIcon size={16} />
-            PostgreSQL <small>soon</small>
+            PostgreSQL <small>{loaded ? postgres.length : "…"}</small>
           </span>
         </div>
-        <button
-          type="button"
-          className="button primary"
-          disabled={noAgent}
-          aria-describedby={noAgent ? addHelpId : undefined}
-          onClick={() => setEditing({ server: null })}
-        >
-          + Add SQL Server
-        </button>
+        <div className="monitor-adds">
+          <button
+            type="button"
+            className="button primary"
+            disabled={noAgent}
+            aria-describedby={noAgent ? addHelpId : undefined}
+            onClick={() => setEditing({ engine: "SqlServer", server: null })}
+          >
+            + Add SQL Server
+          </button>
+          <button
+            type="button"
+            className="button primary"
+            disabled={noAgent}
+            aria-describedby={noAgent ? addHelpId : undefined}
+            onClick={() => setEditing({ engine: "PostgreSQL", server: null })}
+          >
+            + Add PostgreSQL
+          </button>
+        </div>
         {noAgent && (
           <span id={addHelpId} className="visually-hidden">
             Needs an agent first
@@ -105,69 +217,23 @@ export function DatabaseMonitoring() {
         </p>
       )}
 
-      {servers?.length === 0 && !noAgent && (
+      {loaded && servers.length === 0 && postgres.length === 0 && !noAgent && (
         <div className="monitor-card monitor-empty">
-          <b>No SQL Server yet</b>
+          <b>No database server yet</b>
           <p>
-            Add one: Veyra writes the login script for it, sends the settings to the agent that reads it, and shows here
-            what the agent found. No file to edit, no variable to set.
+            Add a SQL Server or a PostgreSQL server: Veyra writes the script for its login, sends the settings to the
+            agent that reads it, and shows here what the agent found. No file to edit, no variable to set.
           </p>
         </div>
       )}
 
-      {servers?.map((server) => {
-        const words = serverStateWords(server.state);
+      {servers?.map((server) =>
+        card(server, "SqlServer", platformLabels[server.platform], () => setEditing({ engine: "SqlServer", server })),
+      )}
 
-        return (
-          <article
-            key={server.id}
-            className={`monitor-card monitor-server${words.tone === "bad" ? " bad" : ""}`}
-            aria-label={server.name}
-          >
-            <span className="monitor-icon">
-              <DatabaseIcon />
-            </span>
-            <div className="monitor-main">
-              <b>{server.name}</b>
-              <span className="monitor-meta">
-                {server.address}:{server.port} · {server.environment} · read by {readerOf(server, agents)}
-              </span>
-              <span className={`monitor-why ${words.tone}`}>
-                {serverExplanation(server, now, readerOf(server, agents))}
-              </span>
-            </div>
-            <div className="monitor-actions">
-              <StateChip label={words.label} tone={words.tone} />
-              {server.state === "Receiving" && (
-                <Link className="button small" to={databasePath(`microsoft.sql_server ${server.name}`)}>
-                  Open
-                </Link>
-              )}
-              <button
-                type="button"
-                className={`button small${words.tone === "bad" ? "" : " quiet"}`}
-                onClick={() => setEditing({ server })}
-              >
-                {words.tone === "bad" ? "Fix" : "Edit"}
-              </button>
-              {removing === server.id ? (
-                <>
-                  <button type="button" className="button small danger" onClick={() => void remove(server)}>
-                    Remove {server.name}
-                  </button>
-                  <button type="button" className="button small quiet" onClick={() => setRemoving(null)}>
-                    Keep
-                  </button>
-                </>
-              ) : (
-                <button type="button" className="button small quiet" onClick={() => setRemoving(server.id)}>
-                  Remove
-                </button>
-              )}
-            </div>
-          </article>
-        );
-      })}
+      {postgres.map((server) =>
+        card(server, "PostgreSQL", "PostgreSQL", () => setEditing({ engine: "PostgreSQL", server })),
+      )}
 
       <div className="monitor-card monitor-rules">
         <div>
@@ -178,6 +244,8 @@ export function DatabaseMonitoring() {
           <span>Blocking</span>
           <span>Deadlocks</span>
           <span>Long query</span>
+          <span>Connections</span>
+          <span>Wraparound</span>
           <span>Backup age</span>
           <span>SQL Agent jobs</span>
         </div>
@@ -186,16 +254,12 @@ export function DatabaseMonitoring() {
         </Link>
       </div>
 
-      {editing && (
-        <SqlServerPanel
-          server={editing.server}
-          agents={agents}
-          onClose={() => {
-            setEditing(null);
-            void load();
-          }}
-          onSaved={() => void load()}
-        />
+      {editing?.engine === "SqlServer" && (
+        <SqlServerPanel server={editing.server} agents={agents} onClose={close} onSaved={() => void load()} />
+      )}
+
+      {editing?.engine === "PostgreSQL" && (
+        <PostgresServerPanel server={editing.server} agents={agents} onClose={close} onSaved={() => void load()} />
       )}
     </div>
   );

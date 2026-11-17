@@ -61,7 +61,9 @@ public sealed class SettingsController : ControllerBase
         Answer(await _settings.SaveAsync(request, User.UserId(), cancellationToken));
 
     /// <summary>Changes newest first, filtered by section, person, and time.</summary>
-    /// <param name="section">Only this section's settings, such as <c>Data</c>.</param>
+    /// <param name="section">
+    /// Only this section's changes, such as <c>Data</c>, or <c>Databases</c> and <c>Agents</c> for monitored systems.
+    /// </param>
     /// <param name="changedBy">Only changes saved by this account.</param>
     /// <param name="from">Only changes saved at or after this time.</param>
     /// <param name="before">The <c>next</c> value of the previous page.</param>
@@ -82,7 +84,8 @@ public sealed class SettingsController : ControllerBase
                 From: from,
                 Before: before,
                 Limit: Math.Clamp(limit, 1, _maxHistoryPage),
-                Names: section is null ? null : _settings.KeysOf(section)),
+                Names: section is null ? null : _settings.KeysOf(section),
+                Subjects: section is null ? null : SettingsService.SubjectsOf(section)),
             cancellationToken);
 
     /// <summary>Sets a setting back to the value it had before a change in the history, as a new change.</summary>

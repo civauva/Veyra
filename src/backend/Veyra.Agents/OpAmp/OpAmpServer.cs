@@ -4,6 +4,7 @@ using Google.Protobuf;
 using OpAmp.Proto.V1;
 using Veyra.Agents.Agents;
 using Veyra.Agents.Collector;
+using Veyra.Agents.PostgresServers;
 using Veyra.Agents.SqlServers;
 using Veyra.Core.Security;
 
@@ -26,11 +27,13 @@ namespace Veyra.Agents.OpAmp;
 /// </remarks>
 /// <param name="agents">Where agents and their reports are stored.</param>
 /// <param name="servers">The SQL Servers each agent reads.</param>
+/// <param name="postgres">The PostgreSQL servers each agent reads (VEY-33).</param>
 /// <param name="keys">Checks the key each poll is signed with.</param>
 /// <param name="clock">The clock for the time an agent was last seen.</param>
 internal sealed class OpAmpServer(
     AgentStore agents,
     SqlServerService servers,
+    PostgresServerService postgres,
     IIngestionKeyValidator keys,
     TimeProvider clock)
 {
@@ -76,7 +79,10 @@ internal sealed class OpAmpServer(
         await agents.SaveReportAsync(agent.Id, report, cancellationToken);
 
         var targets = await servers.TargetsAsync(agent.Id, cancellationToken);
-        var config = Encoding.UTF8.GetBytes(CollectorConfig.Build(new AgentConnection(veyraUrl, key), targets));
+        var postgresTargets = await postgres.TargetsAsync(agent.Id, cancellationToken);
+        var connection = new AgentConnection(veyraUrl, key);
+        var config = Encoding.UTF8.GetBytes(
+            CollectorConfig.Build(connection, targets, HostReadsOf(agent), postgresTargets));
 
         return new ServerToAgent
         {
@@ -101,6 +107,18 @@ internal sealed class OpAmpServer(
             ConnectionSettings = OwnLogs(veyraUrl, key),
         };
     }
+
+    // The host is read only when an Admin switched it on; the Event Log and IIS only count on a Windows agent, and
+    // Docker only on a Linux one.
+    private static HostReads? HostReadsOf(Agent agent) =>
+        agent.Watch.Host
+            ? new HostReads(
+                agent.Report.IsWindows,
+                agent.Watch.EventLog,
+                agent.Watch.Iis,
+                agent.Watch.Environment,
+                agent.Watch.Docker)
+            : null;
 
     // An agent that starts afresh, or a Veyra that lost what it knew, gets the agent to repeat everything: OpAMP
     // otherwise sends only what changed since the last poll.

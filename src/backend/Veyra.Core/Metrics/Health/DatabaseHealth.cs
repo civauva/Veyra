@@ -23,4 +23,11 @@ public sealed record DatabaseHealth(
     double? DeadlocksQuarter,
     double? DeadlocksHalfHour,
     IReadOnlyList<DatabasePartHealth> Databases,
-    IReadOnlyList<AgentJobHealth> Jobs);
+    IReadOnlyList<AgentJobHealth> Jobs)
+{
+    /// <summary>
+    /// The connections in use of the server's maximum now, from 0 to 1; <see langword="null"/> when the server does
+    /// not say its maximum, as only PostgreSQL does.
+    /// </summary>
+    public double? ConnectionsRatio { get; init; }
+}

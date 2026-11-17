@@ -28,10 +28,12 @@ vi.mock("../api/client", async (importOriginal) => {
       exportSettings: vi.fn(),
       importSettings: vi.fn(),
       sqlServers: vi.fn(),
+      postgresServers: vi.fn(),
       agents: vi.fn(),
       deleteSqlServer: vi.fn(),
       createSqlServer: vi.fn(),
       updateSqlServer: vi.fn(),
+      clearTelemetry: vi.fn(),
     },
   };
 });
@@ -63,6 +65,7 @@ beforeEach(() => {
   vi.mocked(api.reviewSettings).mockResolvedValue(quietReview);
   vi.mocked(api.saveSettings).mockResolvedValue(settingsPage);
   vi.mocked(api.sqlServers).mockResolvedValue([]);
+  vi.mocked(api.postgresServers).mockResolvedValue([]);
   vi.mocked(api.agents).mockResolvedValue([]);
 });
 
@@ -293,6 +296,20 @@ describe("SettingsScreen", () => {
     expect(api.revertSetting).toHaveBeenCalledWith(12, 7, false);
   });
 
+  it("lists changes to monitored systems by the fields they touched, without values or revert", async () => {
+    const user = userEvent.setup();
+    renderAt();
+
+    await user.click(await screen.findByRole("button", { name: "History" }));
+
+    const history = await screen.findByRole("complementary", { name: "Settings history" });
+    expect(within(history).getByText("SQL Server · sql-prod-01")).toBeVisible();
+    expect(within(history).getByText("Changed port, password")).toBeVisible();
+    expect(within(history).getByText("Agent · Company network")).toBeVisible();
+    expect(within(history).getByText("Added")).toBeVisible();
+    expect(within(history).queryByRole("button", { name: "Revert sql-prod-01" })).toBeNull();
+  });
+
   it("says when someone else saved first, and loads the latest values", async () => {
     const user = userEvent.setup();
     renderAt("/settings?section=Rules");
@@ -319,5 +336,25 @@ describe("SettingsScreen", () => {
     const system = screen.getByRole("region", { name: "System" });
     expect(within(system).getByText("veyra on postgres:5432")).toBeVisible();
     expect(within(system).queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("clears all telemetry from the Data section only once the site's name is typed", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.clearTelemetry).mockResolvedValue(undefined);
+    renderAt("/settings?section=Data");
+
+    const panel = await screen.findByRole("region", { name: "Clear all telemetry" });
+    const button = within(panel).getByRole("button", { name: "Clear all telemetry" });
+    expect(button).toBeDisabled();
+
+    await user.type(within(panel).getByRole("textbox"), "not the site");
+    expect(button).toBeDisabled();
+
+    await user.clear(within(panel).getByRole("textbox"));
+    await user.type(within(panel).getByRole("textbox"), window.location.hostname);
+    await user.click(button);
+
+    expect(api.clearTelemetry).toHaveBeenCalledWith(window.location.hostname);
+    expect(await within(panel).findByRole("status")).toHaveTextContent("Cleared.");
   });
 });

@@ -35,6 +35,15 @@ public interface IMetricHealth
     Task<IReadOnlyList<DatabaseHealth>> ListDatabasesAsync(DateTimeOffset now, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Lists every Docker container that sent metrics within the last 15 minutes, with what the container rules judge
+    /// (ADR 0018).
+    /// </summary>
+    /// <param name="now">The current time.</param>
+    /// <param name="cancellationToken">Cancels the reads.</param>
+    /// <returns>One entry per container and host, in no particular order.</returns>
+    Task<IReadOnlyList<ContainerHealth>> ListContainersAsync(DateTimeOffset now, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Measures every database server that sent a read of its live view within the last two minutes, with the figures
     /// the catalog rules judge (ADR 0020).
     /// </summary>

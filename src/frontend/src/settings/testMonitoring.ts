@@ -1,4 +1,4 @@
-import type { Agent, SqlServer } from "../api/types";
+import type { Agent, PostgresServer, SqlServer } from "../api/types";
 
 /** The built-in agent of the VEY-38 mockups, online. */
 export const builtInAgent: Agent = {
@@ -15,6 +15,11 @@ export const builtInAgent: Agent = {
   createdAt: "2026-11-13T08:00:00Z",
   installed: true,
   codeExpiresAt: null,
+  host: false,
+  eventLog: false,
+  iis: false,
+  docker: false,
+  hostEnvironment: "production",
 };
 
 /** The three SQL Servers of the VEY-38 mockups: one receiving, one refusing the login, one just added. */
@@ -34,6 +39,8 @@ export const sqlServers: SqlServer[] = [
     since: "2026-11-13T11:59:52Z",
     createdAt: "2026-11-13T08:00:00Z",
     changedAt: "2026-11-13T08:00:00Z",
+    platform: "SqlServer",
+    database: null,
   },
   {
     id: "s2",
@@ -50,6 +57,8 @@ export const sqlServers: SqlServer[] = [
     since: "2026-11-13T11:59:40Z",
     createdAt: "2026-11-13T09:00:00Z",
     changedAt: "2026-11-13T09:00:00Z",
+    platform: "SqlServer",
+    database: null,
   },
   {
     id: "s3",
@@ -66,5 +75,27 @@ export const sqlServers: SqlServer[] = [
     since: null,
     createdAt: "2026-11-13T11:59:20Z",
     changedAt: "2026-11-13T11:59:20Z",
+    platform: "SqlServer",
+    database: null,
+  },
+];
+
+/** A PostgreSQL server beside them (VEY-33), receiving. */
+export const postgresServers: PostgresServer[] = [
+  {
+    id: "p1",
+    name: "pg-main",
+    address: "pg-main.corp.local",
+    port: 5432,
+    environment: "production",
+    agentId: "a1",
+    agentName: "Built in",
+    login: "veyra_monitor",
+    encryption: "TrustServerCertificate",
+    state: "Receiving",
+    detail: null,
+    since: "2026-11-13T11:59:50Z",
+    createdAt: "2026-11-13T10:00:00Z",
+    changedAt: "2026-11-13T10:00:00Z",
   },
 ];

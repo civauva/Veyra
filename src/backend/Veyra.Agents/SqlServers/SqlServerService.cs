@@ -1,6 +1,8 @@
+using System.Security.Claims;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Veyra.Agents.Agents;
+using Veyra.Core.Settings;
 
 namespace Veyra.Agents.SqlServers;
 
@@ -12,12 +14,14 @@ namespace Veyra.Agents.SqlServers;
 /// <param name="agents">Checks the agent a server is given to.</param>
 /// <param name="passwords">Encrypts passwords before they are stored.</param>
 /// <param name="clock">The clock for creation and change times.</param>
-/// <param name="logger">Records who changed what, without passwords.</param>
+/// <param name="history">The settings history, which names who changed which fields, never their values.</param>
+/// <param name="logger">Records changes in Veyra's log, without passwords.</param>
 internal sealed partial class SqlServerService(
     SqlServerStore servers,
     AgentStore agents,
     SqlServerPasswordProtector passwords,
     TimeProvider clock,
+    IMonitoringHistory history,
     ILogger<SqlServerService> logger)
 {
     /// <summary>Lists every server, by name, without passwords.</summary>
@@ -28,11 +32,12 @@ internal sealed partial class SqlServerService(
 
     /// <summary>Adds a server.</summary>
     /// <param name="input">The server, with its password.</param>
+    /// <param name="by">Who adds it, for the settings history.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The stored server.</returns>
     /// <exception cref="AgentsValidationException">The input breaks a rule.</exception>
     /// <exception cref="AgentsConflictException">Another server has the name.</exception>
-    public async Task<SqlServer> AddAsync(SqlServerInput input, CancellationToken cancellationToken)
+    public async Task<SqlServer> AddAsync(SqlServerInput input, ClaimsPrincipal by, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(input);
 
@@ -46,6 +51,7 @@ internal sealed partial class SqlServerService(
 
         await servers.InsertAsync(server, passwords.Protect(input.Password), cancellationToken);
         LogAdded(server.Id, server.Name, server.AgentId);
+        await RecordAsync(server.Name, MonitoringChangeKind.Added, [], by, cancellationToken);
 
         return server;
     }
@@ -53,11 +59,16 @@ internal sealed partial class SqlServerService(
     /// <summary>Changes a server. A missing password keeps the stored one.</summary>
     /// <param name="id">The server's ID.</param>
     /// <param name="input">The server as it should be.</param>
+    /// <param name="by">Who changes it, for the settings history.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The stored server, or <see langword="null"/> when no server has the ID.</returns>
     /// <exception cref="AgentsValidationException">The input breaks a rule.</exception>
     /// <exception cref="AgentsConflictException">Another server has the name.</exception>
-    public async Task<SqlServer?> UpdateAsync(Guid id, SqlServerInput input, CancellationToken cancellationToken)
+    public async Task<SqlServer?> UpdateAsync(
+        Guid id,
+        SqlServerInput input,
+        ClaimsPrincipal by,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(input);
 
@@ -76,23 +87,31 @@ internal sealed partial class SqlServerService(
 
         LogChanged(server.Id, server.Name, password is not null);
 
+        if (ChangedFields(stored.Server, server, password is not null) is { Count: > 0 } fields)
+        {
+            await RecordAsync(server.Name, MonitoringChangeKind.Changed, fields, by, cancellationToken);
+        }
+
         return server;
     }
 
     /// <summary>Removes a server. Its agent stops reading it with its next poll.</summary>
     /// <param name="id">The server's ID.</param>
+    /// <param name="by">Who removes it, for the settings history.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>Whether a server had the ID.</returns>
-    public async Task<bool> RemoveAsync(Guid id, CancellationToken cancellationToken)
+    public async Task<bool> RemoveAsync(Guid id, ClaimsPrincipal by, CancellationToken cancellationToken)
     {
-        var removed = await servers.DeleteAsync(id, cancellationToken);
-
-        if (removed)
+        if (await servers.FindAsync(id, cancellationToken) is not { } stored
+            || !await servers.DeleteAsync(id, cancellationToken))
         {
-            LogRemoved(id);
+            return false;
         }
 
-        return removed;
+        LogRemoved(id);
+        await RecordAsync(stored.Server.Name, MonitoringChangeKind.Removed, [], by, cancellationToken);
+
+        return true;
     }
 
     /// <summary>The servers one agent reads, with their passwords decrypted, for its configuration.</summary>
@@ -121,6 +140,34 @@ internal sealed partial class SqlServerService(
         return targets;
     }
 
+    private Task RecordAsync(
+        string name,
+        MonitoringChangeKind kind,
+        IReadOnlyList<string> fields,
+        ClaimsPrincipal by,
+        CancellationToken cancellationToken) =>
+        history.RecordAsync(
+            new MonitoringChange(MonitoringSubject.SqlServer, name, kind, fields),
+            by,
+            cancellationToken);
+
+    // The fields a change touched, in the words the history shows. An entered password counts as changed: only its
+    // encrypted form is stored, so it cannot be compared.
+    private static List<string> ChangedFields(SqlServer before, SqlServer after, bool password) =>
+        new (bool Changed, string Field)[]
+        {
+            (before.Name != after.Name, "name"),
+            (before.Platform != after.Platform, "kind"),
+            (before.Database != after.Database, "database"),
+            (before.Address != after.Address, "address"),
+            (before.Port != after.Port, "port"),
+            (before.Environment != after.Environment, "environment"),
+            (before.AgentId != after.AgentId, "agent"),
+            (before.Login != after.Login, "login"),
+            (password, "password"),
+            (before.Encryption != after.Encryption, "encryption"),
+        }.Where(entry => entry.Changed).Select(entry => entry.Field).ToList();
+
     private async Task<SqlServer> ToServerAsync(
         Guid id,
         SqlServerInput input,
@@ -144,6 +191,21 @@ internal sealed partial class SqlServerService(
         Require(login.Length is > 0 and <= 128, "Enter the SQL login, at most 128 characters.");
         Require(input.Password is null || input.Password.Length <= 128, "The password may have at most 128 letters.");
         Require(Enum.IsDefined(input.Encryption), "Choose how the connection is encrypted.");
+        Require(Enum.IsDefined(input.Platform), "Choose the kind of SQL Server.");
+
+        var database = input.Database?.Trim();
+
+        if (input.Platform == SqlServerPlatform.AzureSqlDatabase)
+        {
+            Require(
+                !string.IsNullOrEmpty(database) && database.Length <= 128,
+                "Name the database: Azure SQL Database is read one database at a time.");
+        }
+        else
+        {
+            Require(string.IsNullOrEmpty(database), "Only an Azure SQL Database names its database.");
+            database = null;
+        }
 
         var agent = input.AgentId is { } agentId
             ? await agents.FindAsync(agentId, cancellationToken)
@@ -163,7 +225,9 @@ internal sealed partial class SqlServerService(
             Login: login,
             Encryption: input.Encryption,
             CreatedAt: createdAt,
-            ChangedAt: changedAt);
+            ChangedAt: changedAt,
+            Platform: input.Platform,
+            Database: database);
     }
 
     private static void Require(bool holds, string message)

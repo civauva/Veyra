@@ -94,6 +94,10 @@ function eventMeasure(rule: AlertRule, value: number): string {
       return value >= notFillingDays ? "not filling" : `full in ${formatMeasure(rule, value)}`;
     case "error-rate":
       return `${formatMeasure(rule, value)} errors`;
+    case "container-restarts":
+      return `${formatMeasure(rule, value)} in 15 min`;
+    case "container-memory":
+      return `${formatMeasure(rule, value)} of its limit`;
     case "db-blocking":
       return `${formatMeasure(rule, value)} blocked`;
     case "db-deadlocks":
@@ -104,5 +108,9 @@ function eventMeasure(rule: AlertRule, value: number): string {
       return `no backup for ${formatMeasure(rule, value)}`;
     case "db-agent-job":
       return `last run ${formatMeasure(rule, value)}`;
+    case "db-connections":
+      return `${formatMeasure(rule, value)} of the maximum`;
+    case "db-wraparound":
+      return `${formatMeasure(rule, value)} of the limit`;
   }
 }

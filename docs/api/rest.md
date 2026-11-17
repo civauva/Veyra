@@ -51,8 +51,8 @@ and `GET /api/v1/session/antiforgery` answer `400` with a problem that says so, 
 | `GET /api/v1/traces/durations` | Viewer | The durations of the newest traces, for the list's chart |
 | `GET /api/v1/traces/services` | Viewer | The services that received requests in the window |
 | `GET /api/v1/traces/{traceId}` | Viewer | One trace with every span that has arrived |
-| `GET /api/v1/metrics/overview` | Viewer | Every host and service that sent metrics, and metric storage use |
-| `GET /api/v1/metrics/hosts/{host}` | Viewer | One host: CPU, memory, disks, network, disk I/O, load |
+| `GET /api/v1/metrics/overview` | Viewer | Every host, service, database server, and container that sent metrics, and metric storage use |
+| `GET /api/v1/metrics/hosts/{host}` | Viewer | One host: CPU, memory, disks, network, disk I/O, load, containers |
 | `GET /api/v1/metrics/services/{service}` | Viewer | One service: latency, requests, routes, CPU, memory, runtime |
 | `GET /api/v1/metrics/names` | Viewer | Metric names seen in the range, for the metric browser |
 | `GET /api/v1/metrics/chart` | Viewer | One metric as lines, optionally split by an attribute |
@@ -89,11 +89,16 @@ and `GET /api/v1/session/antiforgery` answer `400` with a problem that says so, 
 | `GET /api/v1/agents` | Admin | Veyra's agents, the built-in one first, each with its state |
 | `POST /api/v1/agents` | Admin | Adds an agent for another network; the answer holds its one-time code, once |
 | `POST /api/v1/agents/{id}/code` | Admin | A new one-time code for an agent in another network |
+| `PUT /api/v1/agents/{id}/host` | Admin | Sets what an installed agent reads of its own host |
 | `DELETE /api/v1/agents/{id}` | Admin | Removes an agent in another network and revokes its key |
 | `GET /api/v1/sql-servers` | Admin | The SQL Servers agents read, each with its state in words |
 | `POST /api/v1/sql-servers` | Admin | Adds a SQL Server; its agent reads it within 30 seconds |
 | `PUT /api/v1/sql-servers/{id}` | Admin | Changes a SQL Server; without `password` the stored one stays |
 | `DELETE /api/v1/sql-servers/{id}` | Admin | Removes a SQL Server; the data it sent stays until retention |
+| `GET /api/v1/postgres-servers` | Admin | The PostgreSQL servers agents read, each with its state in words |
+| `POST /api/v1/postgres-servers` | Admin | Adds a PostgreSQL server; its agent reads it within 30 seconds |
+| `PUT /api/v1/postgres-servers/{id}` | Admin | Changes a PostgreSQL server; without `password` the stored one stays |
+| `DELETE /api/v1/postgres-servers/{id}` | Admin | Removes a PostgreSQL server; the data it sent stays until retention |
 
 ## Searching logs: `GET /api/v1/logs`
 
@@ -296,7 +301,12 @@ minutes.
                   "uptimeSeconds": 3542400, "batchRequests": 1240, "connections": 182, "blocked": 0, "deadlocks": 2,
                   "pageLifeSeconds": 3412, "longestQuerySeconds": 134, "databases": 5,
                   "oldestBackupSeconds": 111600, "failedJobs": 1,
-                  "requests": { "label": "batch requests", "latest": 1240, "points": [] } }]
+                  "requests": { "label": "batch requests", "latest": 1240, "points": [] } }],
+  "containers": [{ "name": "shop-worker", "host": "web-01", "environment": "production",
+                   "image": "ghcr.io/example/shop-worker:1.4.2", "id": "9b81c0de55f2",
+                   "lastSeen": "2026-11-10T11:00:10Z", "cpuPercent": 148, "memoryBytes": 499122176,
+                   "memoryLimitBytes": 536870912, "memoryRatio": 0.93, "restarts": 3, "restartsTotal": 7,
+                   "uptimeSeconds": 240, "cpu": { "label": "cpu", "latest": 140, "points": [] } }]
 }
 ```
 
@@ -307,7 +317,19 @@ minutes.
   `serverErrorRatio` is the share of requests answered with a 5xx status.
 - `databases` are the database servers that sent in the last 15 minutes (ADR 0018), by `db.system.name` and
   `server.address`. `deadlocks` counts the last 15 minutes; `oldestBackupSeconds` is the longest any database has
-  gone without a full backup; `failedJobs` counts SQL Agent jobs whose last run failed.
+  gone without a full backup; `failedJobs` counts SQL Agent jobs whose last run failed. A PostgreSQL server
+  (`engine` `postgresql`, VEY-33) has no `cpus`, `memoryBytes`, `uptimeSeconds`, `batchRequests`, or
+  `pageLifeSeconds`; its `connections` are those to every database, and it adds `maxConnections` (its
+  `max_connections`), `commitsPerSecond` and `rollbacksPerSecond` now, and `wraparoundRatio`, the highest
+  transaction ID age of any database of the limit of 2^31, from 0 to 1. Its `requests` line is transactions
+  committed or rolled back per second. These four fields are `null` for SQL Server.
+- `containers` are the Docker containers that sent `docker_stats` in the last 15 minutes (ADR 0018), by
+  `container.name` and then `host`. `cpuPercent` is a share of one CPU, so 148 is about one and a half CPUs, and the
+  `cpu` line has the same unit. `memoryRatio` is `memoryBytes` (without the page cache) of `memoryLimitBytes`;
+  Docker reports the host's memory as the limit of a container without one. The three memory fields are `null` while
+  the container is between restarts and reports a limit of 0. `restarts` counts the restarts within
+  the range, `null` when the container sends no restart count; `restartsTotal` is Docker's own count. `id` is the
+  short container ID.
 - The `cpu` and `latency` lines have at most 72 points: `bucketSeconds` is 60 for `1h`, 300 for `6h`, 1800 for
   `24h`, and 10800 for `7d`. The host and service screens draw their charts with the finer buckets of the range.
 
@@ -317,7 +339,8 @@ One host or service in detail, with its card as on the overview. A service takes
 service that names none. Both answer `404` when nothing arrived in the range.
 
 - **Host.** `cpu` (total, user, system, iowait as shares), `memory` (used, cache as shares), `disks`, `network`
-  and `diskIo` (bytes per second, by direction), and `load` (1m, 5m, 15m).
+  and `diskIo` (bytes per second, by direction), `load` (1m, 5m, 15m), and `containers`: the Docker containers on
+  the host that sent within the range, by name, each as on the overview, with `restarts` counted over the range.
 - **Service.** `latency` (p50, p95, p99 in seconds), `requests` (ok, 4xx, 5xx per second), `routes` (the busiest
   ten in the last five minutes, with `requestsPerSecond`, `p95Seconds`, and `serverErrorRatio`), `resources` (cpu
   share, memory bytes), `runtime` (garbage collections per minute, thread pool queue, threads), and
@@ -337,6 +360,15 @@ with its card as on the overview. `404` when nothing arrived in the range.
 - **`jobs`**, the failed first: `failed`, `lastRun`, `durationSeconds`.
 - **`topQueries`**: the latest report of the queries with the most total time, with `totalSeconds`, `executions`,
   `workerSeconds`, and `logicalReads`.
+- **PostgreSQL** (`/api/v1/metrics/databases/postgresql/pg-main`, VEY-33) reads the tested PostgreSQL configuration
+  instead: `requests` is transactions per second, `connections` the connections to every database, and `blocked`
+  the sessions waiting for a lock longer than 30 seconds; `pageLife`, `waits`, `jobs`, `running`, and `topQueries`
+  are empty. It adds the lines `maxConnections`, `commits`, and `rollbacks` (per second), which are `null` for SQL
+  Server. Each of `databases` adds `connections`, `transactionIdAge`, `wraparoundRatio` (that age of 2^31, from 0
+  to 1), `liveRows` and `deadRows` of all its tables, `deadRowsRatio` (dead of all rows), and `vacuums` (of its
+  tables over the last day); `logBytes`, `backupAgeSeconds`, and `ioLatencySeconds` are `null`. **`tables`** lists
+  the ten tables with the most dead rows, the most first, each with `database`, `schema`, `name`, `liveRows`,
+  `deadRows`, `deadRowsRatio`, and `vacuums` over the last day; it is empty for SQL Server.
 
 ### `GET /api/v1/metrics/databases/{engine}/{server}/live`
 
@@ -434,7 +466,7 @@ opened, a page at a time (ADR 0012).
 | `days` | `30` | How many days back, today counting as one; 1 to `Veyra:Alerting:HistoryDays` (90) |
 | `timeZone` | UTC | The viewer's IANA zone, such as `Europe/Berlin`, whose midnight starts each day; `400` when unknown |
 | `state` | `all` | `open`, `resolved`, or `all` |
-| `rule` | all | Only these rules; repeat for several: `error-rate`, `latency-p95`, `disk-space`, `disk-filling`, `db-blocking`, `db-deadlocks`, `db-long-query`, `db-backup-age`, `db-agent-job` |
+| `rule` | all | Only these rules; repeat for several: `error-rate`, `latency-p95`, `disk-space`, `disk-filling`, `container-restarts`, `container-memory`, `db-blocking`, `db-deadlocks`, `db-long-query`, `db-backup-age`, `db-agent-job`, `db-connections`, `db-wraparound` |
 | `severity` | all | Only alerts whose worst severity was `Warning`, or `Caution` |
 | `environment` | all | Only alerts of this environment |
 | `kind` | all | Only alerts about a `service`, a `host`, a `database` server, or a `container` |
@@ -591,6 +623,12 @@ was not given; `409` when another save came first.
 `limit` (at most 200). A secret's values are never in it. `POST /api/v1/settings/history/{id}/revert` takes
 `{ "version": 8, "confirmed": false }` and answers like a save.
 
+The history also lists who added, changed, or removed a SQL Server, a PostgreSQL server, or an agent (ADR 0019),
+under the sections `Databases` and `Agents`. Such a change has `subject` (`SqlServer`, `PostgresServer`, or `Agent`),
+`label` set to its name, `kind` `Added`, `Changed`, or `Removed`, and `fields`: the fields a change touched, such as
+`["port", "password"]`, never their values. It cannot be reverted, and it does not move the settings `version`, so a
+save started before it still goes through.
+
 `GET /api/v1/settings/export` answers with `{ "format": "veyra-settings", "formatVersion": 1, "exportedAt": …,
 "values": { … } }`, without secrets. `POST /api/v1/settings/import` takes that file and answers with a review of
 what it would change; the screen then saves it with `PUT` and the file name as `origin`.
@@ -628,10 +666,11 @@ A channel, as `POST` and `PUT` take it and as the test endpoint takes it:
   `{ "succeeded": false, "status": 404, "error": "HTTP 404 Not Found" }`: a failed send is a `200` with the reason.
   `POST …/test?id={id}` tests changes to a stored channel; a webhook without `webhookUrl` uses the stored URL.
 
-## Agents and SQL Servers: `/api/v1/agents`, `/api/v1/sql-servers`
+## Agents and database servers: `/api/v1/agents`, `/api/v1/sql-servers`, `/api/v1/postgres-servers`
 
 Administrators only. Veyra's agents read the database servers added here (ADR 0019); see
-[`docs/integrations/sqlserver.md`](../integrations/sqlserver.md#from-the-settings-screen).
+[`docs/integrations/sqlserver.md`](../integrations/sqlserver.md#from-the-settings-screen) and
+[`docs/integrations/postgres.md`](../integrations/postgres.md#from-the-settings-screen).
 
 A SQL Server, as `POST` and `PUT` take it:
 
@@ -655,14 +694,24 @@ A SQL Server, as `POST` and `PUT` take it:
 - Each server in an answer has `state` and `detail`: `Receiving`, `WaitingForData`, `LoginFailed`, `Unreachable`,
   `CertificateRejected`, `GrantMissing`, `Failing`, `ConfigurationFailed`, `AgentOffline`, or `AgentNotConnected`,
   with the agent's or SQL Server's own words for an error, and `since`, when that error or the last data was seen.
+- A PostgreSQL server (VEY-33) takes and answers the same fields, without `platform` and `database`. Its `login` is
+  the role the agent signs in as: letters, digits, underscores, dots, and dashes, at most 63. Its password may not
+  hold spaces, quotes, or backslashes, which the Collector's `postgresql` receiver cannot pass on. `encryption` is
+  `Required` (TLS, checking the certificate and the server's name), `TrustServerCertificate` (TLS, any certificate),
+  or `Off` (no TLS). Names are unique among PostgreSQL servers; its states are the same as a SQL Server's, with
+  PostgreSQL's own words in `detail`.
 - Each agent has `placement` (`BuiltIn` or `Remote`), `state` (`Online`, `NotConnected`, `Offline`,
   `ConfigurationFailed`, or `Unhealthy`), the Collector's `version`, `hostName`, `operatingSystem`, `lastSeenAt`,
-  `error`, and how many `servers` it reads.
+  `error`, and how many database `servers` it reads, SQL Server and PostgreSQL together.
 
 - `POST /api/v1/agents` takes `{ "name": "Company network" }` and answers `{ "agent", "code", "expiresAt" }`. The
   code works once, for an hour; only its hash is kept. An agent in another network has `installed` false until its
-  installer used a code, and `codeExpiresAt` while a code is open. Removing an agent that still reads SQL Servers
+  installer used a code, and `codeExpiresAt` while a code is open. Removing an agent that still reads database servers
   answers `409`; removing the built-in one answers `400`.
+- `PUT /api/v1/agents/{id}/host` takes `{ "host", "eventLog", "iis", "docker", "environment" }` and answers the
+  agent, which shows the same fields, the environment as `hostEnvironment`. `eventLog` and `iis` are for Windows
+  agents, `docker` for Linux ones ([`docker.md`](../integrations/docker.md)); asking for them elsewhere, for the
+  built-in agent, or for one not installed answers `400`. Turning `host` off turns the others off.
 
 Agents themselves talk to Veyra over OpAMP, at `POST /v1/opamp`, signed with their own ingestion key. It is not part
 of the REST API; it follows the [OpAMP specification](https://opentelemetry.io/docs/specs/opamp/) over plain HTTP.

@@ -19,6 +19,12 @@ internal static class AlertRules
     /// <summary>The 95th percentile of a service's request durations.</summary>
     public const string LatencyP95 = "latency-p95";
 
+    /// <summary>Restarts of a Docker container in the last 15 minutes (ADR 0018).</summary>
+    public const string ContainerRestarts = "container-restarts";
+
+    /// <summary>The share of its memory limit a Docker container uses.</summary>
+    public const string ContainerMemory = "container-memory";
+
     /// <summary>Sessions of a database server blocked for five minutes (ADR 0018).</summary>
     public const string DatabaseBlocking = "db-blocking";
 
@@ -34,6 +40,12 @@ internal static class AlertRules
     /// <summary>A SQL Agent job whose last run failed.</summary>
     public const string DatabaseAgentJob = "db-agent-job";
 
+    /// <summary>The connections in use of a database server's maximum (PostgreSQL).</summary>
+    public const string DatabaseConnections = "db-connections";
+
+    /// <summary>The transaction ID age of a database, of the wraparound limit (PostgreSQL).</summary>
+    public const string DatabaseWraparound = "db-wraparound";
+
     /// <summary>Every built-in rule, in the order screens list them.</summary>
     public static readonly IReadOnlyList<string> All =
     [
@@ -41,11 +53,15 @@ internal static class AlertRules
         LatencyP95,
         DiskSpace,
         DiskFilling,
+        ContainerRestarts,
+        ContainerMemory,
         DatabaseBlocking,
         DatabaseDeadlocks,
         DatabaseLongQuery,
         DatabaseBackupAge,
         DatabaseAgentJob,
+        DatabaseConnections,
+        DatabaseWraparound,
         .. RuleCatalog.All.Select(rule => rule.Id),
     ];
 

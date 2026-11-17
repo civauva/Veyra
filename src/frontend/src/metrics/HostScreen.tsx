@@ -4,7 +4,9 @@ import { api } from "../api/client";
 import type { ChartLine, HostMetrics } from "../api/types";
 import { useViewMode, ViewToggle } from "../app/ViewToggle";
 import { BlockStatus } from "./BlockStatus";
+import { ContainerPanel } from "./ContainerPanel";
 import { LineChart } from "./LineChart";
+import { HostIssues } from "./HostIssues";
 import { HostIcon } from "./MetricCards";
 import { formatAgo, formatAmount, formatFull, formatRate, formatShare, shareTone } from "./metricFormat";
 import { RangePicker, rangeFrom } from "./RangePicker";
@@ -14,7 +16,8 @@ import "./metrics.css";
 
 /**
  * One host over the chosen range. Simple shows how it is, its rings now, CPU and memory, and its disks; Advanced adds
- * CPU by state and load, cache, network, and disk I/O (VEY-37). Reached from its card on the Metrics overview.
+ * CPU by state and load, cache, network, and disk I/O (VEY-37). Both views list its Docker containers (ADR 0018).
+ * Reached from its card on the Metrics overview, and from a container's card at that container's row.
  */
 export function HostScreen() {
   const { host = "" } = useParams();
@@ -54,7 +57,13 @@ export function HostScreen() {
         </p>
       )}
       {data && <HostNow host={data} />}
+      {data && <HostIssues host={host} />}
       {data && (mode === "advanced" ? <HostPanels host={data} /> : <HostBasics host={data} />)}
+      {data && data.containers.length > 0 && (
+        <div className="metric-panels">
+          <ContainerPanel host={host} containers={data.containers} range={range} />
+        </div>
+      )}
     </main>
   );
 }

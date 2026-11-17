@@ -19,6 +19,10 @@ import { IndexesSection } from "./database/IndexesSection";
 import { ServerTab, WaitTypes } from "./database/ServerTab";
 import { JobsTab } from "./database/JobsTab";
 import { EventsTab } from "./database/EventsTab";
+import { blindingGaps, PermissionNotice } from "./database/PermissionNotice";
+import { platformNote, tabsLeftOut } from "./database/platforms";
+import { isPostgres } from "./database/postgres";
+import { PostgresDatabases, PostgresOverview } from "./database/PostgresTabs";
 import "./database/live.css";
 import "./metrics.css";
 
@@ -39,7 +43,8 @@ const waitColors = [
  * One database server over the chosen range (ADR 0018). Simple shows how it is, the numbers that say whether it is
  * fine, its databases with their size and last backup, its SQL Agent jobs, and the queries running long now;
  * Advanced adds page life, the waits, the server over time, growth, I/O latency, and the top queries (VEY-37).
- * Reached from its card on the Metrics overview, and from its alerts.
+ * A PostgreSQL server has its own Overview and Databases tabs instead (VEY-33). Reached from its card on the Metrics
+ * overview, and from its alerts.
  */
 export function DatabaseScreen() {
   const { engine = "", server = "" } = useParams();
@@ -47,11 +52,25 @@ export function DatabaseScreen() {
   const range = rangeFrom(params.get("range"));
   const [mode, setMode] = useViewMode();
   const advanced = mode === "advanced";
-  const tabs = advanced ? allTabs : simpleTabs;
-  const tab = tabs.find((one) => one.id === params.get("tab"))?.id ?? "live";
+  const postgres = isPostgres(engine);
+  // What the monitoring login may not read, and on which platform: the agent checks every 5 minutes (VEY-58, VEY-57).
+  // No agent reads a PostgreSQL server, so it is not asked.
+  const { data: permissions } = useMetricData(
+    `permissions-${engine}-${server}`,
+    (signal) => (postgres ? Promise.resolve(null) : api.databasePermissions(engine, server, signal)),
+    { refreshMs: 60_000 },
+  );
+  const leftOut = tabsLeftOut(permissions?.platform);
+  const tabs = postgres
+    ? postgresTabs
+    : (advanced ? allTabs : simpleTabs).filter((one) => !leftOut?.tabs.includes(one.id));
+  const first = tabs[0]?.id ?? "live";
+  const tab = tabs.find((one) => one.id === params.get("tab"))?.id ?? first;
+  const note = platformNote(permissions?.platform, tab);
   const { data, notFound, error } = useMetricData(`database-${engine}-${server}-${range}`, (signal) =>
     api.databaseMetrics(engine, server, range, signal),
   );
+  const blind = blindingGaps(permissions, tab).length > 0;
 
   function go(next: Record<string, string | null>) {
     setParams(
@@ -87,7 +106,7 @@ export function DatabaseScreen() {
             key={one.id}
             type="button"
             aria-current={one.id === tab ? "page" : undefined}
-            onClick={() => go({ tab: one.id === "live" ? null : one.id })}
+            onClick={() => go({ tab: one.id === first ? null : one.id })}
           >
             {one.label}
           </button>
@@ -100,6 +119,9 @@ export function DatabaseScreen() {
           {data ? `Could not refresh: ${error}.` : `The server could not be loaded: ${error}`}
         </p>
       )}
+      {leftOut && <p className="metrics-empty">{leftOut.reason}</p>}
+      {note && <p className="metrics-empty">{note}</p>}
+      <PermissionNotice permissions={permissions} tab={tab} server={server} />
       {tab === "live" && (
         <LiveTab
           engine={engine}
@@ -120,23 +142,27 @@ export function DatabaseScreen() {
           onMoment={(at) => go({ tab: null, at })}
         />
       )}
-      {tab === "jobs" && <JobsTab engine={engine} server={server} advanced={advanced} />}
+      {tab === "jobs" && <JobsTab engine={engine} server={server} advanced={advanced} blind={blind} />}
       {tab === "events" && <EventsTab engine={engine} server={server} range={range} advanced={advanced} />}
-      {tab === "server" && <ServerTab engine={engine} server={server} range={range} advanced={advanced} />}
+      {tab === "server" && (
+        <ServerTab engine={engine} server={server} range={range} advanced={advanced} blind={blind} />
+      )}
       {tab !== "live" && notFound && (
         <p className="metrics-empty">
           {server} sent no metrics within the last {range}.
         </p>
       )}
+      {data && postgres && tab === "overview" && <PostgresOverview database={data} advanced={advanced} />}
+      {data && postgres && tab === "databases" && <PostgresDatabases database={data} advanced={advanced} />}
       {data && tab === "waits" && <Numbers database={data} advanced={advanced} />}
-      {data && tab !== "live" && (
+      {data && !postgres && tab !== "live" && (
         <div className="metric-panels">
           {tab === "waits" && <Waits database={data} />}
           {tab === "waits" && <Activity database={data} />}
           {tab === "waits" && <WaitTypes engine={engine} server={server} range={range} advanced={advanced} />}
           {tab === "databases" && <Databases databases={data.databases} advanced={advanced} />}
-          {tab === "databases" && <StorageTab engine={engine} server={server} advanced={advanced} />}
-          {tab === "databases" && <IndexesSection engine={engine} server={server} advanced={advanced} />}
+          {tab === "databases" && <StorageTab engine={engine} server={server} advanced={advanced} blind={blind} />}
+          {tab === "databases" && <IndexesSection engine={engine} server={server} advanced={advanced} blind={blind} />}
         </div>
       )}
     </main>
@@ -160,6 +186,15 @@ const simpleTabs: DatabaseTab[] = [
   { id: "jobs", label: "Jobs" },
   { id: "events", label: "Events" },
   { id: "server", label: "Server" },
+];
+
+/**
+ * The tabs of a PostgreSQL server, in both views (VEY-33): it sends metrics only, so it has none of the tabs that
+ * SQL Server's agent fills.
+ */
+const postgresTabs: DatabaseTab[] = [
+  { id: "overview", label: "Overview" },
+  { id: "databases", label: "Databases" },
 ];
 
 /** The tabs of the Advanced view, for a DBA. */

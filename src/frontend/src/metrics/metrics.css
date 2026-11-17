@@ -1095,3 +1095,272 @@ div.metrics-empty b {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* A host's recent errors from its own logs, such as the Windows Event Log (VEY-35): time, then the message, which
+   may be long and wraps. */
+.host-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.host-issues li {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 10px;
+  padding: 7px 10px;
+  border-left: 3px solid var(--error-fg);
+  border-radius: 8px;
+  background: var(--panel-2);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.host-issues time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.host-issues span {
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ---- Containers (ADR 0018) ---- */
+
+.metric-icon.container {
+  background: color-mix(in srgb, var(--metric-pink) 16%, transparent);
+  color: var(--metric-pink);
+}
+
+.container-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.container-table th,
+.container-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+  font-variant-numeric: tabular-nums;
+}
+
+.container-table thead th {
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.container-table tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+/* A container with an open alert carries its severity down its left edge. */
+.container-table tbody tr.caution > th {
+  box-shadow: inset 3px 0 0 var(--warning-fg);
+}
+
+.container-table tbody tr.warning > th {
+  box-shadow: inset 3px 0 0 var(--error-fg);
+}
+
+/* The row a link led to. */
+.container-table tbody tr.picked {
+  background: color-mix(in srgb, var(--metric-pink) 9%, transparent);
+}
+
+.container-table tbody th {
+  font-weight: 400;
+}
+
+.container-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.container-name .metric-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+}
+
+.container-name > span:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.container-name b {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.container-name small {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+.container-alert {
+  width: fit-content;
+  margin-top: 2px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.container-alert.caution {
+  background: color-mix(in srgb, var(--warning-fg) 14%, transparent);
+  color: var(--warning-fg);
+}
+
+.container-alert.warning {
+  background: color-mix(in srgb, var(--error-fg) 14%, transparent);
+  color: var(--error-fg);
+}
+
+.container-cpu {
+  width: 150px;
+}
+
+.container-cpu .sparkline {
+  height: 22px;
+  margin-top: 2px;
+}
+
+.container-memory {
+  width: 30%;
+  min-width: 180px;
+}
+
+.container-memory .disk-bar {
+  display: block;
+}
+
+.container-memory .disk-text {
+  display: block;
+  margin-top: 5px;
+  text-align: left;
+}
+
+.container-restarts b,
+.container-restarts small {
+  display: block;
+}
+
+.container-restarts b.warn {
+  color: var(--warning-fg);
+}
+
+.container-restarts small {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.container-up {
+  white-space: nowrap;
+}
+
+.container-logs {
+  text-align: right;
+}
+
+.container-logs-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.container-logs-link:hover,
+.container-logs-link:focus-visible {
+  border-color: var(--accent);
+}
+
+@media (pointer: coarse) {
+  .container-logs-link {
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 1199px) {
+  .container-cpu {
+    width: 110px;
+  }
+}
+
+/* On phones each container is a card: its name across the top, then its figures two by two. */
+@media (max-width: 767px) {
+  .container-table thead {
+    display: none;
+  }
+
+  .container-table tbody tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 14px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .container-table tbody tr:last-child {
+    border-bottom: 0;
+  }
+
+  .container-table th,
+  .container-table td {
+    width: auto;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .container-table tbody tr > th,
+  .container-table .container-memory {
+    grid-column: 1 / -1;
+  }
+
+  .container-table td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 2px;
+    color: var(--faint);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .container-logs {
+    align-self: end;
+    text-align: left;
+  }
+
+  .container-table tbody tr.picked {
+    padding-inline: 10px;
+    border-radius: 12px;
+  }
+}

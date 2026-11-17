@@ -79,6 +79,23 @@ describe("LiveTab", () => {
     expect(within(sessions).getAllByRole("row").length).toBeGreaterThan(3);
   });
 
+  it("marks the open session's row in the blocking tree", async () => {
+    const user = userEvent.setup();
+    renderTab(true);
+
+    const tree = await screen.findByRole("region", { name: "Blocking now" });
+    await user.click(within(tree).getByRole("button", { name: /^session\s*117$/ }));
+
+    expect(screen.getByRole("dialog")).toBeVisible();
+    const open = tree.querySelector("[aria-current='true']");
+    expect(open).toHaveTextContent("117");
+    expect(
+      within(tree)
+        .getByRole("button", { name: /^session\s*73$/ })
+        .closest("[aria-current]"),
+    ).toBeNull();
+  });
+
   it("says nobody waits when nothing blocks", async () => {
     vi.mocked(api.databaseLive).mockResolvedValue(liveQuietView);
     renderTab(false);
