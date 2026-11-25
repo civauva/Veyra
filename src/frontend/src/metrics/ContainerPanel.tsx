@@ -35,23 +35,21 @@ export function ContainerPanel({ host, containers, range }: ContainerPanelProps)
       return undefined;
     }
 
-    // Panels above the row may still be loading and push it away, so the row is kept in view while the page grows,
-    // for a few seconds, until the person scrolls themselves.
+    // Panels above the row may still be loading and push it away, so the row is kept in view while the screen
+    // changes, until the person scrolls or clicks themselves, for at most ten seconds on a slow connection. The
+    // changes are watched rather than the page's size: the app's frame never grows, its screen scrolls inside it.
     const show = () => document.getElementById(picked)?.scrollIntoView?.({ block: "center" });
-    const growing = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(show);
+    const changing = new MutationObserver(show);
+    const stops = ["wheel", "touchmove", "keydown", "pointerdown"];
     const stop = () => {
-      growing?.disconnect();
-      window.removeEventListener("wheel", stop);
-      window.removeEventListener("touchmove", stop);
-      window.removeEventListener("keydown", stop);
+      changing.disconnect();
+      stops.forEach((name) => window.removeEventListener(name, stop));
     };
 
     show();
-    growing?.observe(document.body);
-    window.addEventListener("wheel", stop, { passive: true });
-    window.addEventListener("touchmove", stop, { passive: true });
-    window.addEventListener("keydown", stop);
-    const timer = window.setTimeout(stop, 3000);
+    changing.observe(document.body, { childList: true, subtree: true, characterData: true });
+    stops.forEach((name) => window.addEventListener(name, stop, { passive: true }));
+    const timer = window.setTimeout(stop, 10000);
 
     return () => {
       window.clearTimeout(timer);

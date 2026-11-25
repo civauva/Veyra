@@ -122,6 +122,22 @@ $errors = Select-String -Path $log -Pattern '"level":"error"|\terror\t' -SimpleM
 if ($errors) {
     Write-Host "The Collector logged errors:"
     $errors | Select-Object -First 20 | ForEach-Object { Write-Host $_.Line }
+
+    # The Collector names the file a line came from but not the line, so the site's logs are shown too, with the
+    # characters a parser trips over made visible.
+    $iisLogs = if ($env:IIS_LOG_DIR) { $env:IIS_LOG_DIR } else { "C:\inetpub\logs\LogFiles" }
+    Get-ChildItem -Path $iisLogs -Filter *.log -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+        Write-Host "$($_.FullName):"
+        # Opened as IIS shares it, still writing, and decoded without dropping a byte order mark.
+        $stream = [System.IO.File]::Open($_.FullName, "Open", "Read", "ReadWrite")
+        $reader = New-Object System.IO.StreamReader($stream, (New-Object System.Text.UTF8Encoding $false), $false)
+        $text = $reader.ReadToEnd()
+        $stream.Dispose()
+        $text -split "`n" | Select-Object -First 20 | ForEach-Object {
+            Write-Host ("  " + ($_ -replace "`r", "<CR>" -replace "`t", "<TAB>" -replace [char]0xFEFF, "<BOM>"))
+        }
+    }
+
     exit 1
 }
 

@@ -241,6 +241,26 @@ describe("MetricsScreen", () => {
     expect(within(containers).getByRole("row", { name: /shop-api/ })).toHaveTextContent("3 d 4 h");
   });
 
+  it("keeps a container reached by its link in view while the screen around it still changes", async () => {
+    // The app's frame never scrolls or grows; the screen scrolls inside it. So what moves the row is the content
+    // changing as the panels above it load, not the page's size.
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+
+    try {
+      renderAt("/metrics/hosts/web-01#container-shop-worker");
+      const worker = await screen.findByRole("row", { name: /shop-worker/ });
+      scrolled.mockClear();
+
+      document.querySelector("main")?.prepend(document.createElement("div"));
+      await vi.waitFor(() => expect(scrolled).toHaveBeenCalledWith({ block: "center" }));
+      expect(scrolled.mock.contexts.at(-1)).toBe(worker);
+    } finally {
+      // jsdom has no scrollIntoView of its own.
+      delete (Element.prototype as Partial<Element>).scrollIntoView;
+    }
+  });
+
   it("marks a container with an open alert and leads to it", async () => {
     vi.mocked(api.alerts).mockResolvedValue({
       items: [
