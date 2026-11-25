@@ -53,20 +53,23 @@ flowchart LR
 
 ### SQL Server and PostgreSQL
 
-- **How.** The Collector `sqlserver` and `postgresql` receivers, plus `sqlquery` for checks that the receivers do
-  not cover. Azure SQL is also read through `azuremonitor`.
+- **How.** Veyra's agent runs the Collector's `sqlserver` and `postgresql` receivers, plus `sqlquery` for what the
+  receivers do not cover. Azure SQL Database is read the same way, through its own views, with `sqlquery` only.
 - **Supported versions.** Versions released in the last six years that the vendor still supports:
   - SQL Server 2019, 2022, and 2025, on premises and on VMs. SQL Server 2019 is slightly older than six years and
     is included because Microsoft supports it until 2030.
   - Azure SQL Database and Azure SQL Managed Instance.
   - PostgreSQL 14 and newer.
-- **What you see.** Connections, waits, deadlocks, blocking, long-running queries, database and log size growth,
-  backup age, failed SQL Agent jobs on SQL Server, and vacuum and transaction ID wraparound on PostgreSQL. On SQL
-  Server, a Live tab refreshed every 10 seconds shows every busy session and each blocking chain from its head,
-  in words in the Simple view and in SQL Server's terms in the Advanced view (ADR 0020).
-- **Planned for SQL Server.** Full monitoring in fourteen areas, from live sessions and query plans to backups,
-  integrity, availability, configuration, and security, with a Simple and an Advanced view (ADR 0020). Each area is
-  listed under "What you see" when it ships.
+- **What you see on SQL Server.** All fourteen areas of ADR 0020, each in a Simple and an Advanced view: the server
+  and instance, waits, live activity (every 10 seconds), queries and plans with Query Store, blocking and deadlocks,
+  databases and storage, backups, integrity, indexes and statistics, SQL Server Agent, errors and events,
+  availability, configuration and security, and capacity. The details are in
+  [`docs/integrations/sqlserver.md`](../integrations/sqlserver.md).
+- **What you see on PostgreSQL.** Connections against the maximum, database size and growth, transaction ID
+  wraparound, dead rows and manual vacuums, blocked sessions, deadlocks, and the longest running query.
+- **Not yet on SQL Server.** Errors below severity 20, such as failed logins (18456) and 825, are only in SQL
+  Server's error log, which needs an agent on the server's own machine. Azure SQL Managed Instance and Azure SQL
+  Database are tested against the configuration, not yet against live Azure instances.
 
 ### Operating systems
 

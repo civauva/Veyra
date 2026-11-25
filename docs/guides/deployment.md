@@ -1,6 +1,7 @@
 # Deployment
 
-How to run Veyra on a Linux server with Docker Compose, behind Caddy with automatic HTTPS.
+How to run Veyra on a Linux server with Docker Compose, behind Caddy with automatic HTTPS. To try it on your own
+Windows, macOS, or Linux PC, see [On your own PC](#on-your-own-pc).
 
 Status: Veyra receives logs over OTLP, stores them in PostgreSQL, and shows them on the home and in the Log Explorer.
 It has accounts, roles, and ingestion keys (ADR 0008), and sends alerts to webhook and email channels.
@@ -66,6 +67,59 @@ flowchart LR
    link in a browser, and choose the administrator's email, name, and password. Then sign in.
 
    A restart before setup issues a new link, and the old one stops working.
+
+## On your own PC
+
+To try Veyra, develop with it, or demo it, run the same containers in Docker Desktop on Windows (WSL 2 backend),
+macOS, or Linux. Only that PC can reach it: every port is bound to `127.0.0.1`.
+
+Signing in needs HTTPS there too. On plain `http://localhost:8080` the first-run setup works, but the sign-in screen
+then refuses with "Signing in needs HTTPS". Veyra's Caddy serves `https://localhost` with a certificate from its own
+local authority, without a domain or the internet. Ports 80 and 443 must be free.
+
+1. Get the code and create the settings file, as in [First installation](#first-installation). In PowerShell,
+   `Copy-Item deploy/.env.example deploy/.env`. Set:
+
+   - `POSTGRES_PASSWORD`: any long random text, for example
+     `[guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')` in PowerShell.
+   - `VEYRA_DOMAIN=localhost`.
+   - Only when a port is taken: `VEYRA_HTTP_PORT`, `VEYRA_OTLP_GRPC_PORT`, and `VEYRA_OTLP_HTTP_PORT`, such as
+     `8090`, `14317`, and `14318`.
+
+2. Build and start Veyra, its built-in agent, PostgreSQL, and Caddy:
+
+   ```bash
+   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.caddy.yml up -d --build
+   ```
+
+3. Check it with `curl.exe -k https://localhost/readyz` (`curl -k` on macOS and Linux), which answers `200`.
+
+4. Find the setup link with `docker compose -f deploy/docker-compose.yml logs veyra`, the line with
+   "First-run setup", and open it with `localhost` in place of `<your host>`.
+
+5. The browser warns that the connection is not private, because Caddy signed the certificate. Continue to
+   `localhost`, or trust Caddy's root certificate once to stop the warning:
+
+   ```bash
+   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.caddy.yml cp \
+     caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-local-root.crt
+   ```
+
+   On Windows, `certutil -addstore -f Root caddy-local-root.crt` as an administrator; on macOS, mark it Always Trust
+   in Keychain Access. Restart the browser.
+
+6. Create the administrator, then sign in at `https://localhost`. **Settings → Agents** shows the built-in agent
+   online within a minute.
+
+On a PC:
+
+- **A database on the PC itself** is `host.docker.internal` on **Settings → Database monitoring**, not
+  `localhost`: inside the agent's container, `localhost` is the container.
+- **Applications on the PC** send to `http://127.0.0.1:4318` (OTLP/HTTP) or `http://127.0.0.1:4317` (OTLP/gRPC),
+  with an ingestion key as anywhere else.
+- **Agents in other networks** cannot reach Veyra on a PC, since its ports are bound to `127.0.0.1`.
+- **Stop** with `stop`, **start** again with `up -d`, and **upgrade** with `git pull` and `up -d --build`, each with
+  both `-f` files. `down` removes the containers and keeps the data; `down -v` deletes the data too.
 
 ## Sending telemetry
 

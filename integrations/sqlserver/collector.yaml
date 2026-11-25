@@ -395,13 +395,14 @@ receivers:
           - body_column: plan_xml
             attribute_columns: [veyra_record, sample, key, query_hash, database_name]
 
-  # Rare events from the built-in system_health session (ADR 0020): every minute, those of the last three minutes.
+  # Rare events from the built-in system_health session (ADR 0020): every minute, those of the last five minutes.
   # They are read from the session's current event file. Its ring buffer, which these reads used first, returns at
   # most 4 MB of XML, and on a server that has run for days the newest events are the ones it cuts off. A server whose
   # system_health writes no file falls back to the ring buffer. The file's timestamp_utc is compared inside DATEADD:
-  # compared directly, SQL Server pushes the filter into the function and it matches nothing (2022 CU14). Each is
-  # sent with a hash of its XML as its key, so Veyra keeps it once although it is read three times. Deadlocks carry
-  # their graph.
+  # compared directly, SQL Server pushes the filter into the function and it matches nothing (2022 CU14). The session
+  # writes its file up to two minutes after an event (MAX_DISPATCH_LATENCY 120 seconds), so five minutes leaves a read
+  # or two after the latest write. Each is sent with a hash of its XML as its key, so Veyra keeps it once although it
+  # is read several times. Deadlocks carry their graph.
   sqlquery/events:
     driver: sqlserver
     datasource: >-
@@ -421,7 +422,7 @@ receivers:
             INSERT @events (data)
             SELECT CAST(f.event_data AS xml)
             FROM sys.fn_xe_file_target_read_file(@file, NULL, NULL, NULL) AS f
-            WHERE f.object_name = N'xml_deadlock_report' AND DATEADD(MINUTE, 3, f.timestamp_utc) > SYSUTCDATETIME();
+            WHERE f.object_name = N'xml_deadlock_report' AND DATEADD(MINUTE, 5, f.timestamp_utc) > SYSUTCDATETIME();
           ELSE
             INSERT @events (data)
             SELECT x.e.query('.')
@@ -441,12 +442,12 @@ receivers:
                  CONVERT(varchar(64), HASHBYTES('SHA2_256', graph), 2) AS [key],
                  graph
           FROM found
-          WHERE at > DATEADD(MINUTE, -3, SYSUTCDATETIME())
+          WHERE at > DATEADD(MINUTE, -5, SYSUTCDATETIME())
         logs:
           - body_column: graph
             attribute_columns: [veyra_record, sample, key]
       # Every other event system_health keeps: errors of severity 20 and above and memory errors, long lock and latch
-      # waits, non-yielding schedulers, and security and connectivity records, of the last three minutes.
+      # waits, non-yielding schedulers, and security and connectivity records, of the last five minutes.
       - sql: >-
           /* veyra-agent: events */
           SET NOCOUNT ON;
@@ -461,7 +462,7 @@ receivers:
             SELECT CAST(f.event_data AS xml)
             FROM sys.fn_xe_file_target_read_file(@file, NULL, NULL, NULL) AS f
             WHERE f.object_name NOT IN (N'xml_deadlock_report', N'sp_server_diagnostics_component_result')
-              AND DATEADD(MINUTE, 3, f.timestamp_utc) > SYSUTCDATETIME();
+              AND DATEADD(MINUTE, 5, f.timestamp_utc) > SYSUTCDATETIME();
           ELSE
             INSERT @events (data)
             SELECT x.e.query('.')
@@ -491,7 +492,7 @@ receivers:
                  CONVERT(varchar(10), error_number) AS error_number, wait_type,
                  CONVERT(varchar(20), duration) AS duration, message
           FROM found
-          WHERE at > DATEADD(MINUTE, -3, SYSUTCDATETIME())
+          WHERE at > DATEADD(MINUTE, -5, SYSUTCDATETIME())
         logs:
           - body_column: message
             attribute_columns: [veyra_record, sample, key, event_name, severity, error_number, wait_type, duration]

@@ -44,8 +44,13 @@ sqlcmd -v MONITOR_PASSWORD="$MONITOR_PASSWORD" -i /dev/stdin < seed.sql > /dev/n
 
 # On a server that has run for days, system_health's ring buffer holds more than the 4 MB of XML SQL Server returns,
 # and the newest events are the ones cut off. Without it here, the agent must read the deadlock below from the
-# session's event files, as it does on such a server.
-sqlcmd -Q "ALTER EVENT SESSION system_health ON SERVER DROP TARGET package0.ring_buffer;" > /dev/null
+# session's event files, as it does on such a server. The session writes its file up to 120 seconds after an event,
+# longer than this check collects; 5 seconds here lets the reads within the 90 seconds see the deadlock. The
+# configuration's five-minute window is what covers the full delay on a real server.
+sqlcmd -Q "ALTER EVENT SESSION system_health ON SERVER STATE = STOP;
+  ALTER EVENT SESSION system_health ON SERVER DROP TARGET package0.ring_buffer;
+  ALTER EVENT SESSION system_health ON SERVER WITH (MAX_DISPATCH_LATENCY = 5 SECONDS);
+  ALTER EVENT SESSION system_health ON SERVER STATE = START;" > /dev/null
 
 # One session holds a row; the next waits on it, so it is both blocked and the longest running query.
 sqlcmd -d shop -Q "BEGIN TRAN; UPDATE dbo.Orders SET Status = N'held' WHERE Id = 1; WAITFOR DELAY '00:03:00'; ROLLBACK;" > /dev/null 2>&1 &

@@ -20,8 +20,10 @@ receivers:
     include_file_path: true
     start_at: end
     operators:
+      # Only requests go on, and each starts with its date. The file is UTF-8 with a byte order mark before its first
+      # header, so that header does not start with # as read; it does not start with a digit either.
       - type: filter
-        expr: 'body matches "^#"'
+        expr: 'not (body matches "^[0-9]")'
       - type: regex_parser
         # Folded over three lines; YAML joins them with the single space that separates the fields.
         regex: '^(?P<date>\S+) (?P<time>\S+) (?P<server_ip>\S+) (?P<method>\S+) (?P<path>\S+)

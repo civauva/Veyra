@@ -9,6 +9,9 @@ export default defineConfig({
   testDir: "e2e",
   fullyParallel: true,
   reporter: "list",
+  // A CI runner starting every worker at once can take more than the default 5 seconds to load the app; a wrong
+  // screen still fails, only later.
+  expect: { timeout: 10_000 },
   use: {
     baseURL: `http://localhost:${port}`,
     // The browser's zone is the default time zone of every screen (VEY-22); the suite runs in UTC unless a test asks.

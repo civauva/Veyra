@@ -48,6 +48,8 @@ test.describe("Shell", () => {
 
   test("keeps the sidebar in place: every screen scrolls in its own area, not the page", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name === "phone", "On phones the sidebar is a drawer.");
+    // Eight full page loads; on a busy CI runner they need more than one test's usual 30 seconds.
+    test.slow();
     // Short enough that every screen has more than fits.
     await page.setViewportSize({ width: 1440, height: 420 });
     await answerApi(page);

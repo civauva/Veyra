@@ -52,13 +52,14 @@ $configs = @(
 )
 
 if (-not $WithIis) {
-    # A day's log of the Default Web Site, as IIS writes it: headers, then one request per line, in UTC.
+    # A day's log of the Default Web Site, as IIS writes it: UTF-8 with a byte order mark before its first header,
+    # then one request per line, in UTC.
     $site = Join-Path $out "iis\W3SVC1"
     New-Item -ItemType Directory -Path $site | Out-Null
     $now = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss")
     $fields = "date time s-ip cs-method cs-uri-stem cs-uri-query s-port cs-username c-ip cs(User-Agent) " +
         "cs(Referer) sc-status sc-substatus sc-win32-status time-taken"
-    @(
+    $lines = @(
         "#Software: Microsoft Internet Information Services 10.0",
         "#Version: 1.0",
         "#Date: $now",
@@ -66,7 +67,11 @@ if (-not $WithIis) {
         "$now 10.0.0.5 GET /orders - 443 - 10.0.0.9 Mozilla/5.0 - 200 0 0 42",
         "$now 10.0.0.5 GET /missing - 443 - 10.0.0.9 Mozilla/5.0 - 404 0 2 3",
         "$now 10.0.0.5 POST /checkout id=7 443 - 10.0.0.9 Mozilla/5.0 - 500 0 0 1290"
-    ) | Set-Content -Path (Join-Path $site "u_ex.log") -Encoding ASCII
+    )
+    [System.IO.File]::WriteAllText(
+        (Join-Path $site "u_ex.log"),
+        ($lines -join "`r`n") + "`r`n",
+        (New-Object System.Text.UTF8Encoding $true))
     $env:IIS_LOG_DIR = Join-Path $out "iis"
     $configs += @("--config", (Join-Path $here "no-iis.yaml"))
 }

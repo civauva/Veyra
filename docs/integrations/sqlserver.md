@@ -226,7 +226,7 @@ part of a connection string; `p@ss` becomes `p%40ss`.
   current event file, each once: errors of severity 20 and above and errors 823 and 824, memory errors, lock waits
   over 30 seconds and latch waits over 15, non-yielding schedulers, and security and connectivity records. The Events
   tab words them. Errors below severity 20, such as 825 and failed SQL logins (18456), are only in SQL Server's error
-  log; reading it through an agent on the server's own machine comes with Windows hosts (VEY-35).
+  log. Reading it needs an agent on the server's own machine, and Veyra does not read it yet.
 - **Availability (ADR 0020).** `sqlquery/server` also reads each Availability Group replica's role and health, each
   database's send and redo queues, lag, and synchronization, log shipping's delay against its own thresholds, and
   which cluster node runs the instance. A failover shows as a change of the primary within 15 minutes. Servers
@@ -253,10 +253,11 @@ part of a connection string; `p@ss` becomes `p%40ss`.
   The `db-plan-regression` rule warns when a statement runs many times slower on its newest plan than its best.
 - **Blocking and deadlocks (ADR 0020).** Blocking episodes come from the live view: the same head blocker in reads
   at most 35 seconds apart is one episode. Deadlocks come from the current event file of SQL Server's built-in
-  `system_health` session: every minute `sqlquery/events` sends those of the last three minutes with a hash of their
+  `system_health` session: every minute `sqlquery/events` sends those of the last five minutes with a hash of their
   graph, and Veyra keeps each once, for 90 days by default. The session's ring buffer returns at most 4 MB of XML,
   and on a server that has run for days the newest events are the ones it cuts off, so the agent reads it only where
-  `system_health` writes no file.
+  `system_health` writes no file. The session writes its file up to two minutes after an event, so a deadlock can
+  reach Veyra that much later.
 - **The live view (ADR 0020).** Every 10 seconds `sqlquery/live` reads each session that runs a request, blocks or
   waits for another, holds a transaction open, or holds more than 8 MB of tempdb, at most 200, with its wait,
   blocker, transaction age, tempdb use, memory grant, program, host, login, and statement, plus one row of
