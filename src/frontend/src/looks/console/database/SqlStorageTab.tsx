@@ -1,3 +1,7 @@
+import { Link } from "react-router";
+
+import { rulePath } from "../../../alerts/rulePath";
+import { showPart } from "../../../metrics/database/drill";
 import type { ServerOverview } from "../../../api/types";
 import { formatBytes } from "../../../home/homeFormat";
 import { LineChart } from "../../../metrics/LineChart";
@@ -10,7 +14,7 @@ import { growthWords, lineOver, SqlFigure, timeWords } from "./sqlParts";
  * days, the total over 30 days, the volumes, and the largest databases. Files, settings, and checks per database
  * follow below, from the tab every look shares.
  */
-export function SqlStorageTab({ overview }: { overview: ServerOverview }) {
+export function SqlStorageTab({ overview, block }: { overview: ServerOverview; block: string }) {
   const storage = overview.storage;
   const fullest = [...storage.volumes].sort((a, b) => a.freeRatio - b.freeRatio)[0];
   const monthStart = new Date(Date.parse(overview.to) - 30 * 86_400_000).toISOString();
@@ -24,24 +28,28 @@ export function SqlStorageTab({ overview }: { overview: ServerOverview }) {
           detail={`${overview.inventory.length} databases`}
           line={storage.line}
           help="Data and log files of every database together."
+          onOpen={() => showPart("sq-largest-card")}
         />
         <SqlFigure
           label="Growth, 24 h"
           value={growthWords(storage.growth24hBytes, formatBytes)}
           detail="since yesterday"
           help="How much the databases grew in the last 24 hours."
+          onOpen={() => showPart("sq-growth-card")}
         />
         <SqlFigure
           label="Growth, 7 days"
           value={growthWords(storage.growth7dBytes, formatBytes)}
           detail={storage.growth7dBytes === null ? undefined : `${formatBytes(storage.growth7dBytes / 7)} a day`}
           help="How much the databases grew in the last 7 days, and what that is a day."
+          onOpen={() => showPart("sq-growth-card")}
         />
         <SqlFigure
           label="Growth, 30 days"
           value={growthWords(storage.growth30dBytes, formatBytes)}
           detail="kept 30 days"
           help="How much the databases grew in the last 30 days, as long as sizes are kept."
+          onOpen={() => showPart("sq-growth-card")}
         />
         <SqlFigure
           label={fullest ? `Volume ${fullest.name} free` : "Volumes"}
@@ -51,11 +59,12 @@ export function SqlStorageTab({ overview }: { overview: ServerOverview }) {
           }
           tone={fullest && fullest.freeRatio < 0.15 ? "bad" : fullest && fullest.freeRatio < 0.25 ? "warn" : undefined}
           help="The fullest volume that holds database files, and when it fills at the pace of the last days."
+          onOpen={() => showPart("sq-volumes-card")}
         />
       </section>
 
       <div className="sq-row sq-row-main">
-        <section className="cn-card" aria-labelledby="sq-growth">
+        <section id="sq-growth-card" className="cn-card" aria-labelledby="sq-growth" tabIndex={-1}>
           <header>
             <h2 id="sq-growth">Database storage growth</h2>
             <HelpTip label="Database storage growth">
@@ -78,7 +87,7 @@ export function SqlStorageTab({ overview }: { overview: ServerOverview }) {
             />
           </div>
         </section>
-        <section className="cn-card" aria-labelledby="sq-volumes">
+        <section id="sq-volumes-card" className="cn-card" aria-labelledby="sq-volumes" tabIndex={-1}>
           <header>
             <h2 id="sq-volumes">Volume capacity</h2>
             <HelpTip label="Volume capacity">
@@ -92,7 +101,17 @@ export function SqlStorageTab({ overview }: { overview: ServerOverview }) {
                 key={volume.name}
                 className={volume.freeRatio < 0.15 ? "bad" : volume.freeRatio < 0.25 ? "warn" : undefined}
               >
-                <span className="sq-volume-name">{volume.name}</span>
+                {volume.freeRatio < 0.25 ? (
+                  // A volume running out leads to what it means and how to fix it (VEY-83).
+                  <Link
+                    className="sq-volume-name"
+                    to={rulePath("db-volume-space", { kind: "database", name: block, part: volume.name }) + "#fix"}
+                  >
+                    {volume.name}
+                  </Link>
+                ) : (
+                  <span className="sq-volume-name">{volume.name}</span>
+                )}
                 <span className="sq-volume-free">{Math.round(volume.freeRatio * 100)}% free</span>
                 <span className="sq-volume-bar" aria-hidden="true">
                   <i style={{ width: `${Math.round((1 - volume.freeRatio) * 100)}%` }} />
@@ -107,7 +126,7 @@ export function SqlStorageTab({ overview }: { overview: ServerOverview }) {
         </section>
       </div>
 
-      <section className="cn-card" aria-labelledby="sq-largest">
+      <section id="sq-largest-card" className="cn-card" aria-labelledby="sq-largest" tabIndex={-1}>
         <header>
           <h2 id="sq-largest">Largest databases</h2>
           <HelpTip label="Largest databases">

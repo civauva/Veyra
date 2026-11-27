@@ -15,6 +15,7 @@ import { StackedBars } from "../../overview/StackedBars";
 import { shortCount } from "../../resources/resourceFormat";
 import { HelpTip } from "../../ui/HelpTip";
 import { ScreenBar } from "../../ui/ScreenBar";
+import { useViewMode } from "../../ui/ViewToggle";
 import { ConsoleLogInspector } from "./ConsoleLogInspector";
 import { ConsoleMenu } from "./ConsoleMenu";
 import "./consoleLogs.css";
@@ -34,6 +35,7 @@ const levelColor: Partial<Record<Severity, string>> = {
  * volume by level, the totals by level, the events, and the inspector of the chosen one.
  */
 export function ConsoleLogs() {
+  const [viewMode] = useViewMode();
   const [params, setParams] = useSearchParams();
   const { status, time } = useShell();
   const filters = filtersFromUrl(params);
@@ -91,7 +93,7 @@ export function ConsoleLogs() {
   const total = search.summary?.total ?? null;
 
   return (
-    <main className="cn-screen cn-logs">
+    <main className="cn-screen cn-logs" data-view={viewMode}>
       <ScreenBar trail={[{ label: "Logs" }]} view />
       <div className="cn-head">
         <div>
@@ -595,6 +597,7 @@ function Volume({ summary }: { summary: LogSummary | null }) {
         <div className="cn-logs-bars">
           <StackedBars
             title="Log volume by level"
+            steps={buckets.map((_, index) => label(index))}
             labels={[label(0), label(Math.floor(buckets.length / 2)), "now"]}
             layers={
               hasLevels
@@ -706,10 +709,10 @@ function Events({ items, chosenId, total, loading, hasMore, loadingMore, aroundN
                 <th scope="col">Level</th>
                 <th scope="col">Service</th>
                 <th scope="col">Message</th>
-                <th scope="col" className="wide">
+                <th scope="col" className="wide advanced-only">
                   Host
                 </th>
-                <th scope="col" className="wide">
+                <th scope="col" className="wide advanced-only">
                   Trace
                 </th>
               </tr>
@@ -732,8 +735,8 @@ function Events({ items, chosenId, total, loading, hasMore, loadingMore, aroundN
                   </td>
                   <td>{item.serviceName}</td>
                   <td className="cn-events-message">{item.body}</td>
-                  <td className="wide">{item.hostName ?? item.resourceAttributes["host.name"] ?? "—"}</td>
-                  <td className="wide mono">{item.traceId ? item.traceId.slice(0, 8) : "—"}</td>
+                  <td className="wide advanced-only">{item.hostName ?? item.resourceAttributes["host.name"] ?? "—"}</td>
+                  <td className="wide mono advanced-only">{item.traceId ? item.traceId.slice(0, 8) : "—"}</td>
                 </tr>
               ))}
             </tbody>

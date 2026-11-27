@@ -34,7 +34,7 @@ test.describe("Resources (VEY-72)", () => {
   test("sends a filter to the server and keeps it in the address", async ({ page }) => {
     await answerApi(page, { look: "console" });
     await page.goto("/resources/databases");
-    await expect(page.getByRole("link", { name: "SQL-PROD-01" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "SQL-PROD-01", exact: true })).toBeVisible();
 
     const asked = page.waitForRequest(
       (request) =>

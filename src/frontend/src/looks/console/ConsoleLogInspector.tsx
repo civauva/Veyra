@@ -85,7 +85,28 @@ export function ConsoleLogInspector({
           <span className="mono">{formatTime(entry.timestamp)}</span>
         </p>
         <h3 className="cn-inspector-message">{entry.body}</h3>
-        <p className="cn-inspector-where">{[entry.serviceName, host, entry.environment].filter(Boolean).join(" · ")}</p>
+        <p className="cn-inspector-where">
+          {/* The service and the host open their own screens (VEY-83). */}
+          {entry.serviceName && (
+            <Link className="cn-cell-link" to={`/metrics/services/${encodeURIComponent(entry.serviceName)}`}>
+              {entry.serviceName}
+            </Link>
+          )}
+          {host && (
+            <>
+              {entry.serviceName && " · "}
+              <Link className="cn-cell-link" to={`/metrics/hosts/${encodeURIComponent(host)}`}>
+                {host}
+              </Link>
+            </>
+          )}
+          {entry.environment && (
+            <>
+              {(entry.serviceName || host) && " · "}
+              {entry.environment}
+            </>
+          )}
+        </p>
       </div>
       <div className="cn-tabs" role="tablist" aria-label="Event">
         {tabs.map(([id, label]) => (

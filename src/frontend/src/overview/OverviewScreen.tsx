@@ -1,6 +1,7 @@
 import type { ReactNode, RefObject } from "react";
 import { Link, useSearchParams } from "react-router";
 
+import { alertFixPath } from "../alerts/rulePath";
 import { formatMeasure, ruleSentence, ruleSummary, subjectLabel } from "../alerts/ruleWords";
 import { api } from "../api/client";
 import type { AgentState, HomeAlert, HostRow, Overview, ServiceRow } from "../api/types";
@@ -16,6 +17,7 @@ import { MiniLine } from "../resources/MiniLine";
 import { useResourcePages } from "../resources/useResourcePages";
 import { agentStateWords } from "../settings/monitoringFormat";
 import { HelpTip } from "../ui/HelpTip";
+import { useViewMode } from "../ui/ViewToggle";
 import { ScreenBar } from "../ui/ScreenBar";
 import { OverviewPanel } from "./OverviewPanel";
 import { StackedBars } from "./StackedBars";
@@ -34,13 +36,15 @@ function outsideWindow(): { from: string; to: string } {
 const least = { services: 8, hosts: 8, databases: 12, pipelines: 8, alerts: 5 };
 
 /**
- * The Overview (VEY-69, reference screenshot 5; ADR 0023): the whole environment on one screen. Figures with their
+ * The Overview (VEY-69, reference screenshot 5; ADR 0023): the whole environment on one screen. The Simple view leaves
+ * out the panels about Veyra's own plumbing, telemetry arriving and the collectors; Advanced shows them (VEY-83). Figures with their
  * change against the period before, what needs attention, request activity, telemetry arriving, the applications,
  * infrastructure, and databases worst first, the jobs, the hosts' resources, and the collectors. The server works out
  * every figure, order, and filter; the screen lays them out.
  */
 export function OverviewScreen() {
   const { status, time } = useShell();
+  const [mode] = useViewMode();
   const environment = status.environment;
   const key = JSON.stringify({ choice: time?.choice ?? null, environment });
   const windowNow = () => (time ? time.window() : outsideWindow());
@@ -79,7 +83,7 @@ export function OverviewScreen() {
   const title = environment ? `${environment[0]?.toUpperCase() ?? ""}${environment.slice(1)} overview` : "Overview";
 
   return (
-    <main className="ov">
+    <main className="ov" data-view={mode}>
       <ScreenBar trail={[{ label: "Overview" }]} view />
       <header className="ov-head">
         <div>
@@ -113,6 +117,7 @@ export function OverviewScreen() {
         </OverviewPanel>
         <OverviewPanel
           title="Telemetry ingestion"
+          className="advanced-only"
           to="/logs"
           whole
           help="Log records, spans, and metric points that arrived in each step, counted when they were written."
@@ -148,6 +153,8 @@ export function OverviewScreen() {
         <OverviewPanel
           title="SQL Server databases"
           to="/resources/databases"
+          anchor="databases"
+          settled={data !== null && !services.loading && !hosts.loading}
           help="Every database of every server, worst first: a late backup or a database that is not online first."
           meta={data ? `${data.databases.total} databases` : undefined}
           foot={<Link to="/resources/databases">All database servers →</Link>}
@@ -181,6 +188,7 @@ export function OverviewScreen() {
         </OverviewPanel>
         <OverviewPanel
           title="Collector health"
+          className="advanced-only"
           to="/settings?section=Agents"
           help="The agents that read your systems for Veyra: their state and when they last reported. Only Admins see them."
           meta={data?.collectors ? `${data.collectors.length} agents` : undefined}
@@ -417,7 +425,7 @@ function NeedsAttention({
               {alert === first && (
                 <p className="ov-needs-why">
                   {ruleSentence(alert.rule, alert.severity, alert.threshold, alert.windowSeconds)}{" "}
-                  <Link to={`/alerts/${alert.id}`}>What it means and how to fix it →</Link>
+                  <Link to={alertFixPath(alert.id)}>What it means and how to fix it →</Link>
                 </p>
               )}
             </li>
@@ -463,6 +471,7 @@ function IngestionBars({ overview }: { overview: Overview }) {
   return (
     <StackedBars
       title="Telemetry ingestion"
+      steps={points.map((point) => clock(point.at))}
       labels={[clock(points[0]?.at), clock(points[Math.floor(points.length / 2)]?.at), "now"]}
       layers={[
         { name: "Logs", color: "var(--accent)", values: points.map((point) => point.logs) },

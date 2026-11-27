@@ -280,76 +280,112 @@ select {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 
-/* The same choice as one switch (Console's top bar): the word Advanced after a small track, on when it is chosen. */
-.view-switch {
+/* The same choice as a lens (Console's top bar, VEY-83): a button naming the view, and a menu that explains each. */
+.view-lens {
+  position: relative;
+  flex: none;
+}
+
+.screen-tools > .view-lens {
+  margin-left: auto;
+}
+
+.view-lens-button {
   height: 32px;
   display: inline-flex;
-  flex: none;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   padding: 0 10px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--panel-2);
-  color: var(--muted);
+  color: var(--fg);
   font: inherit;
   font-size: 12.5px;
   white-space: nowrap;
   cursor: pointer;
 }
 
-.screen-tools > .view-switch {
-  margin-left: auto;
-}
-
-.view-switch:hover {
+.view-lens-button:hover,
+.view-lens-button[aria-expanded="true"] {
   border-color: var(--accent);
 }
 
-.view-switch[aria-checked="true"] {
-  color: var(--fg);
+.view-lens-eye {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.4;
 }
 
-.view-switch-track {
-  position: relative;
-  width: 26px;
-  height: 15px;
-  flex: none;
-  border-radius: 8px;
-  background: var(--line);
-  transition: background 0.15s;
+.view-lens-eye circle {
+  fill: var(--accent);
+  stroke: none;
 }
 
-.view-switch-track::after {
-  content: "";
+.view-lens-chevron {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.4;
+}
+
+.view-lens-menu {
   position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  background: var(--fg);
-  transition: transform 0.15s;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  width: 260px;
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--popover);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
 }
 
-.view-switch[aria-checked="true"] .view-switch-track {
-  background: var(--accent);
+.view-lens-item {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
-.view-switch[aria-checked="true"] .view-switch-track::after {
-  background: #fff;
-  transform: translateX(11px);
+.view-lens-item span {
+  color: var(--muted);
+  font-size: 12px;
 }
 
-.view-switch:focus-visible {
+.view-lens-item:hover {
+  background: var(--chip);
+}
+
+.view-lens-item[aria-checked="true"] {
+  background: var(--selected);
+}
+
+.view-lens-item[aria-checked="true"] b {
+  color: var(--accent);
+}
+
+:is(.view-lens-button, .view-lens-item):focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .view-switch-track,
-  .view-switch-track::after {
-    transition: none;
+/* A phone shows the eye alone; the button keeps its name for screen readers. */
+@media (max-width: 719px) {
+  .view-lens-words {
+    display: none;
+  }
+
+  .screen-tools > .view-lens .view-lens-menu {
+    right: 0;
   }
 }
 
@@ -458,4 +494,44 @@ select {
   select {
     min-height: 44px;
   }
+}
+
+/* A section a link just brought into view (VEY-83): its border pulses twice in the accent, then settles. Shared by
+   every look, since the links that cause it, such as "How to fix", are in shared screens too. */
+.pulse-once {
+  animation: pulse-once 1.6s ease-out;
+  outline: none;
+}
+
+@keyframes pulse-once {
+  0%,
+  50% {
+    box-shadow:
+      0 0 0 1px var(--accent),
+      0 0 0 6px color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+
+  25%,
+  75% {
+    box-shadow:
+      0 0 0 1px var(--accent),
+      0 0 0 2px color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-once {
+    animation-duration: 0.01s;
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+}
+
+/* Simple and Advanced on every monitoring screen (VEY-83): a screen marks the view in force on its root, and the
+   panels and columns that only Advanced shows carry this class. Rows are never hidden here; the server filters them. */
+[data-view="simple"] .advanced-only {
+  display: none !important;
 }

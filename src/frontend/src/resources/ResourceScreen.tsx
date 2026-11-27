@@ -2,7 +2,9 @@ import type { ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import type { BlockHealth } from "../api/types";
+import { carryTime } from "../time/carryTime";
 import { HelpTip } from "../ui/HelpTip";
+import { useViewMode } from "../ui/ViewToggle";
 import { ScreenBar } from "../ui/ScreenBar";
 import "./resources.css";
 
@@ -18,6 +20,8 @@ export interface ResourceFigure {
   tone?: "warn" | "bad";
   /** What it shows and where it comes from, for its question mark. */
   help: string;
+  /** The screen behind the figure, which the whole tile opens in the same range (VEY-83). */
+  to?: string;
 }
 
 /** A filter the server applies, kept in the address under its parameter name. */
@@ -38,6 +42,8 @@ export interface ResourceColumn<TItem> {
   numeric?: boolean;
   /** Whether it is left out on phones, so the list fits. */
   wide?: boolean;
+  /** Whether only the Advanced view shows it (VEY-83). */
+  advanced?: boolean;
   /**
    * Its content for one item.
    *
@@ -52,8 +58,8 @@ export interface ResourceScreenProps<TItem> {
   title: string;
   /** What the screen holds, in a sentence. */
   intro: string;
-  /** A short state beside the name, such as "1 warning · 1 caution", or null. */
-  state: { words: string; tone: "warn" | "bad" | "ok" } | null;
+  /** A short state beside the name, such as "1 warning · 1 caution", with where it leads, or null. */
+  state: { words: string; tone: "warn" | "bad" | "ok"; to?: string } | null;
   /** The header figures, for the whole filtered set. */
   figures: ResourceFigure[];
   /** The filters. */
@@ -91,10 +97,13 @@ export interface ResourceScreenProps<TItem> {
 /**
  * The frame of a resource list (ADR 0022): the trail, the name with its state, a strip of figures for the whole
  * filtered set, the filters and the find box, and the list worst first. Every filter, count, and order comes from the
- * server; the screen keeps the filters in the address, so a link shows the same list.
+ * server; the screen keeps the filters in the address, so a link shows the same list. Every figure with a screen
+ * behind it opens it from anywhere on its tile, and every row opens its item from anywhere on it; links inside a row,
+ * such as a health pill or a late backup, open their own detail instead (VEY-83).
  */
 export function ResourceScreen<TItem>(props: ResourceScreenProps<TItem>) {
   const [params, setParams] = useSearchParams();
+  const [mode] = useViewMode();
 
   function choose(name: string, value: string, first: string) {
     const next = new URLSearchParams(params);
@@ -109,13 +118,20 @@ export function ResourceScreen<TItem>(props: ResourceScreenProps<TItem>) {
   }
 
   return (
-    <main className="rs">
-      <ScreenBar trail={[{ label: "Resources" }, { label: props.title }]} view />
+    <main className="rs" data-view={mode}>
+      <ScreenBar trail={[{ label: props.title }]} view />
       <header className="rs-head">
         <div>
           <h1>
             {props.title}
-            {props.state && <span className={`rs-pill ${props.state.tone}`}>{props.state.words}</span>}
+            {props.state &&
+              (props.state.to ? (
+                <Link className={`rs-pill ${props.state.tone}`} to={carryTime(props.state.to, params)}>
+                  {props.state.words}
+                </Link>
+              ) : (
+                <span className={`rs-pill ${props.state.tone}`}>{props.state.words}</span>
+              ))}
           </h1>
           <p>{props.intro}</p>
         </div>
@@ -126,7 +142,13 @@ export function ResourceScreen<TItem>(props: ResourceScreenProps<TItem>) {
         {props.figures.map((figure) => (
           <div key={figure.label} className={["rs-figure", figure.tone].filter(Boolean).join(" ")}>
             <div className="rs-figure-name">
-              {figure.label}
+              {figure.to ? (
+                <Link className="rs-figure-link" to={carryTime(figure.to, params)}>
+                  {figure.label}
+                </Link>
+              ) : (
+                figure.label
+              )}
               <HelpTip label={figure.label}>{figure.help}</HelpTip>
             </div>
             <div className="rs-figure-value">{figure.value}</div>
@@ -191,7 +213,13 @@ export function ResourceScreen<TItem>(props: ResourceScreenProps<TItem>) {
                   <th
                     key={column.title}
                     scope="col"
-                    className={[column.numeric ? "num" : "", column.wide ? "wide" : ""].filter(Boolean).join(" ")}
+                    className={[
+                      column.numeric ? "num" : "",
+                      column.wide ? "wide" : "",
+                      column.advanced ? "advanced-only" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
                   >
                     {column.title}
                   </th>
@@ -204,7 +232,13 @@ export function ResourceScreen<TItem>(props: ResourceScreenProps<TItem>) {
                   {props.columns.map((column, index) => (
                     <td
                       key={column.title}
-                      className={[column.numeric ? "num" : "", column.wide ? "wide" : ""].filter(Boolean).join(" ")}
+                      className={[
+                        column.numeric ? "num" : "",
+                        column.wide ? "wide" : "",
+                        column.advanced ? "advanced-only" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
                     >
                       {index === 0 ? (
                         <Link className="rs-name" to={props.linkOf(item)}>
@@ -242,10 +276,25 @@ interface HealthPillProps {
   health: BlockHealth;
   /** Whether nothing arrived for a while, which says more than the health. */
   silent: boolean;
+  /**
+   * The item's name, as its alerts name it. A warning or caution then opens its open alerts, each with what it means
+   * and how to fix it (VEY-83).
+   */
+  name?: string;
 }
 
-/** An item's health in a word: Warning, Caution, Healthy, Unknown, or Silent. */
-export function HealthPill({ health, silent }: HealthPillProps) {
+/**
+ * The open alerts of an item, for a warning or caution that names no alert of its own.
+ *
+ * @param name - The item, as its alerts name it.
+ * @returns The Alerts list, open alerts only, found by the name.
+ */
+export function openAlertsOf(name: string): string {
+  return `/alerts?${new URLSearchParams({ state: "open", q: name }).toString()}`;
+}
+
+/** An item's health in a word: Warning, Caution, Healthy, Unknown, or Silent; a warning or caution opens its alerts. */
+export function HealthPill({ health, silent, name }: HealthPillProps) {
   if (silent) {
     return <span className="rs-pill off">Silent</span>;
   }
@@ -257,6 +306,14 @@ export function HealthPill({ health, silent }: HealthPillProps) {
     Unknown: ["Unknown", "off"],
   };
   const [word, tone] = words[health];
+
+  if (name && (health === "Warning" || health === "Caution")) {
+    return (
+      <Link className={`rs-pill rs-pill-link ${tone}`} to={openAlertsOf(name)} title={`Open alerts of ${name}`}>
+        {word}
+      </Link>
+    );
+  }
 
   return <span className={`rs-pill ${tone}`}>{word}</span>;
 }

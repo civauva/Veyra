@@ -44,6 +44,9 @@ const axis = 20;
  * Lines over time with a value axis, a time axis, and a legend with each line's latest value. It follows the width and
  * the height of its tile, so labels stay readable on a phone and the plot fills a tall tile; the labels stay inside the
  * plot's box. Gaps without data stay gaps instead of dropping to zero, and a range without data says so.
+ *
+ * Hovering the plot shows the moment under the pointer, with each line's value there and a mark on each line (VEY-83).
+ * The keyboard reaches the same: the plot takes the focus, and the arrow keys, Home, and End move through the points.
  */
 export function LineChart({ series, format, title, max, height: least = 170 }: LineChartProps) {
   const plot = useRef<HTMLDivElement>(null);
@@ -63,13 +66,61 @@ export function LineChart({ series, format, title, max, height: least = 170 }: L
   const x = (index: number) => left + (points.length > 1 ? (index / (points.length - 1)) * (plotRight - left) : 0);
   const y = (value: number) => plotBottom - (Math.min(value, scaleTop) / scaleTop) * (plotBottom - top);
   const ticks = timeTicks(points.length, width);
+  const [hover, setHover] = useState<number | null>(null);
+  const shown = hover !== null && points[hover] ? hover : null;
+
+  /** The point nearest a place across the plot. */
+  function nearest(clientX: number): number | null {
+    const box = plot.current?.getBoundingClientRect();
+
+    if (!box || points.length === 0) {
+      return null;
+    }
+
+    const share = (clientX - box.left - left) / Math.max(1, plotRight - left);
+
+    return Math.min(points.length - 1, Math.max(0, Math.round(share * (points.length - 1))));
+  }
+
+  function keyed(event: React.KeyboardEvent) {
+    const last = points.length - 1;
+    const at = shown ?? last;
+    const next =
+      event.key === "ArrowLeft"
+        ? Math.max(0, at - 1)
+        : event.key === "ArrowRight"
+          ? Math.min(last, at + 1)
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? last
+              : null;
+
+    if (next !== null && last >= 0) {
+      event.preventDefault();
+      setHover(next);
+    } else if (event.key === "Escape") {
+      setHover(null);
+    }
+  }
   const summary = `${title}: ${series
     .map((one) => `${one.name ?? one.line.label} ${one.line.latest === null ? "no data" : format(one.line.latest)}`)
     .join(", ")}.`;
 
   return (
     <div className="line-chart">
-      <div className="line-chart-plot" ref={plot} style={{ minHeight: least }}>
+      <div
+        className="line-chart-plot"
+        ref={plot}
+        style={{ minHeight: least }}
+        tabIndex={values.length > 0 ? 0 : undefined}
+        aria-label={values.length > 0 ? `${title}: use the arrow keys to read each moment` : undefined}
+        onPointerMove={(event) => values.length > 0 && setHover(nearest(event.clientX))}
+        onPointerLeave={() => setHover(null)}
+        onFocus={() => setHover((current) => current ?? Math.max(0, points.length - 1))}
+        onBlur={() => setHover(null)}
+        onKeyDown={keyed}
+      >
         <svg width={width} height={height} role="img" aria-label={summary}>
           <defs>
             <linearGradient id={gradient} x1="0" x2="0" y1="0" y2="1">
@@ -121,8 +172,44 @@ export function LineChart({ series, format, title, max, height: least = 170 }: L
               </text>
             ) : null;
           })}
+          {shown !== null && (
+            <g className="chart-hover" aria-hidden="true">
+              <line x1={x(shown)} x2={x(shown)} y1={top} y2={plotBottom} />
+              {series.map((one, index) => {
+                const value = one.line.points[shown]?.value ?? null;
+
+                return value === null ? null : (
+                  <circle key={index} cx={x(shown)} cy={y(value)} r={3.5} style={{ fill: one.color }} />
+                );
+              })}
+            </g>
+          )}
         </svg>
         {values.length === 0 && <p className="chart-empty">No data in this range</p>}
+        {shown !== null && (
+          <div
+            className="chart-tip"
+            role="status"
+            style={
+              x(shown) > width - 190
+                ? { right: Math.max(4, width - x(shown) + 12) }
+                : { left: Math.min(width - 4, x(shown) + 12) }
+            }
+          >
+            <b>{moment(points[shown]?.at ?? "", points)}</b>
+            {series.map((one, index) => {
+              const value = one.line.points[shown]?.value ?? null;
+
+              return (
+                <span key={`${one.line.label}-${index}`}>
+                  <i style={{ background: one.color }} aria-hidden="true" />
+                  {one.name ?? one.line.label}
+                  <em>{value === null ? "no data" : format(value)}</em>
+                </span>
+              );
+            })}
+          </div>
+        )}
       </div>
       <ul className="chart-legend">
         {series.map((one, index) => (
@@ -239,6 +326,16 @@ function timeTicks(count: number, width: number): number[] {
   const wanted = Math.max(2, Math.min(7, Math.floor((width - left) / 110)));
 
   return Array.from({ length: wanted }, (_, index) => Math.round((index / (wanted - 1)) * (count - 1)));
+}
+
+/** The moment of a point in a tooltip: its clock time, with its day when the line spans more than one. */
+function moment(at: string, points: { at: string }[]): string {
+  const first = points[0]?.at ?? at;
+  const last = points.at(-1)?.at ?? at;
+
+  return localDay(first) === localDay(last)
+    ? formatClock(at)
+    : `${localDay(at).slice(5).replace("-", "/")} ${formatClock(at)}`;
 }
 
 /** Clock times within a day; dates when the line spans several days. */

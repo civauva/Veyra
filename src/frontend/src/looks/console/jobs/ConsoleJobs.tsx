@@ -15,7 +15,9 @@ import { sourceChoices, statusChoices, useJobChoices } from "../../../jobs/useJo
 import { useJobs } from "../../../jobs/useJobs";
 import { formatClockTime } from "../../../metrics/metricFormat";
 import { HelpTip } from "../../../ui/HelpTip";
+import { useIsAdmin } from "../../../session/useIsAdmin";
 import { ScreenBar } from "../../../ui/ScreenBar";
+import { useViewMode } from "../../../ui/ViewToggle";
 import { SqlFigure } from "../database/sqlParts";
 import { RunStrip, StatusPill, successFrame } from "./jobParts";
 import "./consoleJobs.css";
@@ -26,15 +28,17 @@ import "./consoleJobs.css";
  * status, and the source are request parameters; the server filters, counts, and orders.
  */
 export function ConsoleJobs() {
+  const [viewMode] = useViewMode();
   const controls = useJobChoices();
+  const admin = useIsAdmin();
   const { list, error } = useJobs(controls.choices);
   const [params] = useSearchParams();
   const figures = list?.figures ?? null;
   const filtered = controls.choices.q !== "" || controls.choices.status !== "all" || controls.choices.source !== null;
 
   return (
-    <main className="cn-screen jb">
-      <ScreenBar trail={[{ label: "Resources" }, { label: "Jobs & pipelines" }]} />
+    <main className="cn-screen jb" data-view={viewMode}>
+      <ScreenBar trail={[{ label: "Jobs & pipelines" }]} view />
       <div className="cn-head">
         <div>
           <h1>
@@ -51,6 +55,14 @@ export function ConsoleJobs() {
             first.
           </p>
         </div>
+        {admin && (
+          // SQL Server Agent jobs come with a monitored server (VEY-83).
+          <div className="cn-head-actions">
+            <Link className="cn-button primary" to="/integrations/sqlserver/new">
+              Add a SQL Server
+            </Link>
+          </div>
+        )}
       </div>
 
       <section className="sq-figures sq-figures-five" aria-label="Figures">
@@ -158,7 +170,7 @@ export function ConsoleJobs() {
               <thead>
                 <tr>
                   <th scope="col">Job</th>
-                  <th scope="col" className="wide roomy">
+                  <th scope="col" className="wide roomy advanced-only">
                     Source
                   </th>
                   <th scope="col" className="wide">
@@ -168,7 +180,7 @@ export function ConsoleJobs() {
                   <th scope="col" className="num">
                     Duration
                   </th>
-                  <th scope="col" className="num wide roomy">
+                  <th scope="col" className="num wide roomy advanced-only">
                     Usual
                   </th>
                   <th scope="col" className="num">
@@ -177,7 +189,7 @@ export function ConsoleJobs() {
                   <th scope="col" className="wide">
                     Latest runs
                   </th>
-                  <th scope="col" className="num wide">
+                  <th scope="col" className="num wide advanced-only">
                     Runs
                   </th>
                   <th scope="col" className="num wide">
@@ -212,7 +224,7 @@ function Row({ job, params }: { job: JobListItem; params: URLSearchParams }) {
         </Link>
         <span className="cn-table-sub">{job.environment ?? "no environment"}</span>
       </td>
-      <td className="wide roomy">
+      <td className="wide roomy advanced-only">
         <span className={`jb-source ${job.source}`}>{sourceWords(job.source)}</span>
       </td>
       <td className="wide">
@@ -245,14 +257,14 @@ function Row({ job, params }: { job: JobListItem; params: URLSearchParams }) {
           durationWords(last?.durationSeconds ?? null)
         )}
       </td>
-      <td className="num wide roomy sq-muted">{durationWords(job.usualSeconds)}</td>
+      <td className="num wide roomy sq-muted advanced-only">{durationWords(job.usualSeconds)}</td>
       <td className="num">
         <span className={share ? `jb-share ${share}` : "jb-share"}>{successWords(job.successRatio)}</span>
       </td>
       <td className="wide">
         <RunStrip recent={job.recent} />
       </td>
-      <td className="num wide">{job.runs.toLocaleString("en")}</td>
+      <td className="num wide advanced-only">{job.runs.toLocaleString("en")}</td>
       <td className={job.failed > 0 ? "num wide jb-failed" : "num wide sq-muted"}>{job.failed.toLocaleString("en")}</td>
     </tr>
   );

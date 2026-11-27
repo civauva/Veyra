@@ -1,5 +1,8 @@
+import { Link } from "react-router";
+
+import { rulePath } from "../../alerts/rulePath";
 import { api } from "../../api/client";
-import type { MetricRange } from "../../api/types";
+import type { AlertRule, MetricRange, ServerEvent } from "../../api/types";
 import { formatClockTime } from "../metricFormat";
 import { rangeWords } from "../metricRange";
 import { useMetricData } from "../useMetricData";
@@ -64,6 +67,15 @@ export function EventsTab({ engine, server, range, advanced }: EventsTabProps) {
                 <b>
                   {formatClockTime(event.at)} · {event.words}
                 </b>
+                {eventRule(event) && (
+                  <p>
+                    <Link
+                      to={`${rulePath(eventRule(event) as AlertRule, { kind: "database", name: `${engine} ${server}` })}#fix`}
+                    >
+                      What it means and how to fix it ›
+                    </Link>
+                  </p>
+                )}
                 {advanced && (
                   <p>
                     {event.name}
@@ -80,4 +92,31 @@ export function EventsTab({ engine, server, range, advanced }: EventsTabProps) {
       )}
     </section>
   );
+}
+
+/**
+ * The rule that explains an event that needs a look (VEY-83): a failed login, a memory error, a severe error, or a
+ * long lock wait. Events that need nothing have none.
+ *
+ * @param event - The event.
+ * @returns The rule, or null.
+ */
+export function eventRule(event: ServerEvent): AlertRule | null {
+  if (event.severity === "ok") {
+    return null;
+  }
+
+  if (/login/i.test(event.name) || /login failed/i.test(event.message)) {
+    return "db-login-failures";
+  }
+
+  if ([701, 802, 8645, 8651].includes(event.error) || /memory/i.test(event.name)) {
+    return "db-memory-error";
+  }
+
+  if (event.errorSeverity >= 17) {
+    return "db-severe-error";
+  }
+
+  return event.wait ? "db-blocking" : null;
 }

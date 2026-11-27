@@ -1,3 +1,4 @@
+import { useShell } from "../app/shellContext";
 import { useParams, useSearchParams } from "react-router";
 
 import { api } from "../api/client";
@@ -11,7 +12,7 @@ import { LineChart } from "./LineChart";
 import { HostIssues } from "./HostIssues";
 import { HostIcon } from "./MetricCards";
 import { formatAgo, formatAmount, formatFull, formatRate, formatShare, shareTone } from "./metricFormat";
-import { rangeOf, rangeSearch, rangeWords, withRange } from "./metricRange";
+import { parentCrumbs, rangeOf, rangeWords, withRange } from "./metricRange";
 import { RangePicker } from "./RangePicker";
 import { Ring } from "./Ring";
 import { PanelName } from "./TileName";
@@ -25,6 +26,7 @@ import "./metrics.css";
  * Reached from its card on the Metrics overview, and from a container's card at that container's row.
  */
 export function HostScreen() {
+  const { trailParents } = useShell();
   const { host = "" } = useParams();
   const [params, setParams] = useSearchParams();
   const range = rangeOf(params);
@@ -37,14 +39,7 @@ export function HostScreen() {
 
   return (
     <main className="metrics">
-      <ScreenBar
-        trail={[
-          { label: "Metrics", to: `/metrics?${rangeSearch(range)}` },
-          { label: "Hosts", to: `/metrics?${rangeSearch(range)}#metrics-hosts` },
-          { label: host },
-        ]}
-        view
-      >
+      <ScreenBar trail={[...parentCrumbs(trailParents?.host, range, "Hosts", "metrics-hosts"), { label: host }]} view>
         <RangePicker value={range} onChange={(next) => setParams(withRange(params, next), { replace: true })} />
       </ScreenBar>
       <BlockPage kind="host" name={host} alerts={alerts}>

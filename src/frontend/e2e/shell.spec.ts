@@ -290,13 +290,15 @@ test.describe("Home on large screens", () => {
     });
   }
 
-  test("shows the version, which opens the release notes, in the Forecast look too (VEY-82)", async ({ page }) => {
+  test("shows the version, which opens the release notes, in the Forecast look too (VEY-82)", async ({
+    page,
+  }, testInfo) => {
     await answerApi(page, { look: "forecast" });
     await page.goto("/logs");
-    const menu = page.getByRole("button", { name: "Menu" });
 
-    if (await menu.isVisible()) {
-      await menu.click();
+    // A phone keeps the menu, and the version at its foot, in a drawer.
+    if (testInfo.project.name === "phone") {
+      await page.getByRole("button", { name: "Menu" }).click();
     }
 
     await page.getByRole("button", { name: "Veyra 0.4.1: what's new" }).click();

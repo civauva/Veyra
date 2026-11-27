@@ -106,6 +106,11 @@ folders without updating this map.
 - Every tile explains itself with a question mark (`HelpTip` in `src/ui`), and every alert rule says what its alert
   means and how to fix it.
 - Every tile, figure, chart, and row that has more behind it opens it when clicked, keeping the time range.
+- Every warning and error leads to what it means and how to fix it: its alert, or its rule's page
+  (`/alerts/rules/:rule`). A link to a part of a screen scrolls to it and pulses it (`ui/useHashPulse.ts`).
+- Every monitoring screen honours Simple and Advanced: parts only Advanced shows carry `advanced-only` under a
+  root with `data-view`. Rows are never hidden in the browser; the server filters them.
+- Every chart shows the values under the pointer, and the keyboard reaches them.
 
 ### General
 

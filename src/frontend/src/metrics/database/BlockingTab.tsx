@@ -86,7 +86,7 @@ export function BlockingTab({ engine, server, range, advanced, onMoment }: Block
         )}
       </section>
 
-      <section className="metric-panel" aria-labelledby="blocking-deadlocks">
+      <section id="blocking-deadlocks-part" className="metric-panel" aria-labelledby="blocking-deadlocks" tabIndex={-1}>
         <PanelHead
           id="blocking-deadlocks"
           name="Deadlocks"

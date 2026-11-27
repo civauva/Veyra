@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { formatDuration } from "../../alerts/alertFormat";
+import { alertFixPath, rulePath } from "../../alerts/rulePath";
 import { daysOfWindow, readQuery, stateCount, summarySentence, writeQuery } from "../../alerts/alertQuery";
 import { alertTitle, formatMeasure, formatThreshold, ruleMeasures, ruleName, ruleOrder } from "../../alerts/ruleWords";
 import { useAlertHistory } from "../../alerts/useAlertHistory";
@@ -13,6 +14,7 @@ import { StackedBars } from "../../overview/StackedBars";
 import { localDay, localDayName } from "../../time/zone";
 import { HelpTip } from "../../ui/HelpTip";
 import { ScreenBar } from "../../ui/ScreenBar";
+import { useViewMode } from "../../ui/ViewToggle";
 
 /**
  * Console's Alerts screen (VEY-69): the same alerts and filters as every look (`alerts/alertQuery.ts`,
@@ -21,6 +23,7 @@ import { ScreenBar } from "../../ui/ScreenBar";
  * The period is the top bar's range in whole days, at least one, so the screen has no period choice of its own.
  */
 export function ConsoleAlerts() {
+  const [viewMode] = useViewMode();
   const [params, setParams] = useSearchParams();
   const { status, time } = useShell();
   const filters = readQuery(params);
@@ -56,7 +59,7 @@ export function ConsoleAlerts() {
   }
 
   return (
-    <main className="cn-screen">
+    <main className="cn-screen" data-view={viewMode}>
       <ScreenBar trail={[{ label: "Alerts" }]} view />
       <header className="cn-head">
         <div>
@@ -154,8 +157,9 @@ function Figures({
   const label = (date: string | undefined) => (date ? date.slice(5).replace("-", "/") : "");
 
   return (
-    <div className="cn-columns cn-columns-figures">
-      <section className="cn-figures" aria-label="Figures">
+    // One compact band (VEY-83): the four figures beside the alerts of each day, as tall as their content.
+    <div className="cn-card cn-band">
+      <section className="cn-band-figures" aria-label="Figures">
         <Figure
           label="Open now"
           onOpen={() => onState("open")}
@@ -186,7 +190,7 @@ function Figures({
           help="Half of the resolved alerts closed faster than this."
         />
       </section>
-      <section className="cn-card" aria-labelledby="cn-alert-days">
+      <section className="cn-band-chart" aria-labelledby="cn-alert-days">
         <header>
           <h2 id="cn-alert-days">Alerts per day</h2>
           <HelpTip label="Alerts per day">
@@ -196,6 +200,7 @@ function Figures({
         </header>
         <StackedBars
           title={days === 1 ? "Alerts per day, last day" : `Alerts per day, last ${days} days`}
+          steps={summary.days.map((day) => label(day.date))}
           labels={[
             label(summary.days[0]?.date),
             label(summary.days[Math.floor(summary.days.length / 2)]?.date),
@@ -276,7 +281,7 @@ function AlertTable({ items, now }: { items: AlertListItem[] | null; now: Date |
           <tr>
             <th scope="col">Severity</th>
             <th scope="col">Alert</th>
-            <th scope="col" className="wide">
+            <th scope="col" className="wide advanced-only">
               Rule
             </th>
             <th scope="col" className="num">
@@ -285,7 +290,7 @@ function AlertTable({ items, now }: { items: AlertListItem[] | null; now: Date |
             <th scope="col" className="wide">
               Open
             </th>
-            <th scope="col" className="num wide">
+            <th scope="col" className="num wide advanced-only">
               Lasted
             </th>
           </tr>
@@ -304,9 +309,13 @@ function AlertTable({ items, now }: { items: AlertListItem[] | null; now: Date |
               return (
                 <tr key={item.id}>
                   <td>
-                    <span className={item.worst === "Warning" ? "cn-pill bad" : "cn-pill warn"}>
+                    <Link
+                      className={item.worst === "Warning" ? "cn-pill bad" : "cn-pill warn"}
+                      to={alertFixPath(item.id)}
+                      title="What it means and how to fix it"
+                    >
                       {item.worst === "Warning" ? "Warning" : "Caution"}
-                    </span>
+                    </Link>
                   </td>
                   <td>
                     <Link className="cn-table-name" to={`/alerts/${encodeURIComponent(item.id)}`}>
@@ -316,12 +325,18 @@ function AlertTable({ items, now }: { items: AlertListItem[] | null; now: Date |
                       {item.block.kind} · {item.environment ?? "no environment"}
                     </small>
                   </td>
-                  <td className="wide">{ruleName(item.rule)}</td>
+                  <td className="wide advanced-only">
+                    <Link className="cn-cell-link" to={rulePath(item.rule)}>
+                      {ruleName(item.rule)}
+                    </Link>
+                  </td>
                   <td className="num">{formatMeasure(item.rule, item.peak)}</td>
                   <td className="wide">
                     {formatClock(item.openedAt)} – {open ? <b className="cn-open">now</b> : formatClock(end)}
                   </td>
-                  <td className="num wide">{formatDuration(Date.parse(end) - Date.parse(item.openedAt))}</td>
+                  <td className="num wide advanced-only">
+                    {formatDuration(Date.parse(end) - Date.parse(item.openedAt))}
+                  </td>
                 </tr>
               );
             })}
@@ -337,7 +352,7 @@ function Rules({ summary }: { summary: AlertSummary }) {
   const raised = summary.rules.filter((rule) => rule.count > 0 || rule.enabled);
 
   return (
-    <section className="cn-card cn-rules" aria-labelledby="cn-alert-rules">
+    <section className="cn-card cn-rules advanced-only" aria-labelledby="cn-alert-rules">
       <header>
         <h2 id="cn-alert-rules">Built-in rules</h2>
         <HelpTip label="Built-in rules">
@@ -360,7 +375,11 @@ function Rules({ summary }: { summary: AlertSummary }) {
           <tbody>
             {raised.map((rule) => (
               <tr key={rule.rule} className={rule.enabled ? undefined : "cn-off"}>
-                <td title={ruleMeasures(rule.rule, rule.windowSeconds)}>{ruleName(rule.rule)}</td>
+                <td title={ruleMeasures(rule.rule, rule.windowSeconds)}>
+                  <Link className="cn-cell-link" to={rulePath(rule.rule)}>
+                    {ruleName(rule.rule)}
+                  </Link>
+                </td>
                 <td className="cn-warn">{rule.enabled ? formatThreshold(rule.rule, rule.cautionThreshold) : "off"}</td>
                 <td className="cn-bad">{rule.enabled ? formatThreshold(rule.rule, rule.warningThreshold) : "off"}</td>
                 <td className="num">{rule.count}</td>

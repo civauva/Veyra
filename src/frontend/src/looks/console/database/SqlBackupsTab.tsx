@@ -1,3 +1,7 @@
+import { Link } from "react-router";
+
+import { rulePath } from "../../../alerts/rulePath";
+import { showPart } from "../../../metrics/database/drill";
 import type { BackupType, ServerBackups } from "../../../api/types";
 import { formatBytes } from "../../../home/homeFormat";
 import { formatClock } from "../../../logs/format";
@@ -12,6 +16,8 @@ export interface SqlBackupsTabProps {
   backups: ServerBackups | null;
   /** Why they could not be read, or null. */
   error: string | null;
+  /** The server as its alerts name it, its engine and server, for what a late backup means and how to fix it. */
+  block: string;
 }
 
 /** The types in words. */
@@ -29,7 +35,7 @@ const stateWords = {
  * A SQL Server's backups (VEY-75, reference screenshot 8): freshness per database against the backup rules, time per
  * day by type, a grid of the last 7 days, and each backup of the range (ADR 0025).
  */
-export function SqlBackupsTab({ backups, error }: SqlBackupsTabProps) {
+export function SqlBackupsTab({ backups, error, block }: SqlBackupsTabProps) {
   if (error && !backups) {
     return (
       <p className="cn-error" role="alert">
@@ -72,35 +78,40 @@ export function SqlBackupsTab({ backups, error }: SqlBackupsTabProps) {
           detail={late.length > 0 ? `${late.map((one) => one.database).join(", ")} late` : "every one on time"}
           tone={late.some((one) => one.state === "warning") ? "bad" : late.length > 0 ? "warn" : undefined}
           help="Databases whose backups are as recent as the backup alert rules ask, of those the rules watch."
+          onOpen={() => showPart("sq-freshness-card")}
         />
         <SqlFigure
           label="Backups in the range"
           value={backups.backups.length.toLocaleString("en")}
           detail={`${counts("full")} full · ${counts("differential")} diff · ${counts("log")} log`}
           help="Backups that finished in the top bar's range, by type, from the server's backup history."
+          onOpen={() => showPart("sq-history-card")}
         />
         <SqlFigure
           label="Full backup time"
           value={timeWords(fullSeconds)}
           detail="on average in the range"
           help="How long a full backup took on average. A rise points at slower storage or a larger database."
+          onOpen={() => showPart("sq-duration-card")}
         />
         <SqlFigure
           label="Backed up"
           value={formatBytes(backups.backups.reduce((sum, one) => sum + (one.compressedBytes ?? one.bytes ?? 0), 0))}
           detail="written in the range"
           help="What the backups of the range wrote, compressed where they were."
+          onOpen={() => showPart("sq-history-card")}
         />
         <SqlFigure
           label="Copy-only backups"
           value={backups.backups.filter((one) => one.copyOnly).length}
           detail="outside the chain"
           help="Backups taken with COPY_ONLY, which leave the regular chain of differential and log backups alone."
+          onOpen={() => showPart("sq-history-card")}
         />
       </section>
 
       <div className="sq-row sq-row-main">
-        <section className="cn-card" aria-labelledby="sq-freshness">
+        <section id="sq-freshness-card" className="cn-card" aria-labelledby="sq-freshness" tabIndex={-1}>
           <header>
             <h2 id="sq-freshness">Backup freshness</h2>
             <HelpTip label="Backup freshness">
@@ -139,7 +150,18 @@ export function SqlBackupsTab({ backups, error }: SqlBackupsTabProps) {
                     <td className="num">{timeWords(one.logAgeSeconds)}</td>
                     <td className="wide">{one.recoveryModel ?? "—"}</td>
                     <td>
-                      <span className={`cn-pill ${stateWords[one.state][1]}`}>{stateWords[one.state][0]}</span>
+                      {one.state === "warning" || one.state === "caution" ? (
+                        // A late backup leads to what it means and how to fix it (VEY-83).
+                        <Link
+                          className={`cn-pill ${stateWords[one.state][1]}`}
+                          to={rulePath("db-backup-age", { kind: "database", name: block, part: one.database }) + "#fix"}
+                          title={`How to fix the backups of ${one.database}`}
+                        >
+                          {stateWords[one.state][0]}
+                        </Link>
+                      ) : (
+                        <span className={`cn-pill ${stateWords[one.state][1]}`}>{stateWords[one.state][0]}</span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -147,7 +169,7 @@ export function SqlBackupsTab({ backups, error }: SqlBackupsTabProps) {
             </table>
           </div>
         </section>
-        <section className="cn-card" aria-labelledby="sq-duration">
+        <section id="sq-duration-card" className="cn-card" aria-labelledby="sq-duration" tabIndex={-1}>
           <header>
             <h2 id="sq-duration">Backup time per day</h2>
             <HelpTip label="Backup time per day">
@@ -158,6 +180,8 @@ export function SqlBackupsTab({ backups, error }: SqlBackupsTabProps) {
             <div className="sq-pad">
               <StackedBars
                 title="Backup minutes per day"
+                steps={backups.days.map((day) => shortDate(day.day))}
+                format={(minutes) => `${Math.round(minutes)} min`}
                 labels={[
                   shortDate(backups.days[0]?.day ?? backups.from),
                   shortDate(backups.days[Math.floor(backups.days.length / 2)]?.day ?? backups.from),
@@ -183,7 +207,7 @@ export function SqlBackupsTab({ backups, error }: SqlBackupsTabProps) {
       </div>
 
       <div className="sq-row sq-row-main">
-        <section className="cn-card" aria-labelledby="sq-grid">
+        <section id="sq-grid-card" className="cn-card advanced-only" aria-labelledby="sq-grid" tabIndex={-1}>
           <header>
             <h2 id="sq-grid">The last 7 days</h2>
             <HelpTip label="The last 7 days">
@@ -220,7 +244,7 @@ export function SqlBackupsTab({ backups, error }: SqlBackupsTabProps) {
             </table>
           </div>
         </section>
-        <section className="cn-card" aria-labelledby="sq-history">
+        <section id="sq-history-card" className="cn-card" aria-labelledby="sq-history" tabIndex={-1}>
           <header>
             <h2 id="sq-history">Backup history</h2>
             <HelpTip label="Backup history">

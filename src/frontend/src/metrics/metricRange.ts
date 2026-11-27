@@ -123,3 +123,29 @@ export function rangeWords(range: MetricRange, preposition?: string): string {
 
   return `from ${shortMoment(from ?? "")} to ${shortMoment(to ?? "")}`;
 }
+
+/**
+ * The crumbs before a host's, a service's, or a database server's own name (VEY-83): the look's list it belongs to,
+ * such as Console's Hosts & containers, or else Metrics and its list, in the same range.
+ *
+ * @param parent - Where the look files the screen, or nothing for Metrics.
+ * @param range - The range the screen shows.
+ * @param label - The name of its list on Metrics.
+ * @param anchor - The list's place on Metrics.
+ * @returns The crumbs.
+ */
+export function parentCrumbs(
+  parent: { label: string; to: string } | undefined,
+  range: MetricRange,
+  label: string,
+  anchor: string,
+): { label: string; to: string }[] {
+  if (parent) {
+    return [{ label: parent.label, to: `${parent.to}?${rangeSearch(range)}` }];
+  }
+
+  return [
+    { label: "Metrics", to: `/metrics?${rangeSearch(range)}` },
+    { label, to: `/metrics?${rangeSearch(range)}#${anchor}` },
+  ];
+}

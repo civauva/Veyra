@@ -29,6 +29,7 @@ import {
 } from "../../../traces/traceWords";
 import { useTraceList } from "../../../traces/useTraceList";
 import { HelpTip } from "../../../ui/HelpTip";
+import { showPart } from "../../../metrics/database/drill";
 import { ScreenBar } from "../../../ui/ScreenBar";
 import { useViewMode } from "../../../ui/ViewToggle";
 import { SqlFigure } from "../database/sqlParts";
@@ -83,9 +84,13 @@ export function ConsoleTraces() {
           <h1>
             Traces
             {summary && (summary.failed > 0 || summary.slow > 0) && (
-              <span className={summary.failed > 0 ? "cn-pill bad" : "cn-pill warn"}>
+              <button
+                type="button"
+                className={summary.failed > 0 ? "cn-pill bad" : "cn-pill warn"}
+                onClick={() => apply({ ...filters, show: summary.failed > 0 ? "failed" : "slow" })}
+              >
                 {formatCount(summary.failed)} failed · {formatCount(summary.slow)} slow
-              </span>
+              </button>
             )}
           </h1>
           <p>
@@ -112,6 +117,7 @@ export function ConsoleTraces() {
             )
           }
           help="The traces of the time range under the filters, one per request or job from its first span, and how many more or fewer than in the period of the same length before. The server counts them."
+          onOpen={() => apply({ ...filters, show: "all" })}
         />
         <SqlFigure
           label="Failed"
@@ -127,6 +133,7 @@ export function ConsoleTraces() {
           detail="of the traces in the range"
           tone={summary && summary.failed > 0 ? "bad" : undefined}
           help="Traces whose request or job failed: its first span ended in an error. Open one for the span that failed and its exception."
+          onOpen={() => apply({ ...filters, show: "failed" })}
         />
         <SqlFigure
           label="Slower than p95"
@@ -134,18 +141,21 @@ export function ConsoleTraces() {
           detail={summary?.p95Ms != null ? `p95 ${formatDuration(summary.p95Ms)} over the range` : "no p95 yet"}
           tone={summary && summary.slow > 0 ? "warn" : undefined}
           help="Traces that took at least the 95th percentile of the range: the slowest 5%. The dashed line on the chart is that p95."
+          onOpen={() => apply({ ...filters, show: "slow" })}
         />
         <SqlFigure
           label="Median"
           value={summary?.p50Ms != null ? formatDuration(summary.p50Ms) : "—"}
           detail="half of the traces were faster"
           help="The median duration of the traces in the range: half took less, half took more. A rising median means most requests got slower, not only a few."
+          onOpen={() => showPart("tr-chart-card")}
         />
         <SqlFigure
           label="Services"
           value={summary ? formatCount(summary.services) : "—"}
           detail="that sent traces"
           help="The services whose spans started a trace in the range under the filters."
+          onOpen={() => showPart("tr-services-card")}
         />
       </section>
 
@@ -164,7 +174,7 @@ export function ConsoleTraces() {
       )}
 
       <div className="sq-row tr-row">
-        <section className="cn-card" aria-labelledby="tr-chart">
+        <section id="tr-chart-card" className="cn-card" aria-labelledby="tr-chart" tabIndex={-1}>
           <header>
             <h2 id="tr-chart">Duration over time</h2>
             <HelpTip label="Duration over time">
@@ -478,7 +488,7 @@ interface SlowestServicesProps {
 /** The services of the range, slowest p95 first, each filtering the list by itself when clicked. */
 function SlowestServices({ services, chosen, onPick }: SlowestServicesProps) {
   return (
-    <section className="cn-card" aria-labelledby="tr-services">
+    <section id="tr-services-card" className="cn-card" aria-labelledby="tr-services" tabIndex={-1}>
       <header>
         <h2 id="tr-services">Slowest services</h2>
         <HelpTip label="Slowest services">
@@ -604,7 +614,11 @@ function TraceList({ items, p95Ms, total, order, hasMore, loading, onMore }: Tra
                         {item.name}
                       </Link>
                     </td>
-                    <td className="wide">{item.service}</td>
+                    <td className="wide">
+                      <Link className="cn-cell-link" to={`/metrics/services/${encodeURIComponent(item.service)}`}>
+                        {item.service}
+                      </Link>
+                    </td>
                     <td className="num wide">{formatCount(item.spans)}</td>
                     <td className={state === "failed" ? "num cn-bad" : "num"}>{formatDuration(item.durationMs)}</td>
                     <td>

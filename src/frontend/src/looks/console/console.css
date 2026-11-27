@@ -1319,6 +1319,24 @@
   white-space: nowrap;
 }
 
+/* A pill that opens its detail: a warning's alerts, the failed traces, a late backup's fix (VEY-83). */
+a.cn-pill,
+button.cn-pill {
+  border: 0;
+  font-family: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+:is(a, button).cn-pill:hover {
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+:is(a, button).cn-pill:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
 .cn-pill.bad {
   background: var(--error-bg);
   color: var(--error-fg);
@@ -1341,15 +1359,56 @@
   align-items: start;
 }
 
-.cn-columns-figures {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  align-items: stretch;
+/* A summary band (Alerts, VEY-83): the figures in a compact grid at the left, a chart beside them, one card as tall
+   as its content. The figures lose their own frames; the band frames them. */
+.cn-card.cn-band {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
 }
 
-.cn-figures {
+.cn-band-figures {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  border-right: 1px solid var(--line);
+}
+
+.cn-band .cn-figure {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  padding: 12px 16px;
+}
+
+.cn-band .cn-figure:nth-child(odd) {
+  border-right: 1px solid var(--line);
+}
+
+.cn-band .cn-figure:nth-child(-n + 2) {
+  border-bottom: 1px solid var(--line);
+}
+
+.cn-band .cn-figure.bad .cn-figure-value {
+  color: var(--error-fg);
+}
+
+.cn-band .cn-figure.warn .cn-figure-value {
+  color: var(--warning-fg);
+}
+
+.cn-band .cn-figure:has(.cn-figure-link):hover {
+  background: var(--chip);
+}
+
+.cn-band-chart {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+/* The bars keep to the band's height instead of their usual taller least height. */
+.cn-card.cn-band .cn-band-chart svg {
+  min-height: 0;
+  height: 96px;
 }
 
 .cn-figure {
@@ -1445,7 +1504,8 @@
   background: var(--panel);
 }
 
-.cn-card > header {
+.cn-card > header,
+.cn-band-chart > header {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1601,8 +1661,13 @@
 
 @media (max-width: 1179px) {
   .cn-columns,
-  .cn-columns-figures {
+  .cn-card.cn-band {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cn-band-figures {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
   }
 }
 
@@ -1614,4 +1679,20 @@
   .cn-head > .cn-seg {
     margin-left: 0;
   }
+}
+
+/* A cell that opens its own detail, such as a rule's name opening what it means and how to fix it (VEY-83). */
+.cn-cell-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.cn-cell-link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/* A pair of columns whose side card only Advanced shows becomes one column in the Simple view (VEY-83). */
+[data-view="simple"] .cn-columns:has(> .advanced-only) {
+  grid-template-columns: minmax(0, 1fr);
 }

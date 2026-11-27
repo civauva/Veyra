@@ -1,5 +1,8 @@
 import { useCallback, useContext, useMemo, useRef, useState } from "react";
 
+import { useNavigate } from "react-router";
+
+import { rulePath } from "../../alerts/rulePath";
 import { api } from "../../api/client";
 import type { BlockingNode, DatabaseLive, Finding, LiveSession, WaitTerm } from "../../api/types";
 import { formatAmount, formatClockTime, formatRate, formatShare } from "../metricFormat";
@@ -101,7 +104,7 @@ export function LiveTab({ engine, server, at, advanced, onNow, onAdvanced }: Liv
       <div className="live-main">
         <SelectedSession.Provider value={session ? session.id : null}>
           {advanced ? (
-            <Advanced live={data} filters={filters} onSession={open} />
+            <Advanced live={data} filters={filters} onSession={open} block={`${engine} ${server}`} />
           ) : (
             <Simple live={data} filters={filters} onSession={open} onAdvanced={onAdvanced} />
           )}
@@ -427,7 +430,11 @@ function Chain({ tree, byId, onSession }: ChainProps) {
 }
 
 /** The Advanced view: findings in SQL Server's terms, every number, the blocking tree, and every session. */
-function Advanced({ live, filters, onSession }: ViewProps) {
+function Advanced({ live, filters, onSession, block }: ViewProps & { block: string }) {
+  const navigate = useNavigate();
+  // A tile that turns amber leads to what it means and how to fix it (VEY-83).
+  const fixOf = (rule: "db-grants-pending" | "db-tempdb-session") => () =>
+    void navigate(`${rulePath(rule, { kind: "database", name: block })}#fix`);
   const byId = useMemo(() => new Map(known(live).map((session) => [session.id, session])), [live]);
   const sessions = live.sessions;
   const selected = useContext(SelectedSession);
@@ -527,6 +534,8 @@ function Advanced({ live, filters, onSession }: ViewProps) {
           }
           value={String(tiles.grantsWaiting)}
           tone={tiles.grantsWaiting > 0 ? "warn" : undefined}
+          onOpen={tiles.grantsWaiting > 0 ? fixOf("db-grants-pending") : undefined}
+          where="How to fix it"
         />
         <LiveTile
           label="tempdb free"
@@ -539,6 +548,10 @@ function Advanced({ live, filters, onSession }: ViewProps) {
           value={formatShare(tiles.tempdbFreeRatio)}
           below={tiles.tempdbSizeBytes > 0 ? `of ${formatAmount(tiles.tempdbSizeBytes)}` : undefined}
           tone={tiles.tempdbFreeRatio !== null && tiles.tempdbFreeRatio < 0.1 ? "warn" : undefined}
+          onOpen={
+            tiles.tempdbFreeRatio !== null && tiles.tempdbFreeRatio < 0.1 ? fixOf("db-tempdb-session") : undefined
+          }
+          where="How to fix it"
         />
       </section>
 

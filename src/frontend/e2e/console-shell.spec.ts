@@ -68,10 +68,12 @@ test.describe("Console top bar (VEY-72)", () => {
 
     for (const path of ["/logs", "/traces", "/metrics"]) {
       await page.goto(path);
-      await expect(page.getByRole("switch", { name: "Advanced" })).toBeVisible();
+      await expect(page.getByRole("button", { name: /^(Simple|Advanced) view$/ })).toBeVisible();
       await expect(page.getByRole("group", { name: "View" })).toHaveCount(0);
       await expect(page.getByRole("group", { name: "Time range" })).toHaveCount(0);
-      await expect(page.getByRole("banner").getByRole("switch", { name: "Advanced" })).toHaveCount(phone ? 0 : 1);
+      await expect(page.getByRole("banner").getByRole("button", { name: /^(Simple|Advanced) view$/ })).toHaveCount(
+        phone ? 0 : 1,
+      );
     }
 
     // On a phone the top bar keeps the range in short, and the Log Explorer's summary leaves it out.

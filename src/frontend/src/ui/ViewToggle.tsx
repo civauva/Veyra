@@ -1,5 +1,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 
+import { usePopover } from "./usePopover";
+
 /** How much a screen shows: its fundamentals, or everything, the fundamentals included. */
 export type ViewMode = "simple" | "advanced";
 
@@ -72,25 +74,77 @@ export function ViewToggle({ className }: ViewToggleProps) {
   );
 }
 
+/** What each view shows, in the lens menu's words. */
+const viewWords: Record<ViewMode, { name: string; what: string }> = {
+  simple: { name: "Simple", what: "The figures that need you, and what to do about them." },
+  advanced: { name: "Advanced", what: "Every counter, wait, column, and setting, the fundamentals included." },
+};
+
 /**
- * The same choice as {@link ViewToggle} as one switch: on for Advanced, off for Simple. It is for a look whose top bar
- * is dense, as Console's, where one word and a switch read faster than a pair of buttons.
+ * The same choice as {@link ViewToggle} as a lens (VEY-83): one button that names the view in force and opens a small
+ * menu with a sentence about each, so people learn what Advanced adds. It is for a look whose top bar is dense, as
+ * Console's. Escape or a press outside closes the menu; the arrow keys move between the two views.
  */
 export function ViewSwitch() {
   const [mode, setMode] = useViewMode();
-  const advanced = mode === "advanced";
+  const { open, toggle, close, rootRef, buttonRef } = usePopover();
+
+  function choose(next: ViewMode) {
+    setMode(next);
+    close(true);
+  }
 
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={advanced}
-      className="view-switch"
-      title={advanced ? "Showing everything. Switch off for the fundamentals only." : "Showing the fundamentals."}
-      onClick={() => setMode(advanced ? "simple" : "advanced")}
-    >
-      <span className="view-switch-track" aria-hidden="true" />
-      Advanced
-    </button>
+    <div ref={rootRef} className="view-lens">
+      <button
+        ref={buttonRef}
+        type="button"
+        className="view-lens-button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`${viewWords[mode].name} view`}
+        onClick={toggle}
+      >
+        <svg className="view-lens-eye" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+          <path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8Z" />
+          <circle cx="8" cy="8" r={mode === "advanced" ? 2.6 : 1.6} />
+        </svg>
+        <span className="view-lens-words">{viewWords[mode].name} view</span>
+        <svg className="view-lens-chevron" viewBox="0 0 10 10" width="9" height="9" aria-hidden="true">
+          <path d={open ? "M2 6.5 5 3.5l3 3" : "M2 3.5 5 6.5l3-3"} />
+        </svg>
+      </button>
+      {open && (
+        <div
+          className="view-lens-menu"
+          role="menu"
+          aria-label="View"
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("button")];
+              const at = items.indexOf(document.activeElement as HTMLButtonElement);
+              items[(at + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length]?.focus();
+            }
+          }}
+        >
+          {(["simple", "advanced"] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="menuitemradio"
+              aria-checked={mode === option}
+              className="view-lens-item"
+              // The view in force takes the focus when the menu opens, as a radio group would.
+              autoFocus={mode === option}
+              onClick={() => choose(option)}
+            >
+              <b>{viewWords[option].name}</b>
+              <span>{viewWords[option].what}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 
 import type { IncidentItem, IncidentState } from "../../../api/types";
 import { useShell } from "../../../app/shellContext";
@@ -8,6 +8,7 @@ import { useIncidents } from "../../../incidents/useIncidents";
 import { formatClock } from "../../../logs/format";
 import { HelpTip } from "../../../ui/HelpTip";
 import { ScreenBar } from "../../../ui/ScreenBar";
+import { useViewMode } from "../../../ui/ViewToggle";
 import { SqlFigure, timeWords } from "../database/sqlParts";
 import "./consoleIncidents.css";
 
@@ -24,8 +25,10 @@ const states: [IncidentState | "all", string][] = [
  * first and newest after, with a filter by state. The server groups, orders, and filters them.
  */
 export function ConsoleIncidents() {
+  const [viewMode] = useViewMode();
   const { status } = useShell();
   const [state, setState] = useState<IncidentState | "all">("all");
+  const navigate = useNavigate();
   const list = useIncidents(state, 30, status.environment);
   const items = list.items ?? [];
   const open = items.filter((one) => one.state !== "resolved");
@@ -37,8 +40,8 @@ export function ConsoleIncidents() {
   );
 
   return (
-    <main className="cn-screen in">
-      <ScreenBar trail={[{ label: "Incidents" }]} />
+    <main className="cn-screen in" data-view={viewMode}>
+      <ScreenBar trail={[{ label: "Incidents" }]} view />
       <div className="cn-head">
         <div>
           <h1>
@@ -59,6 +62,7 @@ export function ConsoleIncidents() {
             detail={`${warnings} warning · ${open.length - warnings} caution`}
             tone={warnings > 0 ? "bad" : open.length > 0 ? "warn" : undefined}
             help="Incidents with an alert still open, by their worst severity."
+            onOpen={() => setState("open")}
           />
           <SqlFigure
             label="Acknowledged"
@@ -70,6 +74,7 @@ export function ConsoleIncidents() {
             }
             detail="of the open ones"
             help="Open incidents someone said they work on. Acknowledging does not stop notifications yet."
+            onOpen={() => setState("acknowledged")}
           />
           <SqlFigure
             label="Last 30 days"
@@ -82,12 +87,14 @@ export function ConsoleIncidents() {
             value={items.reduce((sum, one) => sum + one.alertCount, 0)}
             detail="grouped by related blocks"
             help="Alerts the incidents hold. Alerts on related blocks within minutes of each other join one incident."
+            onOpen={() => void navigate("/alerts")}
           />
           <SqlFigure
             label="Time to resolve"
             value={timeWords(medianResolve)}
             detail="median"
             help="Half of the resolved incidents closed faster than this."
+            onOpen={() => setState("resolved")}
           />
         </section>
       )}
@@ -128,13 +135,13 @@ export function ConsoleIncidents() {
                   <th scope="col" className="wide">
                     Affected
                   </th>
-                  <th scope="col" className="num wide">
+                  <th scope="col" className="num wide advanced-only">
                     Alerts
                   </th>
                   <th scope="col" className="num">
                     Opened
                   </th>
-                  <th scope="col" className="num wide">
+                  <th scope="col" className="num wide advanced-only">
                     Lasted
                   </th>
                   <th scope="col">State</th>
@@ -187,9 +194,9 @@ function Row({ incident }: { incident: IncidentItem }) {
         </Link>
       </td>
       <td className="wide sq-muted">{blocksWords(incident)}</td>
-      <td className="num wide">{incident.alertCount}</td>
+      <td className="num wide advanced-only">{incident.alertCount}</td>
       <td className="num">{formatClock(incident.openedAt)}</td>
-      <td className="num wide">{lasted === null ? "ongoing" : timeWords(lasted)}</td>
+      <td className="num wide advanced-only">{lasted === null ? "ongoing" : timeWords(lasted)}</td>
       <td>
         <span
           className={

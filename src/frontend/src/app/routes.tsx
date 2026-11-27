@@ -2,6 +2,7 @@ import type { ComponentType } from "react";
 
 import { AccountScreen } from "../account/AccountScreen";
 import { AlertScreen } from "../alerts/AlertScreen";
+import { RuleScreen } from "../alerts/RuleScreen";
 import { AlertsScreen } from "../alerts/AlertsScreen";
 import { IncidentScreen } from "../incidents/IncidentScreen";
 import { IncidentsScreen } from "../incidents/IncidentsScreen";
@@ -47,6 +48,7 @@ export type RouteId =
   | "incident"
   | "alerts"
   | "alert"
+  | "rule"
   | "integrations"
   | "integration-new"
   | "integration"
@@ -163,6 +165,8 @@ export const routes: AppRoute[] = [
   },
   { id: "alerts", path: "/alerts", title: "Alerts", icon: "alerts", place: "menu", screen: AlertsScreen },
   { id: "alert", path: "/alerts/:id", title: "Alert", icon: "alerts", place: "detail", screen: AlertScreen },
+  // What a rule means and how to fix what it finds, for a warning without an alert of its own (VEY-83).
+  { id: "rule", path: "/alerts/rules/:rule", title: "Rule", icon: "alerts", place: "detail", screen: RuleScreen },
   {
     id: "integrations",
     path: "/integrations",

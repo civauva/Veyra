@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ChartLine } from "../api/types";
@@ -65,5 +65,32 @@ describe("LineChart", () => {
 
     expect(container.querySelector(".line-chart-plot")).toHaveStyle({ minHeight: "210px" });
     expect(container.querySelector("svg")?.getAttribute("height")).toBe("210");
+  });
+
+  it("LineChart_Keyboard_ReadsEachMomentWithEveryLinesValue", () => {
+    render(
+      <LineChart
+        title="Requests"
+        format={(value) => `${value} req`}
+        series={[
+          { line: lineOf("Requests", [10, 20, 30]), color: "teal" },
+          { line: lineOf("Errors", [1, null, 3]), color: "red" },
+        ]}
+      />,
+    );
+
+    const plot = screen.getByLabelText("Requests: use the arrow keys to read each moment");
+    fireEvent.focus(plot);
+    let tip = screen.getByRole("status");
+    expect(within(tip).getByText("30 req")).toBeInTheDocument();
+    expect(within(tip).getByText("3 req")).toBeInTheDocument();
+
+    fireEvent.keyDown(plot, { key: "ArrowLeft" });
+    tip = screen.getByRole("status");
+    expect(within(tip).getByText("20 req")).toBeInTheDocument();
+    expect(within(tip).getByText("no data")).toBeInTheDocument();
+
+    fireEvent.keyDown(plot, { key: "Escape" });
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });

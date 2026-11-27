@@ -93,6 +93,7 @@
 }
 
 .rs-figure {
+  position: relative;
   min-width: 0;
   padding: 10px 12px 12px;
   border: 1px solid var(--line);
@@ -135,6 +136,52 @@
 .rs-figure-detail {
   color: var(--muted);
   font-size: 11.5px;
+}
+
+/* A figure opens the screen behind it (VEY-83): its name is the link, stretched over the tile, above the tile's own
+   drawings; its question mark stays above that. */
+.rs-figure-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.rs-figure-link::after {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  border-radius: inherit;
+  content: "";
+}
+
+.rs-figure-link:focus-visible {
+  outline: none;
+}
+
+.rs-figure:has(.rs-figure-link:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.rs-figure button {
+  position: relative;
+  z-index: 2;
+}
+
+.rs-figure:has(.rs-figure-link):hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+}
+
+.rs-figure:has(.rs-figure-link):hover .rs-figure-link {
+  color: var(--fg);
+}
+
+/* A pill that opens its detail, such as a warning's open alerts. */
+a.rs-pill {
+  text-decoration: none;
+}
+
+a.rs-pill:hover {
+  box-shadow: inset 0 0 0 1px currentColor;
 }
 
 .rs-good {
@@ -262,8 +309,25 @@
   border-bottom: 0;
 }
 
+/* A row opens its item from anywhere on it: the name's link covers the row. Other links in the row, such as a pill or
+   a late backup, sit above it and open their own detail (VEY-83). */
+.rs-panel tbody tr {
+  position: relative;
+}
+
 .rs-panel tbody tr:hover td {
   background: var(--chip);
+}
+
+.rs-name::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+}
+
+.rs-panel td a:not(.rs-name) {
+  position: relative;
+  z-index: 1;
 }
 
 .rs-panel .num {
@@ -359,4 +423,14 @@
   .rs-find {
     margin-left: 0;
   }
+}
+
+/* A cell that opens its own detail, such as a late backup opening the server's Backups tab (VEY-83). */
+.rs-cell-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.rs-cell-link:hover {
+  text-decoration: underline;
 }

@@ -19,7 +19,7 @@
     <Product>Veyra</Product>
     <!-- The release, shown in the sidebar and on Settings → System. Each release has its notes in CHANGELOG.md (a test
          checks it) and is tagged v<Version> in git. See docs/guides/releasing.md. -->
-    <Version>0.4.1</Version>
+    <Version>0.5.0</Version>
     <Copyright>Copyright 2026 Veyra contributors</Copyright>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
   </PropertyGroup>

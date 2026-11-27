@@ -273,9 +273,24 @@ describe("The Console shell", () => {
 
     // jsdom also counts the panels' headers as banners; the top bar comes first.
     const [top] = await screen.findAllByRole("banner");
-    expect(await within(top as HTMLElement).findByRole("switch", { name: "Advanced" })).toBeInTheDocument();
-    expect(screen.getAllByRole("switch", { name: "Advanced" })).toHaveLength(1);
+    expect(await within(top as HTMLElement).findByRole("button", { name: "Simple view" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^(Simple|Advanced) view$/ })).toHaveLength(1);
     expect(screen.queryByRole("group", { name: "View" })).not.toBeInTheDocument();
+  });
+
+  it("Shell_ViewLens_ExplainsEachViewAndSwitchesForEveryScreen", async () => {
+    renderAt("/logs");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Simple view" }));
+    const menu = screen.getByRole("menu", { name: "View" });
+    expect(within(menu).getByRole("menuitemradio", { name: /^Simple/ })).toHaveAttribute("aria-checked", "true");
+    expect(within(menu).getByText(/Every counter, wait, column, and setting/)).toBeVisible();
+
+    await userEvent.click(within(menu).getByRole("menuitemradio", { name: /^Advanced/ }));
+
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Advanced view" })).toHaveFocus();
+    localStorage.removeItem("veyra.view");
   });
 
   it("Shell_PhoneScreenWithViews_KeepsSimpleAndAdvancedInTheScreenBar", async () => {
@@ -287,8 +302,12 @@ describe("The Console shell", () => {
     }));
     renderAt("/logs");
 
-    const toggle = await screen.findByRole("switch", { name: "Advanced" });
-    expect(within(screen.getAllByRole("banner")[0] as HTMLElement).queryByRole("switch")).not.toBeInTheDocument();
+    const toggle = await screen.findByRole("button", { name: /^(Simple|Advanced) view$/ });
+    expect(
+      within(screen.getAllByRole("banner")[0] as HTMLElement).queryByRole("button", {
+        name: /^(Simple|Advanced) view$/,
+      }),
+    ).not.toBeInTheDocument();
     expect(toggle.closest(".screen-bar")).not.toBeNull();
   });
 

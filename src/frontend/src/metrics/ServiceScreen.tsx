@@ -1,3 +1,4 @@
+import { useShell } from "../app/shellContext";
 import { Link, useParams, useSearchParams } from "react-router";
 
 import { api } from "../api/client";
@@ -10,7 +11,7 @@ import { BlockStatus } from "./BlockStatus";
 import { LineChart } from "./LineChart";
 import { ServiceIcon } from "./MetricCards";
 import { formatAmount, formatRate, formatSeconds, formatShare } from "./metricFormat";
-import { rangeOf, rangeSearch, rangeWords, withRange } from "./metricRange";
+import { parentCrumbs, rangeOf, rangeWords, withRange } from "./metricRange";
 import { RangePicker } from "./RangePicker";
 import { FigureName, PanelName } from "./TileName";
 import { useOpenAlerts } from "./database/useOpenAlerts";
@@ -23,6 +24,7 @@ import "./metrics.css";
  * runtime where the SDK sends them (VEY-37).
  */
 export function ServiceScreen() {
+  const { trailParents } = useShell();
   const { service = "" } = useParams();
   const [params, setParams] = useSearchParams();
   const range = rangeOf(params);
@@ -37,11 +39,7 @@ export function ServiceScreen() {
   return (
     <main className="metrics">
       <ScreenBar
-        trail={[
-          { label: "Metrics", to: `/metrics?${rangeSearch(range)}` },
-          { label: "Services", to: `/metrics?${rangeSearch(range)}#metrics-services` },
-          { label: service },
-        ]}
+        trail={[...parentCrumbs(trailParents?.service, range, "Services", "metrics-services"), { label: service }]}
         view
       >
         <RangePicker value={range} onChange={(next) => setParams(withRange(params, next), { replace: true })} />

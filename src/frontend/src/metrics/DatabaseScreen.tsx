@@ -1,3 +1,4 @@
+import { useShell } from "../app/shellContext";
 import { useParams, useSearchParams } from "react-router";
 
 import { api } from "../api/client";
@@ -10,7 +11,7 @@ import { BlockStatus } from "./BlockStatus";
 import { LineChart } from "./LineChart";
 import { DatabaseIcon } from "./MetricCards";
 import { formatAgo, formatAmount, formatRate, formatSeconds, formatSpan } from "./metricFormat";
-import { rangeOf, rangeSearch, rangeWords, withRange } from "./metricRange";
+import { parentCrumbs, rangeOf, rangeWords, withRange } from "./metricRange";
 import { RangePicker } from "./RangePicker";
 import { Sparkline } from "./Sparkline";
 import { useMetricData } from "./useMetricData";
@@ -61,6 +62,7 @@ const waitColors = [
  * overview, from its alerts, and from any other server through the switcher in the screen's bar.
  */
 export function DatabaseScreen() {
+  const { trailParents } = useShell();
   const { engine = "", server = "" } = useParams();
   const [params, setParams] = useSearchParams();
   const range = rangeOf(params);
@@ -112,8 +114,7 @@ export function DatabaseScreen() {
     <main className="metrics">
       <ScreenBar
         trail={[
-          { label: "Metrics", to: `/metrics?${rangeSearch(range)}` },
-          { label: "Database servers", to: `/metrics?${rangeSearch(range)}#metrics-databases` },
+          ...parentCrumbs(trailParents?.database, range, "Database servers", "metrics-databases"),
           {
             label: (
               <ServerSwitcher

@@ -74,6 +74,11 @@ export interface ShellContext {
    * false or missing for the pair.
    */
   viewSwitch?: boolean;
+  /**
+   * Where a host's, a service's, and a database server's screens belong in the look's menu, for their trails (VEY-83):
+   * Console files them under its resource lists. Missing where they belong under Metrics, as in Forecast.
+   */
+  trailParents?: Partial<Record<"host" | "service" | "database", { label: string; to: string }>>;
 }
 
 /** What a screen sees outside the shell, as in a component test: every environment, and no scene to paint. */

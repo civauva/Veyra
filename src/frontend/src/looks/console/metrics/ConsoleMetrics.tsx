@@ -1,9 +1,11 @@
 import { useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
 
-import { databasePath, engineName } from "../../../alerts/ruleWords";
+import { rulePath } from "../../../alerts/rulePath";
+import { containerPath, databasePath, engineName } from "../../../alerts/ruleWords";
 import type { MetricChart, MetricRange, MetricsOverview } from "../../../api/types";
 import { useShell } from "../../../app/shellContext";
+import { showPart } from "../../../metrics/database/drill";
 import { LineChart } from "../../../metrics/LineChart";
 import { unitFormat } from "../../../metrics/MetricBrowser";
 import {
@@ -18,6 +20,7 @@ import { rangeOf } from "../../../metrics/metricRange";
 import { metricShows, useMetricExplorer, type MetricExplorer } from "../../../metrics/useMetricExplorer";
 import { useMetricsOverview } from "../../../metrics/useMetricsOverview";
 import { HelpTip } from "../../../ui/HelpTip";
+import { useIsAdmin } from "../../../session/useIsAdmin";
 import { ScreenBar } from "../../../ui/ScreenBar";
 import { useViewMode } from "../../../ui/ViewToggle";
 import { ConsoleIcon } from "../ConsoleIcon";
@@ -116,6 +119,7 @@ interface OverviewProps {
 
 /** The figures, the search, and a table per kind of block, as the server found and counted them. */
 function Overview({ range, advanced }: OverviewProps) {
+  const admin = useIsAdmin();
   const [params, setParams] = useSearchParams();
   const search = params.get("search") ?? "";
   const { status } = useShell();
@@ -157,6 +161,13 @@ function Overview({ range, advanced }: OverviewProps) {
         <p className="cn-empty">
           No metrics yet. Point the OpenTelemetry SDK of a service, or a Collector with the hostmetrics receiver, at
           Veyra; hosts and services show here within a minute.
+          {admin && (
+            <>
+              {" "}
+              <Link to="/settings?section=Agents">Watch a host</Link> or{" "}
+              <Link to="/settings?section=Databases">add a database server</Link>.
+            </>
+          )}
         </p>
       ) : (
         <OverviewTables overview={data} search={search} />
@@ -177,18 +188,21 @@ function OverviewFigures({ overview, advanced }: { overview: MetricsOverview; ad
         detail={summary.fillingDisks === 0 ? "disks steady" : `${summary.fillingDisks} disks filling`}
         tone={summary.fillingDisks > 0 ? "warn" : undefined}
         help="Hosts sending metrics from the Collector's hostmetrics receiver, and how many of them have a disk that is full within 30 days at the pace of its last day."
+        onOpen={() => showPart("mx-hosts-card")}
       />
       <SqlFigure
         label="Services"
         value={summary.services}
         detail="with metrics"
         help="Services sending HTTP server or runtime metrics from their OpenTelemetry SDK."
+        onOpen={() => showPart("mx-services-card")}
       />
       <SqlFigure
         label="Databases"
         value={summary.databases}
         detail={summary.databases === 1 ? "server" : "servers"}
         help="Database servers a Collector or a Veyra agent reads, such as SQL Server and PostgreSQL."
+        onOpen={() => showPart("mx-databases-card")}
       />
       <SqlFigure
         label="Containers"
@@ -196,6 +210,7 @@ function OverviewFigures({ overview, advanced }: { overview: MetricsOverview; ad
         detail={summary.restarting === 0 ? "none restarting" : `${summary.restarting} restarting`}
         tone={summary.restarting > 0 ? "warn" : undefined}
         help="Docker containers from the Collector's docker_stats receiver, and how many restarted in the range."
+        onOpen={() => showPart("mx-containers-card")}
       />
       {advanced && (
         <>
@@ -254,7 +269,17 @@ function OverviewTables({ overview, search }: { overview: MetricsOverview; searc
                 {host.fullestDisk ? `${host.fullestDisk.mountpoint} ${formatShare(host.fullestDisk.ratio)}` : "—"}
               </td>
               <td className={host.fillingDisk ? "num cn-warn" : "num sq-muted"}>
-                {formatFull(host.fillingDisk?.daysUntilFull ?? null)}
+                {host.fillingDisk ? (
+                  // A disk filling leads to what it means and how to fix it (VEY-83).
+                  <Link
+                    className="mx-cell-link"
+                    to={`${rulePath("disk-filling", { kind: "host", name: host.name })}#fix`}
+                  >
+                    {formatFull(host.fillingDisk.daysUntilFull)}
+                  </Link>
+                ) : (
+                  formatFull(null)
+                )}
               </td>
             </tr>
           ))}
@@ -278,7 +303,12 @@ function OverviewTables({ overview, search }: { overview: MetricsOverview; searc
               <td className="num">{formatRate(service.requestsPerSecond)}</td>
               <td className="num">{formatSeconds(service.p95Seconds)}</td>
               <td className={(service.serverErrorRatio ?? 0) > 0.01 ? "num cn-bad" : "num"}>
-                {formatShare(service.serverErrorRatio)}
+                <Link
+                  className="mx-cell-link"
+                  to={`/traces?${new URLSearchParams({ service: service.name, show: "failed" }).toString()}`}
+                >
+                  {formatShare(service.serverErrorRatio)}
+                </Link>
               </td>
               <td className="num">{service.instances}</td>
             </tr>
@@ -302,8 +332,19 @@ function OverviewTables({ overview, search }: { overview: MetricsOverview; searc
               </td>
               <td className="num">{formatRate(database.batchRequests ?? database.commitsPerSecond)}</td>
               <td className="num">{database.connections ?? "—"}</td>
-              <td className={(database.blocked ?? 0) > 0 ? "num cn-bad" : "num"}>{database.blocked ?? "—"}</td>
-              <td className={database.failedJobs > 0 ? "num cn-bad" : "num"}>{database.failedJobs}</td>
+              <td className={(database.blocked ?? 0) > 0 ? "num cn-bad" : "num"}>
+                <Link
+                  className="mx-cell-link"
+                  to={`${databasePath(`${database.engine} ${database.server}`)}?tab=blocking`}
+                >
+                  {database.blocked ?? "—"}
+                </Link>
+              </td>
+              <td className={database.failedJobs > 0 ? "num cn-bad" : "num"}>
+                <Link className="mx-cell-link" to={`${databasePath(`${database.engine} ${database.server}`)}?tab=jobs`}>
+                  {database.failedJobs}
+                </Link>
+              </td>
             </tr>
           ))}
         </Table>
@@ -319,7 +360,10 @@ function OverviewTables({ overview, search }: { overview: MetricsOverview; searc
             <tr key={`${container.host ?? ""}-${container.name}`}>
               <td>
                 {container.host ? (
-                  <Link className="cn-table-name" to={`/metrics/hosts/${encodeURIComponent(container.host)}`}>
+                  <Link
+                    className="cn-table-name"
+                    to={containerPath({ kind: "container", name: container.name, part: container.host })}
+                  >
                     {container.name}
                   </Link>
                 ) : (
@@ -329,7 +373,18 @@ function OverviewTables({ overview, search }: { overview: MetricsOverview; searc
               </td>
               <td className="num">{formatCpuPercent(container.cpuPercent)}</td>
               <td className="num">{formatShare(container.memoryRatio)}</td>
-              <td className={(container.restarts ?? 0) > 1 ? "num cn-warn" : "num"}>{container.restarts ?? "—"}</td>
+              <td className={(container.restarts ?? 0) > 1 ? "num cn-warn" : "num"}>
+                {(container.restarts ?? 0) > 1 ? (
+                  <Link
+                    className="mx-cell-link"
+                    to={`${rulePath("container-restarts", { kind: "container", name: container.name, part: container.host })}#fix`}
+                  >
+                    {container.restarts}
+                  </Link>
+                ) : (
+                  (container.restarts ?? "—")
+                )}
+              </td>
             </tr>
           ))}
         </Table>
@@ -355,7 +410,7 @@ interface TableProps {
 /** A panel with a table of blocks, its first column the block and the rest its numbers. */
 function Table({ id, title, help, heads, children }: TableProps) {
   return (
-    <section className="cn-card" aria-labelledby={id}>
+    <section id={`${id}-card`} className="cn-card" aria-labelledby={id} tabIndex={-1}>
       <header>
         <h2 id={id}>{title}</h2>
         <HelpTip label={title}>{help}</HelpTip>

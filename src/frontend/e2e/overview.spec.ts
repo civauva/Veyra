@@ -7,6 +7,8 @@ test.describe("Console Overview (VEY-73)", () => {
     page,
   }) => {
     await answerApi(page, { look: "console" });
+    // Every panel of the reference shows in the Advanced view; Simple keeps Veyra's plumbing out (VEY-83).
+    await page.addInitScript(() => localStorage.setItem("veyra.view", "advanced"));
     await page.goto("/");
 
     const figures = page.getByRole("region", { name: "Figures" });
@@ -111,6 +113,56 @@ test.describe("Console Overview (VEY-73)", () => {
       .last()
       .click({ force: true });
     await expect(page).toHaveURL(/\/metrics\/services\/payments-gateway/);
+  });
+
+  test("opens an alert at how to fix it, scrolled into view and pulsing (VEY-83)", async ({ page }) => {
+    await answerApi(page, { look: "console" });
+    await page.goto("/");
+
+    await page.getByRole("link", { name: "What it means and how to fix it →" }).click();
+
+    await expect(page).toHaveURL(/\/alerts\/[^/]+#fix$/);
+    const fix = page.locator("#fix");
+    await expect(fix).toHaveClass(/pulse-once/);
+    await expect(fix).toBeInViewport();
+  });
+
+  test("shows the moment under the pointer on a chart, and still opens the panel on a click (VEY-83)", async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name === "phone", "A phone has no pointer to hover with.");
+    await answerApi(page, { look: "console" });
+    await page.goto("/");
+    const activity = page.getByRole("region", { name: "Request activity" });
+    const plot = activity.locator(".line-chart-plot");
+    await expect(plot).toBeVisible();
+
+    const box = await plot.boundingBox();
+    expect(box).not.toBeNull();
+    await page.mouse.move((box?.x ?? 0) + (box?.width ?? 0) * 0.6, (box?.y ?? 0) + (box?.height ?? 0) / 2);
+    const tip = activity.getByRole("status");
+    await expect(tip).toContainText("Requests");
+    await expect(tip).toContainText("Server errors");
+
+    await page.getByRole("region", { name: "Telemetry ingestion" }).locator(".bars-plot").hover();
+    await expect(page.getByRole("region", { name: "Telemetry ingestion" }).getByRole("status")).toContainText("Logs");
+
+    await plot.click();
+    await expect(page).toHaveURL(/\/traces/);
+  });
+
+  test("keeps Veyra's plumbing to the Advanced view, chosen from the lens (VEY-83)", async ({ page }) => {
+    await answerApi(page, { look: "console", view: "simple" });
+    await page.goto("/");
+    await expect(page.getByRole("region", { name: "Applications" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Collector health" })).toBeHidden();
+    await expect(page.getByRole("region", { name: "Telemetry ingestion" })).toBeHidden();
+
+    await page.getByRole("button", { name: "Simple view" }).click();
+    await page.getByRole("menuitemradio", { name: /^Advanced/ }).click();
+
+    await expect(page.getByRole("region", { name: "Collector health" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Telemetry ingestion" })).toBeVisible();
   });
 
   test("asks the server once for the whole Overview, in the shared range", async ({ page }) => {

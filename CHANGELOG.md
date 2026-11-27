@@ -8,6 +8,33 @@ sentence, and its changes under Added, Changed, Fixed, or Removed, one line a ch
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-27
+
+Everything you see leads somewhere: details behind every tile, a fix behind every warning, and a lens for how much
+each screen shows.
+
+### Added
+
+- Every figure, chart, row, and status pill with more behind it opens it: the resource lists, a SQL Server's tabs,
+  Incidents, Traces, Metrics, and Alerts.
+- Every warning leads to what it means and how to fix it: an alert opens at its fix, and a warning without an alert,
+  such as a late backup, opens its rule's page with the steps and the open alerts.
+- Links to a fix, or to a part of a screen, scroll to it and pulse its border, so you see where the click took you.
+- Hovering a chart shows the moment under the pointer with each line's or bar's value; the arrow keys do the same.
+- Add a server, watch a host, or connect a service from the lists that show them, for Admins.
+
+### Changed
+
+- Simple and Advanced is a lens in the top bar that says what each view shows, and every monitoring screen follows
+  it: Simple keeps to what needs you, Advanced adds the plumbing, the extra columns, and the counters.
+- The Alerts page puts its figures and the alerts per day in one compact band.
+- Trails follow the menu: a host, a service, or a database server sits under its list, and a server's tab ends its
+  trail.
+
+### Fixed
+
+- Monitoring settings on a database server's screen opens the database section of Settings.
+
 ## [0.4.1] - 2026-11-27
 
 The Console look and its Overview, incidents, job runs, the SQL Server wizard, and release notes in the app.

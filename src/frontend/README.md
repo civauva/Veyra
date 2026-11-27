@@ -208,6 +208,25 @@ tile's drawings, with its question mark above that; a screen reader hears the na
 opens it. The Overview's figures, panel titles, chart panels, and rows open their screens; the figures on Alerts and
 Jobs set the list's filter; a SQL Server's overview figures open their tab.
 
+Every warning leads to its fix (VEY-83). An alert's page opens at "How to fix" with `/alerts/<id>#fix`; a warning
+without an alert of its own, such as a late backup, a filling volume, or an amber Live tile, opens its rule's page
+(`alerts/RuleScreen.tsx`, `/alerts/rules/<rule>?kind=&name=&part=`): what the rule measures, its thresholds, what a
+finding means, the steps with their scripts, and the subject's open alerts. A link to an anchor, or a figure that shows
+a part of its screen (`showPart`), scrolls to it and pulses its border once (`ui/useHashPulse.ts`, `.pulse-once`).
+
+Simple and Advanced (VEY-83) is a lens in Console's top bar (`ViewSwitch`): a button naming the view and a menu that
+says what each shows. A monitoring screen puts `data-view` on its root; panels and columns only Advanced shows carry
+`advanced-only`. The Overview's Simple view leaves out telemetry arriving and the collectors; Alerts leaves out the
+rules card and the rule and duration columns; the lists leave out their extra columns. Rows are never hidden in the
+browser.
+
+Charts read out the moment under the pointer (VEY-83): `LineChart` marks each line and lists their values at that time,
+`StackedBars` dims the other bars and lists the layers of the one under the pointer. Both take the focus and move with
+the arrow keys. A chart's Overview panel opens on a click anywhere, so its chart keeps the hover.
+
+Trails follow the look's menu: Console files host, service, and database server screens under their resource lists
+(`trailParents` in the shell context), and a server's open tab ends its trail.
+
 The version sits at the foot of the sidebar in every look and opens the release notes (`about/`, ADR 0030). The shell
 reads `GET /api/v1/about` when the page loads, every five minutes, and when the page is shown again; when the build
 differs from the one it loaded, a notice in the corner offers What's new, Later, and Reload, without taking the focus.

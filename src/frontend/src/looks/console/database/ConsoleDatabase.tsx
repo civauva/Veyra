@@ -91,8 +91,21 @@ function SqlServerScreen() {
   }
 
   return (
-    <main className="cn-screen sq">
-      <ScreenBar trail={[{ label: "Databases", to: "/resources/databases" }, { label: server }]} view />
+    <main className="cn-screen sq" data-view={mode}>
+      <ScreenBar
+        trail={[
+          { label: "Databases", to: "/resources/databases" },
+          // The open tab ends the trail, and the server's name leads back to its overview (VEY-83).
+          tab === "overview"
+            ? { label: server }
+            : {
+                label: server,
+                to: `/metrics/databases/${encodeURIComponent(engine)}/${encodeURIComponent(server)}`,
+              },
+          ...(tab === "overview" ? [] : [{ label: tabs.find((one) => one.id === tab)?.label ?? tab }]),
+        ]}
+        view
+      />
       <div className="sq-head">
         <span className="sq-icon" aria-hidden="true">
           ▤
@@ -100,15 +113,22 @@ function SqlServerScreen() {
         <div>
           <h1>
             {server}
-            {alerts && (
-              <span className={open === 0 ? "cn-pill ok" : warnings > 0 ? "cn-pill bad" : "cn-pill warn"}>
-                {open === 0 ? "Healthy" : `${warnings > 0 ? "Warning" : "Caution"} · ${open} open`}
-              </span>
-            )}
+            {alerts &&
+              (open === 0 ? (
+                <span className="cn-pill ok">Healthy</span>
+              ) : (
+                // The server's open alerts, each with what it means and how to fix it (VEY-83).
+                <Link
+                  className={warnings > 0 ? "cn-pill bad" : "cn-pill warn"}
+                  to={`/alerts?${new URLSearchParams({ state: "open", q: server }).toString()}`}
+                >
+                  {`${warnings > 0 ? "Warning" : "Caution"} · ${open} open`}
+                </Link>
+              ))}
           </h1>
           {overview.data && <MachineFacts machine={overview.data.machine} />}
         </div>
-        <Link className="cn-button sq-monitoring" to="/settings?section=sql-servers">
+        <Link className="cn-button sq-monitoring" to="/settings?section=Databases">
           Monitoring settings
         </Link>
       </div>
@@ -148,10 +168,12 @@ function SqlServerScreen() {
           />
         </>
       )}
-      {tab === "backups" && <SqlBackupsTab backups={backups.data} error={backups.error} />}
+      {tab === "backups" && (
+        <SqlBackupsTab backups={backups.data} error={backups.error} block={`${engine} ${server}`} />
+      )}
       {tab === "storage" && overview.data && (
         <>
-          <SqlStorageTab overview={overview.data} />
+          <SqlStorageTab overview={overview.data} block={`${engine} ${server}`} />
           <StorageTab engine={engine} server={server} advanced={advanced} blind={false} />
         </>
       )}

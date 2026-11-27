@@ -188,7 +188,7 @@ export function SqlOverviewTab({ overview, backups, alerts, onTab }: SqlOverview
             </div>
           </div>
         </section>
-        <section className="cn-card" aria-labelledby="sq-counters">
+        <section className="cn-card advanced-only" aria-labelledby="sq-counters">
           <header>
             <h2 id="sq-counters">Core counters</h2>
             <HelpTip label="Core counters">
@@ -278,7 +278,7 @@ export function Waits({ overview, onMore }: { overview: ServerOverview; onMore?:
   const types = overview.waits.types;
 
   return (
-    <section className="cn-card" aria-labelledby="sq-waits">
+    <section id="sq-waits-card" className="cn-card" aria-labelledby="sq-waits" tabIndex={-1}>
       <header>
         <h2 id="sq-waits">Top wait types</h2>
         <HelpTip label="Top wait types">
@@ -585,7 +585,7 @@ function Inventory({ overview }: { overview: ServerOverview }) {
 /** The server's open alerts, and which monitoring areas deliver data. */
 function CoverageAndAlerts({ overview, alerts }: { overview: ServerOverview; alerts: AlertListItem[] | null }) {
   return (
-    <section className="cn-card" aria-labelledby="sq-coverage">
+    <section className="cn-card advanced-only" aria-labelledby="sq-coverage">
       <header>
         <h2 id="sq-coverage">Alerts and coverage</h2>
         <HelpTip label="Alerts and coverage">

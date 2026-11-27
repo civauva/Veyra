@@ -1,3 +1,4 @@
+import { useShell } from "../../app/shellContext";
 import { useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 
@@ -7,7 +8,7 @@ import { ScreenBar } from "../../ui/ScreenBar";
 import { useViewMode } from "../../ui/ViewToggle";
 import { LineChart } from "../LineChart";
 import { formatSeconds } from "../metricFormat";
-import { rangeOf, rangeSearch, rangeWords, withRange } from "../metricRange";
+import { parentCrumbs, rangeOf, rangeSearch, rangeWords, withRange } from "../metricRange";
 import { RangePicker } from "../RangePicker";
 import { useMetricData } from "../useMetricData";
 import { PanelHead, TileName } from "./helpNames";
@@ -25,6 +26,7 @@ const planColors = ["var(--warning-fg)", "var(--accent)", "var(--ok-fg)", "var(-
  * Queries tab and the Metrics overview (VEY-62).
  */
 export function QueryScreen() {
+  const { trailParents } = useShell();
   const { engine = "", server = "", hash = "" } = useParams();
   const [params, setParams] = useSearchParams();
   const range = rangeOf(params);
@@ -40,8 +42,7 @@ export function QueryScreen() {
     <main className="metrics">
       <ScreenBar
         trail={[
-          { label: "Metrics", to: `/metrics?${rangeSearch(range)}` },
-          { label: "Database servers", to: `/metrics?${rangeSearch(range)}#metrics-databases` },
+          ...parentCrumbs(trailParents?.database, range, "Database servers", "metrics-databases"),
           { label: server, to: back },
           { label: "Statement" },
         ]}

@@ -27,7 +27,7 @@ export function ConsoleIntegrations() {
 
   return (
     <main className="cn-screen ig">
-      <ScreenBar trail={[{ label: "Manage" }, { label: "Integrations" }]} />
+      <ScreenBar trail={[{ label: "Integrations" }]} />
       <div className="cn-head">
         <span className="ig-icon" aria-hidden="true">
           <ConsoleIcon name="integrations" size={22} />

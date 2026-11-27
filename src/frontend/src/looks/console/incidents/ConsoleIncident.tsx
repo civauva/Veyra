@@ -1,16 +1,22 @@
-import { Link, useParams } from "react-router";
+import { useRef } from "react";
+import { Link, useNavigate, useParams } from "react-router";
+
+import { blockLink } from "../../../alerts/alertFigures";
+import { alertFixPath } from "../../../alerts/rulePath";
 
 import { ruleGuidance } from "../../../alerts/ruleGuidance";
 import { alertTitle, formatMeasure, formatThreshold, ruleName } from "../../../alerts/ruleWords";
-import type { IncidentChart, IncidentContext, IncidentDetails } from "../../../api/types";
+import type { AlertBlock, IncidentChart, IncidentContext, IncidentDetails } from "../../../api/types";
 import { formatBytes } from "../../../home/homeFormat";
 import { momentWords, useMayAcknowledge } from "../../../incidents/incidentWords";
 import { useIncident } from "../../../incidents/useIncidents";
 import { formatClock, formatTime } from "../../../logs/format";
 import { levelName } from "../../../logs/levelWords";
+import { showPart } from "../../../metrics/database/drill";
 import { LineChart } from "../../../metrics/LineChart";
 import { HelpTip } from "../../../ui/HelpTip";
 import { ScreenBar } from "../../../ui/ScreenBar";
+import { useHashPulse } from "../../../ui/useHashPulse";
 import { SqlFigure, stepWords, timeWords } from "../database/sqlParts";
 import "./consoleIncidents.css";
 
@@ -29,6 +35,7 @@ interface Moment {
  * affected blocks, and what to check, from the rules' own guidance.
  */
 export function ConsoleIncident() {
+  const navigate = useNavigate();
   const { id = "" } = useParams();
   const view = useIncident(id);
   const mayAcknowledge = useMayAcknowledge();
@@ -97,9 +104,9 @@ export function ConsoleIncident() {
               View runbook →
             </a>
           ) : (
-            <a className="cn-button primary" href="#in-investigation">
+            <Link className="cn-button primary" to="#fix">
               How to fix →
-            </a>
+            </Link>
           )}
         </div>
       </div>
@@ -122,7 +129,8 @@ export function ConsoleIncident() {
             value={formatMeasure(figures.leading.rule, figures.leading.value)}
             detail={`threshold ${formatThreshold(figures.leading.rule, figures.leading.threshold)} · peak ${formatMeasure(figures.leading.rule, figures.leading.peak)}`}
             tone={incident.severity === "Warning" && ongoing ? "bad" : ongoing ? "warn" : undefined}
-            help="The measure of the incident's leading alert now, against the threshold it crossed, and its worst value."
+            help="The measure of the incident's leading alert now, against the threshold it crossed, and its worst value. Open it for what it means and how to fix it."
+            onOpen={() => void navigate(alertFixPath(figures.leading.alertId))}
           />
         )}
         <SqlFigure
@@ -130,12 +138,14 @@ export function ConsoleIncident() {
           value={incident.blocks[0]?.name ?? "—"}
           detail={figures.affectedBlocks > 1 ? `and ${figures.affectedBlocks - 1} more` : incident.blocks[0]?.kind}
           help="The blocks the incident's alerts are about: services, hosts, containers, and database servers."
+          onOpen={incident.blocks[0] ? () => void navigate(blockLink(incident.blocks[0] as AlertBlock).to) : undefined}
         />
         <SqlFigure
           label="Alerts"
           value={incident.alertCount}
           detail={`${details.alerts.filter((alert) => alert.resolvedAt === null).length} still open`}
           help="Alerts grouped into this incident because they hit related blocks within minutes of each other."
+          onOpen={() => showPart("in-timeline-card")}
         />
         <SqlFigure
           label="Duration"
@@ -279,7 +289,7 @@ function Timeline({ details, context }: { details: IncidentDetails; context: Inc
   ].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 
   return (
-    <section className="cn-card" aria-labelledby="in-timeline">
+    <section id="in-timeline-card" className="cn-card" aria-labelledby="in-timeline" tabIndex={-1}>
       <header>
         <h2 id="in-timeline">Incident timeline</h2>
         <HelpTip label="Incident timeline">
@@ -416,6 +426,9 @@ function Logs({ context }: { context: IncidentContext | null }) {
 
 /** What to check, from the rules' guidance, and the affected components with their state. */
 function Investigation({ details, context }: { details: IncidentDetails; context: IncidentContext | null }) {
+  const fix = useRef<HTMLElement>(null);
+  // "How to fix" at the top points here; the section scrolls into view and pulses (VEY-83).
+  useHashPulse("fix", fix, true);
   const seen = new Set<string>();
   const guided = details.alerts.filter((alert) => {
     const key = `${alert.rule}#${alert.block.id}`;
@@ -430,7 +443,7 @@ function Investigation({ details, context }: { details: IncidentDetails; context
   });
 
   return (
-    <section className="cn-card" id="in-investigation" aria-labelledby="in-investigation-title">
+    <section ref={fix} className="cn-card" id="in-investigation" aria-labelledby="in-investigation-title" tabIndex={-1}>
       <header>
         <h2 id="in-investigation-title">Investigation context</h2>
         <HelpTip label="Investigation context">
@@ -466,7 +479,7 @@ function Investigation({ details, context }: { details: IncidentDetails; context
             {context.components.map((component) => (
               <div key={component.block.id}>
                 <dt>
-                  {component.block.name}
+                  <Link to={blockLink(component.block).to}>{component.block.name}</Link>
                   <small>
                     {component.block.kind}
                     {component.relation === "host"

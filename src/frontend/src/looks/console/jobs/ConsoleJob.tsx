@@ -36,7 +36,7 @@ export function ConsoleJob() {
   if (notFound) {
     return (
       <main className="cn-screen jb">
-        <ScreenBar trail={[{ label: "Resources" }, list, { label: "Not found" }]} />
+        <ScreenBar trail={[list, { label: "Not found" }]} />
         <p className="cn-empty">Veyra knows no such job. Its runs may be older than the 30 days they are kept.</p>
       </main>
     );
@@ -45,7 +45,7 @@ export function ConsoleJob() {
   if (!details) {
     return (
       <main className="cn-screen jb">
-        <ScreenBar trail={[{ label: "Resources" }, list, { label: "…" }]} />
+        <ScreenBar trail={[list, { label: "…" }]} />
         <p className="cn-empty">{error ? `Could not read the job: ${error}` : "Reading the job…"}</p>
       </main>
     );
@@ -72,7 +72,7 @@ export function ConsoleJob() {
 
   return (
     <main className="cn-screen jb">
-      <ScreenBar trail={[{ label: "Resources" }, list, { label: job.name }]} />
+      <ScreenBar trail={[list, { label: job.name }]} />
       <div className="cn-head">
         <div>
           <h1>

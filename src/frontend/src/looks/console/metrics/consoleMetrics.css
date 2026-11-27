@@ -201,3 +201,13 @@
     width: 96px;
   }
 }
+
+/* A cell that opens its detail, such as a filling disk opening what it means and how to fix it (VEY-83). */
+.mx-cell-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.mx-cell-link:hover {
+  text-decoration: underline;
+}

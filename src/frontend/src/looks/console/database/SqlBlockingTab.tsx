@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import type { ServerOverview } from "../../../api/types";
 import { LineChart } from "../../../metrics/LineChart";
+import { showPart } from "../../../metrics/database/drill";
 import { HelpTip } from "../../../ui/HelpTip";
 import { lineOver, SqlFigure, timeWords, waitClock } from "./sqlParts";
 import { Waits } from "./SqlOverviewTab";
@@ -35,6 +36,7 @@ export function SqlBlockingTab({ overview, onLive }: SqlBlockingTabProps) {
           detail="at the head of a chain now"
           tone={chains.length > 0 ? "bad" : undefined}
           help="Sessions that hold a lock others wait for, and wait for nothing themselves, in the latest live read."
+          onOpen={() => showPart("sq-chains-card")}
         />
         <SqlFigure
           label="Blocked sessions"
@@ -43,29 +45,40 @@ export function SqlBlockingTab({ overview, onLive }: SqlBlockingTabProps) {
           line={overview.blocking.blockedLine}
           tone={blocked > 0 ? "warn" : undefined}
           help="Sessions waiting for a lock now, directly or behind another blocked session, and over the range."
+          onOpen={() => showPart(blocked > 0 ? "sq-tree-card" : "sq-blocked-range-card")}
         />
         <SqlFigure
           label="Deadlocks"
           value={overview.blocking.deadlocks}
           detail="in the range"
           help="Sessions SQL Server ended because each waited for the other. The list below shows each one's graph."
+          onOpen={() => showPart("blocking-deadlocks-part")}
         />
         <SqlFigure
           label="Total wait time"
           value={timeWords(overview.waits.totalSeconds)}
           detail="idle waits left out"
           help="How long sessions waited in the range, all wait types together, idle waits left out."
+          onOpen={() => showPart("sq-waits-card")}
         />
         <SqlFigure
           label="Largest blocker"
           value={longest ? `SPID ${longest.headSessionId}` : "—"}
           detail={longest ? `blocking for ${timeWords(longest.waitSeconds)}` : "nothing is blocked"}
-          help="The head blocker whose chain has waited longest."
+          help="The head blocker whose chain has waited longest. Open it for its tree and its statement."
+          onOpen={
+            longest
+              ? () => {
+                  setChosenId(longest.headSessionId);
+                  showPart("sq-tree-card");
+                }
+              : undefined
+          }
         />
       </section>
 
       <div className="sq-row sq-row-main">
-        <section className="cn-card" aria-labelledby="sq-chains">
+        <section id="sq-chains-card" className="cn-card" aria-labelledby="sq-chains" tabIndex={-1}>
           <header>
             <h2 id="sq-chains">Active blocking sessions</h2>
             <HelpTip label="Active blocking sessions">
@@ -126,7 +139,7 @@ export function SqlBlockingTab({ overview, onLive }: SqlBlockingTabProps) {
             </div>
           )}
         </section>
-        <section className="cn-card" aria-labelledby="sq-tree">
+        <section id="sq-tree-card" className="cn-card" aria-labelledby="sq-tree" tabIndex={-1}>
           <header>
             <h2 id="sq-tree">{chosen ? `Session ${chosen.headSessionId}` : "Blocking tree"}</h2>
             <HelpTip label="Blocking tree">
@@ -177,7 +190,7 @@ export function SqlBlockingTab({ overview, onLive }: SqlBlockingTabProps) {
 
       <div className="sq-row sq-row-main">
         <Waits overview={overview} />
-        <section className="cn-card" aria-labelledby="sq-blocked-range">
+        <section id="sq-blocked-range-card" className="cn-card" aria-labelledby="sq-blocked-range" tabIndex={-1}>
           <header>
             <h2 id="sq-blocked-range">Blocked over the range</h2>
             <HelpTip label="Blocked over the range">

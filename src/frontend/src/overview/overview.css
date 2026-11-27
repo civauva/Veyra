@@ -277,24 +277,10 @@
   outline-offset: 2px;
 }
 
-/* A chart's panel opens from anywhere on it: the title's link covers the panel, and the question mark stays above. */
+/* A chart's panel opens from a click anywhere on it, while its chart keeps showing the moment under the pointer. */
 .ov-panel.whole {
-  position: relative;
+  cursor: pointer;
   transition: border-color 0.15s;
-}
-
-/* Above the chart, whose drawing is positioned in its plot. */
-.ov-panel.whole .ov-panel-link::after {
-  position: absolute;
-  z-index: 1;
-  inset: 0;
-  border-radius: 11px;
-  content: "";
-}
-
-.ov-panel.whole header button {
-  position: relative;
-  z-index: 2;
 }
 
 .ov-panel.whole:hover {
@@ -443,11 +429,68 @@
   padding: 12px 14px;
 }
 
+/* The bars' box takes the figure's height; the tooltip sits in it, over the bars (VEY-83). */
+.bars-plot {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.bars-plot:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 .ov-bars svg {
   display: block;
   flex: 1 1 auto;
   width: 100%;
   min-height: 170px;
+}
+
+.bars-tip {
+  position: absolute;
+  top: 4px;
+  z-index: 3;
+  min-width: 150px;
+  display: grid;
+  gap: 3px;
+  margin: 0 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--popover);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.22);
+  color: var(--fg);
+  font-size: 11.5px;
+  pointer-events: none;
+}
+
+.bars-tip b {
+  font-weight: 600;
+}
+
+.bars-tip span {
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.bars-tip i {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+}
+
+.bars-tip em {
+  color: var(--fg);
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
 }
 
 .ov-axis {
@@ -580,5 +623,18 @@
 
   .ov-figures {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* In the Simple view a row without its plumbing panel gives its room to the panels left (VEY-83). */
+@media (min-width: 1280px) {
+  [data-view="simple"] .ov-row-wide:not(.ov-row-tables):has(> .advanced-only) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  }
+}
+
+@media (min-width: 1920px) {
+  [data-view="simple"] .ov-row-tables:has(> .advanced-only) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

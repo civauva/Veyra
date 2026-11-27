@@ -66,11 +66,7 @@ const moduleIcons: Record<string, ConsoleIconName> = {
 export function ConsoleIntegration() {
   const { id = "" } = useParams();
   const view = useIntegration(id);
-  const trail = (label: string) => [
-    { label: "Integrations", to: "/integrations" },
-    { label: "SQL Server", to: "/integrations" },
-    { label },
-  ];
+  const trail = (label: string) => [{ label: "Integrations", to: "/integrations" }, { label }];
 
   if (view.notFound) {
     return (

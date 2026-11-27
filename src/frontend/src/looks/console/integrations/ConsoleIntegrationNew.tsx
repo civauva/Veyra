@@ -47,11 +47,7 @@ import { ModuleRows, ProbeBanner, ScriptBlock } from "./integrationParts";
 import "./consoleIntegrations.css";
 
 /** The trail every state of the wizard shows. */
-const trail = [
-  { label: "Integrations", to: "/integrations" },
-  { label: "SQL Server", to: "/integrations" },
-  { label: "Add a server" },
-];
+const trail = [{ label: "Integrations", to: "/integrations" }, { label: "Add a SQL Server" }];
 
 /**
  * Console's wizard that adds a SQL Server (VEY-78, reference screenshot 2, ADR 0028): Connection with a test through

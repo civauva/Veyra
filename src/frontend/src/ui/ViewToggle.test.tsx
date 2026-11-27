@@ -46,13 +46,13 @@ describe("ViewToggle", () => {
 });
 
 describe("ViewSwitch", () => {
-  it("ViewSwitch_Untouched_IsOffForSimple", () => {
+  it("ViewSwitch_Untouched_NamesTheSimpleView", () => {
     render(<ViewSwitch />);
 
-    expect(screen.getByRole("switch", { name: "Advanced" })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("button", { name: "Simple view" })).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("ViewSwitch_Clicked_SwitchesEveryScreenToAdvancedAndBack", async () => {
+  it("ViewSwitch_AdvancedChosen_SwitchesEveryScreenAndBack", async () => {
     const user = userEvent.setup();
     render(
       <>
@@ -61,11 +61,24 @@ describe("ViewSwitch", () => {
       </>,
     );
 
-    await user.click(screen.getByRole("switch", { name: "Advanced" }));
-    expect(screen.getByRole("switch", { name: "Advanced" })).toHaveAttribute("aria-checked", "true");
+    await user.click(screen.getByRole("button", { name: "Simple view" }));
+    expect(screen.getByRole("menuitemradio", { name: /^Simple/ })).toHaveFocus();
+    await user.keyboard("{ArrowDown}{Enter}");
     expect(screen.getByText("Showing advanced")).toBeVisible();
 
-    await user.click(screen.getByRole("switch", { name: "Advanced" }));
+    await user.click(screen.getByRole("button", { name: "Advanced view" }));
+    await user.click(screen.getByRole("menuitemradio", { name: /^Simple/ }));
     expect(screen.getByText("Showing simple")).toBeVisible();
+  });
+
+  it("ViewSwitch_Escape_ClosesTheMenuAndKeepsTheView", async () => {
+    const user = userEvent.setup();
+    render(<ViewSwitch />);
+
+    await user.click(screen.getByRole("button", { name: "Simple view" }));
+    await user.keyboard("{Escape}");
+
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Simple view" })).toHaveFocus();
   });
 });

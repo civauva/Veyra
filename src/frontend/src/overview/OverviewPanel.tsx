@@ -1,8 +1,9 @@
-import type { ReactNode, RefObject } from "react";
-import { Link, useSearchParams } from "react-router";
+import { type ReactNode, type RefObject, useRef } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router";
 
 import { carryTime } from "../time/carryTime";
 import { HelpTip } from "../ui/HelpTip";
+import { useHashPulse } from "../ui/useHashPulse";
 
 /** Props for {@link OverviewPanel}. */
 interface OverviewPanelProps {
@@ -27,6 +28,10 @@ interface OverviewPanelProps {
   className?: string;
   /** The body, for a list that measures how many rows fit in it (VEY-81). */
   bodyRef?: RefObject<HTMLDivElement | null>;
+  /** The anchor that brings the panel into view and pulses it, such as `databases` for `/#databases` (VEY-83). */
+  anchor?: string;
+  /** Whether the screen has its content, so the panels above stop moving before it scrolls to this one. */
+  settled?: boolean;
   /** The content. */
   children: ReactNode;
 }
@@ -45,15 +50,33 @@ export function OverviewPanel({
   flush = false,
   className,
   bodyRef,
+  anchor,
+  settled = true,
   children,
 }: OverviewPanelProps) {
   const id = `ov-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   const [params] = useSearchParams();
+  const navigate = useNavigate();
+  const section = useRef<HTMLElement>(null);
+  useHashPulse(anchor ?? "", section, anchor !== undefined && settled);
 
   return (
     <section
+      ref={section}
+      tabIndex={anchor ? -1 : undefined}
       className={["ov-panel", to && whole ? "whole" : "", className].filter(Boolean).join(" ")}
       aria-labelledby={id}
+      // A chart's panel opens from a click anywhere on it, so the chart under the pointer still shows its moments
+      // (VEY-83); its title stays the link the keyboard and screen readers use.
+      onClick={
+        to && whole
+          ? (event) => {
+              if (!(event.target as Element).closest("a, button")) {
+                void navigate(carryTime(to, params));
+              }
+            }
+          : undefined
+      }
     >
       <header>
         <h2 id={id}>

@@ -19,4 +19,9 @@ describe("carryTime", () => {
     );
     expect(carryTime("/settings?section=Agents", new URLSearchParams(""))).toBe("/settings?section=Agents");
   });
+
+  it("carryTime_PathWithAnAnchor_KeepsTheAnchorLast", () => {
+    expect(carryTime("/#databases", new URLSearchParams("range=7d"))).toBe("/?range=7d#databases");
+    expect(carryTime("/alerts/a1#fix", new URLSearchParams(""))).toBe("/alerts/a1#fix");
+  });
 });

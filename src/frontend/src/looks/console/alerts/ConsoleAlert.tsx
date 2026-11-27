@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { Link, useParams } from "react-router";
 
 import { alertFigures, alertState, blockLink } from "../../../alerts/alertFigures";
@@ -25,6 +26,7 @@ import { useSession } from "../../../session/useSession";
 import { CommandBlock } from "../../../ui/CommandBlock";
 import { HelpTip } from "../../../ui/HelpTip";
 import { ScreenBar } from "../../../ui/ScreenBar";
+import { useHashPulse } from "../../../ui/useHashPulse";
 import { useViewMode } from "../../../ui/ViewToggle";
 import { ConsoleIcon, type ConsoleIconName } from "../ConsoleIcon";
 import { SqlFigure } from "../database/sqlParts";
@@ -258,9 +260,14 @@ function Chart({ alert }: { alert: AlertDetails }) {
   );
 }
 
-/** What the alert means and how to fix it, in the rule's own words, with scripts to copy. */
+/**
+ * What the alert means and how to fix it, in the rule's own words, with scripts to copy. A link to `#fix`, such as
+ * "What it means and how to fix it" on the Overview, scrolls to the steps and pulses them (VEY-83).
+ */
 function Guidance({ alert }: { alert: AlertDetails }) {
   const guidance = ruleGuidance(alert);
+  const fix = useRef<HTMLElement>(null);
+  useHashPulse("fix", fix, guidance !== null);
 
   if (!guidance) {
     return null;
@@ -277,7 +284,7 @@ function Guidance({ alert }: { alert: AlertDetails }) {
         </header>
         <p className="sq-pad al-meaning">{guidance.meaning}</p>
       </section>
-      <section className="cn-card" aria-labelledby="al-fix">
+      <section ref={fix} id="fix" className="cn-card" aria-labelledby="al-fix" tabIndex={-1}>
         <header>
           <h2 id="al-fix">How to fix</h2>
           <HelpTip label="How to fix">

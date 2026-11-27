@@ -27,11 +27,12 @@ export const consoleNav: NavGroup[] = [
 ];
 
 /**
- * The menu entry a detail screen belongs to in Console, by the start of its address. Console files a server's and a
- * host's screens under Resources, though their addresses start with `/metrics`, so the menu marks the entry the
- * person came from.
+ * The menu entry a detail screen belongs to in Console, by the start of its address. Console files a server's, a
+ * host's, and a service's screens under Resources, though their addresses start with `/metrics`, so the menu marks
+ * the entry the person came from.
  */
 export const consoleOwners: { prefix: string; route: RouteId }[] = [
   { prefix: "/metrics/databases/", route: "databases" },
   { prefix: "/metrics/hosts/", route: "hosts" },
+  { prefix: "/metrics/services/", route: "services" },
 ];

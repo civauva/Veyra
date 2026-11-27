@@ -1,3 +1,6 @@
+import { Link } from "react-router";
+
+import { rulePath } from "../../alerts/rulePath";
 import { api } from "../../api/client";
 import { unreadText } from "./unread";
 import type { AgentJobView } from "../../api/types";
@@ -72,8 +75,28 @@ export function JobsTab({ engine, server, advanced, blind = false }: JobsTabProp
             >
               <i aria-hidden="true" />
               <div>
-                <b>{job.name}</b>
-                <p>{words(job)}</p>
+                <b>
+                  <Link to={`/jobs?${new URLSearchParams({ source: "sqlagent", q: job.name }).toString()}`}>
+                    {job.name}
+                  </Link>
+                </b>
+                <p>
+                  {words(job)}
+                  {job.needsLook && (
+                    <>
+                      {" "}
+                      <Link
+                        to={`${rulePath(job.failed ? "db-agent-job" : job.late ? "db-job-late" : "db-job-overrun", {
+                          kind: "database",
+                          name: `${engine} ${server}`,
+                          part: job.name,
+                        })}#fix`}
+                      >
+                        How to fix it ›
+                      </Link>
+                    </>
+                  )}
+                </p>
                 {advanced && job.runs.length > 0 && (
                   <details className="storage-database">
                     <summary>{job.runs.length === 1 ? "1 run" : `${job.runs.length} runs`} of the last week</summary>

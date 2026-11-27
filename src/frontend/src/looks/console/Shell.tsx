@@ -40,6 +40,13 @@ interface ShellProps {
  *
  * It sets `data-look="console"` on the page while it is drawn, which switches the colour tokens to Console's.
  */
+/** Where Console files the screens of a host, a service, and a database server: under its resource lists. */
+const trailParents: ShellContext["trailParents"] = {
+  host: { label: "Hosts & containers", to: "/resources/hosts" },
+  service: { label: "Services", to: "/resources/services" },
+  database: { label: "Databases", to: "/resources/databases" },
+};
+
 export function Shell({ session }: ShellProps) {
   const { signOut } = useSession();
   const { status, times, theme, setTheme } = useShellFrame(session);
@@ -57,6 +64,7 @@ export function Shell({ session }: ShellProps) {
     timeInBar: true,
     viewSlot: form === "drawer" ? null : viewSlot,
     viewSwitch: true,
+    trailParents,
   };
   const counts = alertCounts(status.snapshot);
   const rate = useLiveRate(time.live, status.environment);
