@@ -54,6 +54,19 @@ const requests = [
   ["Metric names: 7 days", "/api/v1/metrics/names?range=7d", 200],
   ["Metric chart: 24 h", "/api/v1/metrics/chart?name=system.cpu.time&range=24h", 200],
   ["Metric chart: 7 days", "/api/v1/metrics/chart?name=system.cpu.time&range=7d", 200],
+  // ADR 0022: any from-to window, and the Resources lists with their comparison to the period before.
+  ["Metrics overview: 30 days, from-to", `/api/v1/metrics/overview?${window(30 * day)}`, 200],
+  ["Metric chart: 30 days, from-to", `/api/v1/metrics/chart?name=system.cpu.time&${window(30 * day)}`, 200],
+  ["Resources: services, 1 h", "/api/v1/resources/services?range=1h", 200],
+  ["Resources: services, 7 days", "/api/v1/resources/services?range=7d", 200],
+  ["Resources: hosts, 24 h", "/api/v1/resources/hosts?range=24h", 200],
+  ["Resources: hosts, 7 days", "/api/v1/resources/hosts?range=7d", 200],
+  ["Resources: databases, 24 h", "/api/v1/resources/databases?range=24h", 200],
+  // ADR 0027: every job added up in the database, and one job; {job} is the first job of the list, after signing in.
+  ["Jobs: 24 h", "/api/v1/jobs?range=24h", 200],
+  ["Jobs: 30 days", "/api/v1/jobs?range=30d", 200],
+  ["Jobs: 30 days, failing", "/api/v1/jobs?range=30d&status=failing", 200],
+  ["Job: 30 days", "/api/v1/jobs/{job}?range=30d", 200],
   ["Alerts: 30 days", "/api/v1/alerts?days=30&timeZone=Europe%2FBerlin", 100],
   ["Alert summary: 90 days", "/api/v1/alerts/summary?days=90&timeZone=Europe%2FBerlin", 100],
   // {trace} and {at} are a recent checkout trace and its start, looked up after signing in.
@@ -96,9 +109,12 @@ function percentile(values, p) {
   // A recent trace to open, as a click in the list would.
   const recent = await (await page.request.get(`${base}/api/v1/traces?service=checkout-web&limit=1`)).json();
   const trace = recent.items?.[0];
+  const jobs = await (await page.request.get(`${base}/api/v1/jobs?range=30d`)).json();
+  const job = jobs.items?.[0];
   const fill = (path) =>
     path
       .replace("{trace}", trace?.traceId ?? "00000000000000000000000000000000")
+      .replace("{job}", job?.id ?? "none")
       .replace("{at}", encodeURIComponent(trace?.start ?? to))
       .replace("{from}", encodeURIComponent(ago(hour)))
       .replace("{to}", encodeURIComponent(to));

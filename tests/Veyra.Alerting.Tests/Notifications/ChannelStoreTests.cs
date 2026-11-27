@@ -70,4 +70,15 @@ public class ChannelStoreTests(PostgresFixture postgres)
 
         Assert.Equal(["alpha", "Zed"], (await store.ListAsync(CancellationToken.None)).Select(c => c.Name));
     }
+
+    [Fact]
+    public async Task CountEnabledAsync_SwitchedOffChannel_IsNotCounted()
+    {
+        await using var database = await AlertingDatabase.CreateAsync(postgres);
+        var store = new ChannelStore(database);
+        await store.InsertAsync(Channels.Webhook("ops"), CancellationToken.None);
+        await store.InsertAsync(Channels.Webhook("muted") with { Enabled = false }, CancellationToken.None);
+
+        Assert.Equal(1, await store.CountEnabledAsync(CancellationToken.None));
+    }
 }

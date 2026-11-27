@@ -16,7 +16,7 @@
 
 .alerts-hero h1 {
   margin: 0;
-  font-size: 34px;
+  font-size: calc(var(--size-heading) + 4px);
   font-weight: 500;
   letter-spacing: -0.015em;
 }
@@ -24,7 +24,7 @@
 .alerts-hero .say {
   max-width: 720px;
   margin: 6px 0 0;
-  font-size: 15px;
+  font-size: calc(var(--size-body) + 1px);
   line-height: 1.5;
   opacity: 0.85;
 }
@@ -97,7 +97,7 @@
 .alerts-split {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 330px;
-  gap: 16px;
+  gap: min(16px, var(--gap-panel));
   align-items: start;
 }
 
@@ -126,7 +126,7 @@
 .alerts-screen .seg {
   display: flex;
   padding: 3px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--scene-chip);
 }
 
@@ -137,7 +137,7 @@
   height: 30px;
   padding: 0 12px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: none;
   color: inherit;
   font: inherit;
@@ -173,7 +173,7 @@
   height: 30px;
   padding: 0 11px;
   border: 1px solid var(--glass-line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: none;
   color: inherit;
   font: inherit;
@@ -196,7 +196,7 @@
   height: 32px;
   padding: 0 12px;
   border: 1px solid var(--glass-line);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: var(--glass-bg);
   color: inherit;
   font: inherit;
@@ -241,7 +241,7 @@
   align-items: center;
   padding: 11px 12px;
   border: 1px solid var(--glass-line);
-  border-radius: 14px;
+  border-radius: var(--radius-tile);
   background: color-mix(in srgb, var(--glass-bg) 70%, transparent);
   color: inherit;
   text-decoration: none;
@@ -281,7 +281,7 @@
   gap: 5px;
   margin-right: 6px;
   padding: 1px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--scene-chip);
   font-size: 11px;
   font-weight: 600;
@@ -412,7 +412,7 @@
 }
 
 .rule-count {
-  font-size: 22px;
+  font-size: min(22px, var(--size-figure));
   font-weight: 300;
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -484,7 +484,7 @@
   }
 
   .alerts-hero h1 {
-    font-size: 28px;
+    font-size: min(28px, var(--size-heading));
   }
 
   .alerts-stats {
@@ -534,8 +534,4 @@
 
 .alerts-split.alone {
   grid-template-columns: minmax(0, 1fr);
-}
-
-.alerts-view {
-  margin-left: auto;
 }

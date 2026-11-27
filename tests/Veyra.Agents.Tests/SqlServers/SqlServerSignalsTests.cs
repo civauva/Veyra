@@ -45,8 +45,8 @@ public class SqlServerSignalsTests
 
         Assert.Equal(
             [
-                new ReaderError(_server, "Login failed for user 'veyra_monitor'.", _now),
-                new ReaderError(_server, "Error scraping metrics", _now),
+                new ReaderError(_server, "Login failed for user 'veyra_monitor'.", _now, $"sqlserver/{_server:N}"),
+                new ReaderError(_server, "Error scraping metrics", _now, $"sqlquery/{_server:N}"),
             ],
             errors);
     }
@@ -177,6 +177,12 @@ public class SqlServerSignalsTests
         public Task<IReadOnlyList<MetricName>> ListNamesAsync(
             string? search,
             DateTimeOffset seenSince,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<MetricBlockSeen>> ListBlocksAsync(
+            IReadOnlyList<Veyra.Core.Alerts.AlertBlockKind> kinds,
+            DateTimeOffset firstSeenBefore,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 

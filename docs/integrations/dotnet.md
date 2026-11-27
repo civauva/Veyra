@@ -32,6 +32,8 @@ builder.Services
 ```
 
 Traces take one more call, `.WithTracing(...)`, and a choice of how much to keep; see [`traces.md`](traces.md).
+Background jobs, Hangfire, and Quartz.NET show on the Jobs screens with one root span per run; see
+[`jobs.md`](jobs.md).
 
 ## 3. Point it at Veyra
 

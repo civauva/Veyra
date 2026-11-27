@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { selectableSeverities, type ServiceCount } from "../api/types";
-import { formatClock, formatCount, formatTime } from "./format";
+import { useTimeInBar } from "../app/shellContext";
+import { HelpTip } from "../ui/HelpTip";
+import { formatCount, formatSpan, formatTime } from "./format";
 import { timeRanges, type AttributeFilter, type LogFilters } from "./logFilters";
 import { severityLabels } from "./SeverityBadge";
 import { zoneLabel } from "../time/zone";
-import { useViewMode } from "../app/ViewToggle";
+import { useViewMode } from "../ui/ViewToggle";
 
 /** How many services show before "Show all". */
 const collapsedServiceCount = 7;
@@ -36,6 +38,8 @@ export function FilterPanel({ filters, onChange, services, from, to, open, onClo
   // Simple keeps to time, severity, and services; a filter already in use always shows, so a link never hides it.
   const [mode] = useViewMode();
   const advanced = mode === "advanced";
+  // Where the shell's top bar chooses the range, the panel only says which window it searches.
+  const inBar = useTimeInBar();
 
   const [showAllServices, setShowAllServices] = useState(false);
   const doneRef = useRef<HTMLButtonElement>(null);
@@ -77,19 +81,21 @@ export function FilterPanel({ filters, onChange, services, from, to, open, onClo
         <h3 id="filter-time" className="section-title">
           Time
         </h3>
-        <div className="segmented">
-          {timeRanges.map((range) => (
-            <button
-              key={range}
-              type="button"
-              className="chip-button"
-              aria-pressed={!filters.around && filters.range === range}
-              onClick={() => onChange({ ...filters, range, around: null })}
-            >
-              {range}
-            </button>
-          ))}
-        </div>
+        {!inBar && (
+          <div className="segmented">
+            {timeRanges.map((range) => (
+              <button
+                key={range}
+                type="button"
+                className="chip-button"
+                aria-pressed={!filters.around && filters.range === range}
+                onClick={() => onChange({ ...filters, range, around: null })}
+              >
+                {range}
+              </button>
+            ))}
+          </div>
+        )}
         {filters.around ? (
           <p className="filter-note">
             ± 1 minute around {formatTime(filters.around)} {zoneLabel(new Date(filters.around))}.{" "}
@@ -99,15 +105,21 @@ export function FilterPanel({ filters, onChange, services, from, to, open, onClo
           </p>
         ) : (
           <p className="filter-note">
-            {formatClock(from)} – {formatClock(to)} {zoneLabel(to)}
+            {formatSpan(from, to)} {zoneLabel(to)}
           </p>
         )}
       </section>
 
       <section className="filter-group" aria-labelledby="filter-severity">
-        <h3 id="filter-severity" className="section-title">
-          At least
-        </h3>
+        <div className="filter-head">
+          <h3 id="filter-severity" className="section-title">
+            At least
+          </h3>
+          <HelpTip label="At least">
+            Shows records at the chosen severity or worse: Warning shows warnings, errors, and fatal ones. Choose it
+            again to see every severity.
+          </HelpTip>
+        </div>
         <div className="chip-row">
           {selectableSeverities.map((severity) => (
             <button
@@ -126,9 +138,15 @@ export function FilterPanel({ filters, onChange, services, from, to, open, onClo
       </section>
 
       <section className="filter-group" aria-labelledby="filter-services">
-        <h3 id="filter-services" className="section-title">
-          Services
-        </h3>
+        <div className="filter-head">
+          <h3 id="filter-services" className="section-title">
+            Services
+          </h3>
+          <HelpTip label="Services">
+            The busiest services of the window, with how many records each sent, most first. The counts ignore which
+            services are ticked, so you can see what else there is. Tick some to see only theirs.
+          </HelpTip>
+        </div>
         {listed.length === 0 && <p className="filter-note">No services in this window.</p>}
         <ul className="service-list">
           {shown.map((service) => (

@@ -98,6 +98,7 @@ public class CollectorConfigTests
                 $"sqlquery/indexes/{test}",
                 $"sqlquery/jobs/{test}",
                 $"sqlquery/config/{test}",
+                $"sqlquery/backups/{test}",
             ],
             Sequence(root, "service", "pipelines", $"logs/live/{test}", "receivers"));
         Assert.Equal(
@@ -196,6 +197,35 @@ public class CollectorConfigTests
     }
 
     [Fact]
+    public void Build_SqlServer_ReadsTheBackupHistoryEveryFiveMinutesAsRecords()
+    {
+        var text = CollectorConfig.Build(_connection, [new SqlServerTarget(_prod, "a")]);
+        var root = Parse(text);
+        var suffix = CollectorConfig.ComponentSuffix(_prod.Id);
+
+        Assert.Equal("5m", Scalar(root, "receivers", $"sqlquery/backups/{suffix}", "collection_interval"));
+        Assert.Contains("veyra-agent: backups", text, StringComparison.Ordinal);
+        Assert.Contains("'sqlserver.backup' AS veyra_record", text, StringComparison.Ordinal);
+        Assert.Contains("msdb.dbo.backupmediafamily", text, StringComparison.Ordinal);
+        Assert.Contains(
+            $"sqlquery/backups/{suffix}",
+            Sequence(root, "service", "pipelines", $"logs/live/{suffix}", "receivers"));
+        AssertEveryPipelineReceiverExists(root);
+    }
+
+    [Fact]
+    public void Build_SqlServer_ReadsTheMachinesMemoryAndOperatingSystem()
+    {
+        var text = CollectorConfig.Build(_connection, [new SqlServerTarget(_prod, "a")]);
+
+        Assert.Contains("physical_memory_kb", text, StringComparison.Ordinal);
+        Assert.Contains("metric_name: sqlserver.os.memory.total", text, StringComparison.Ordinal);
+        Assert.Contains("sys.dm_os_host_info", text, StringComparison.Ordinal);
+        Assert.Contains("host_distribution FROM sys.dm_os_host_info), '') AS os_name", text, StringComparison.Ordinal);
+        Assert.Contains("host_release FROM sys.dm_os_host_info), '') AS os_release", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Build_ManagedInstance_LeavesOutWhatAzureRunsForIt()
     {
         var instance = Server(
@@ -209,10 +239,12 @@ public class CollectorConfigTests
         var root = Parse(text);
         var suffix = CollectorConfig.ComponentSuffix(instance.Id);
 
-        foreach (var name in new[] { "backup age", "volumes", "recovery", "log shipping", "cluster nodes" })
+        foreach (var name in new[] { "backup age", "backups", "volumes", "recovery", "log shipping", "cluster nodes" })
         {
             Assert.DoesNotContain($"veyra-agent: {name} ", text, StringComparison.Ordinal);
         }
+
+        Assert.False(((YamlMappingNode)Node(root, "receivers")).Children.ContainsKey($"sqlquery/backups/{suffix}"));
 
         Assert.Contains("veyra-agent: sessions", text, StringComparison.Ordinal);
         Assert.Contains("veyra-agent: jobs", text, StringComparison.Ordinal);

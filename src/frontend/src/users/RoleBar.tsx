@@ -1,17 +1,19 @@
-import type { UserSummary } from "../api/types";
+import type { UserList } from "../api/types";
 import { roleReach } from "./userFormat";
 
 /** Props for {@link RoleBar}. */
 interface RoleBarProps {
-  /** Everyone. */
-  people: UserSummary[];
+  /** How many people hold each role, as the server counts them (VEY-67). */
+  roles: UserList["roles"];
 }
 
 /** The roles as one bar, each part as wide as the number of people in it, Admins first because they reach furthest. */
-export function RoleBar({ people }: RoleBarProps) {
-  const counts = (["Admin", "Editor", "Viewer"] as const).map(
-    (role) => [role, people.filter((person) => person.role === role).length] as const,
-  );
+export function RoleBar({ roles }: RoleBarProps) {
+  const counts = [
+    ["Admin", roles.admins],
+    ["Editor", roles.editors],
+    ["Viewer", roles.viewers],
+  ] as const;
 
   return (
     <div

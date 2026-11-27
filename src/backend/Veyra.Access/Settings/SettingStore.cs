@@ -143,7 +143,8 @@ internal sealed class SettingStore(
 
     /// <summary>
     /// Records a change to a monitored system or agent in the history: what it is, its name, and the fields that
-    /// changed, never their values. It is not a settings save, so the settings version stays where it was.
+    /// changed, never their values, except the versions before and after a template change, which tell nothing secret
+    /// (ADR 0028). It is not a settings save, so the settings version stays where it was.
     /// </summary>
     /// <param name="change">The change.</param>
     /// <param name="author">Who made it.</param>
@@ -167,8 +168,8 @@ internal sealed class SettingStore(
         await using var command = dataSource.CreateCommand(
             """
             INSERT INTO access.setting_change
-                (name, secret, kind, changed_by, changed_by_name, changed_at, subject, fields)
-            VALUES ($1, false, $2, $3, $4, $5, $6, $7)
+                (name, secret, kind, changed_by, changed_by_name, changed_at, subject, fields, old_value, new_value)
+            VALUES ($1, false, $2, $3, $4, $5, $6, $7, $8, $9)
             """);
         command.Parameters.AddWithValue(change.Name);
         command.Parameters.AddWithValue((short)kind);
@@ -177,8 +178,73 @@ internal sealed class SettingStore(
         command.Parameters.AddWithValue(clock.GetUtcNow());
         command.Parameters.AddWithValue((short)change.Subject);
         command.Parameters.AddWithValue(change.Fields.ToArray());
+        command.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Text, (object?)change.From ?? DBNull.Value);
+        command.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Text, (object?)change.To ?? DBNull.Value);
 
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>Reads the latest changes to one monitored system or agent, newest first.</summary>
+    /// <param name="subject">What kind of system it is.</param>
+    /// <param name="name">Its name.</param>
+    /// <param name="limit">The most changes to read.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    /// <returns>The changes.</returns>
+    public async Task<IReadOnlyList<SettingChangeRecord>> MonitoringHistoryAsync(
+        MonitoringSubject subject,
+        string name,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(
+            """
+            SELECT id, name, old_value, new_value, secret, kind, changed_by, changed_by_name, changed_at, origin,
+                subject, fields
+            FROM access.setting_change
+            WHERE subject = $1 AND name = $2
+            ORDER BY id DESC
+            LIMIT $3
+            """);
+        command.Parameters.AddWithValue((short)subject);
+        command.Parameters.AddWithValue(name);
+        command.Parameters.AddWithValue(limit);
+
+        var changes = new List<SettingChangeRecord>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            changes.Add(Change(reader));
+        }
+
+        return changes;
+    }
+
+    /// <summary>Lists the keys of the saved settings that start with a prefix, ignoring case.</summary>
+    /// <param name="prefix">The start of the keys.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    /// <returns>The keys, by name.</returns>
+    public async Task<IReadOnlyList<string>> SavedKeysAsync(string prefix, CancellationToken cancellationToken)
+    {
+        // The prefix is matched as text, so LIKE's wildcards in it are escaped.
+        var pattern = prefix
+            .Replace(@"\", @"\\", StringComparison.Ordinal)
+            .Replace("%", @"\%", StringComparison.Ordinal)
+            .Replace("_", @"\_", StringComparison.Ordinal) + "%";
+
+        await using var command = dataSource.CreateCommand(
+            "SELECT name FROM access.setting WHERE name ILIKE $1 ORDER BY name");
+        command.Parameters.AddWithValue(pattern);
+
+        var keys = new List<string>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            keys.Add(reader.GetString(0));
+        }
+
+        return keys;
     }
 
     /// <summary>Reads a page of the history, newest first.</summary>

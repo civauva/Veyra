@@ -1,0 +1,123 @@
+/* The plain integration screens every look shows by default (ADR 0028). The Console look draws its own. */
+
+.ints {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 16px clamp(12px, 3vw, 28px) 32px;
+}
+
+.ints h1 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ints-lead {
+  margin: 0;
+  color: var(--muted);
+}
+
+.ints-lead a {
+  color: var(--accent);
+}
+
+.ints-error {
+  margin: 0;
+  color: var(--error-fg);
+}
+
+.ints-section {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel, 12px);
+  background: var(--panel);
+}
+
+.ints-section h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 15px;
+}
+
+.ints-section p {
+  margin: 0;
+}
+
+.ints-facts {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.ints-facts div {
+  display: grid;
+  grid-template-columns: minmax(90px, 140px) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.ints-facts dt {
+  color: var(--muted);
+}
+
+.ints-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ints-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ints-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ints-list li {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.ints-list li.bad {
+  border-color: var(--error-fg);
+}
+
+.ints-list li.done span {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.ints-list a {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.ints-list small {
+  color: var(--muted);
+}
+
+.ints .button {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+@media (max-width: 599px) {
+  .ints-facts div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+}

@@ -37,15 +37,30 @@ supplied through environment variables, for example `Veyra__Storage__ConnectionS
 
 - `GET /healthz` returns `200 OK` when the process is up. It never checks dependencies.
 - `GET /readyz` returns `200 OK` when Veyra can also reach PostgreSQL, otherwise `503`.
-- `/api/v1/setup`, `/api/v1/session`, `/api/v1/account`, `/api/v1/users`, and `/api/v1/ingestion-keys` belong to
-  `Veyra.Access`, with two-factor sign-in, sessions, and sign-in history (ADR 0011).
+- `/api/v1/setup`, `/api/v1/session`, `/api/v1/account`, `/api/v1/users`, `/api/v1/ingestion-keys`, and
+  `/api/v1/views` belong to `Veyra.Access`, with two-factor sign-in, sessions, and sign-in history (ADR 0011), and
+  each person's saved views (ADR 0024).
   Everything else requires a signed-in user; the anonymous endpoints are listed in `AnonymousEndpointTests`.
-- `GET /api/v1/logs` and `/api/v1/metrics` belong to `Veyra.Query` and read stored logs and metrics.
+- `GET /api/v1/logs` and `/api/v1/metrics` belong to `Veyra.Query` and read stored logs and metrics. So do the
+  search across signals, `GET /api/v1/search`, and the live streams, `GET /api/v1/live` and `/api/v1/logs/stream`,
+  which Ingestion feeds through `ILiveTelemetry` (ADR 0022). So does the Overview, `GET /api/v1/overview`, which
+  reads the ingest counts (`IIngestCounts`, Storage), the alert history (`IAlertHistory`, Alerting), and the agents'
+  states (`IAgentStatuses`, Agents) through `Veyra.Core` (ADR 0023). So do the jobs, `GET /api/v1/jobs`, which read
+  the job runs Storage keeps through `IJobRuns` (ADR 0027).
+- `/api/v1/alerts` and `/api/v1/incidents` belong to `Veyra.Alerting`, which groups alerts into incidents with the
+  relations Query offers as `IBlockRelations`. `GET /api/v1/incidents/{id}/context` belongs to `Veyra.Query`, which
+  reads the incident through `IIncidentReader` (ADR 0026), and so does `GET /api/v1/alerts/{id}/context`, which reads
+  the alert through `IAlertReader` (ADR 0029).
 - OTLP: `POST /v1/logs`, `POST /v1/metrics`, and the gRPC `LogsService/Export` and `MetricsService/Export` belong
   to `Veyra.Ingestion` and check ingestion keys.
   Kestrel listens on 8080 (API and OTLP/HTTP), 4317 (OTLP/gRPC), and 4318 (OTLP/HTTP). See `docs/api/`.
 - `/api/v1/agents` and `/api/v1/sql-servers` belong to `Veyra.Agents`, Admins only. Its OpAMP endpoint,
-  `POST /v1/opamp`, is where agents poll for their configuration; it checks agent keys itself.
+  `POST /v1/opamp`, is where agents poll for their configuration; it checks agent keys itself. So do the
+  integrations, `/api/v1/integrations` (ADR 0028), Admins only: the package page reads the servers' series and the
+  agent's statement statistics (`IMetricSearch`, Storage), the history (`IMonitoringHistory`) and the saved settings
+  (`ISavedSettings`, Access), and the channels (`INotificationChannels`, Alerting) through `Veyra.Core`. Probe
+  answers come from Ingestion as `sqlserver.probe` records through `IAgentProbeReports`, a bounded queue the Agents
+  module drains.
 
 ## Database migrations
 

@@ -1,7 +1,8 @@
 # 0007. Home dashboards on a shared block and group model
 
 Date: 2026-11-08
-Status: Accepted; the top bar in point 6 is superseded by [0013](0013-left-sidebar-navigation.md)
+Status: Accepted; the top bar in point 6 is superseded by [0013](0013-left-sidebar-navigation.md), and the shell
+split in point 6 by [0021](0021-looks.md)
 
 ## Context
 

@@ -29,7 +29,14 @@ vi.mock("../api/client", async (importOriginal) => {
   };
 });
 
-const admin = { id: "1", email: "ana@example.com", displayName: "Ana Admin", role: "Admin" as const, timeZone: null };
+const admin = {
+  id: "1",
+  email: "ana@example.com",
+  displayName: "Ana Admin",
+  role: "Admin" as const,
+  timeZone: null,
+  look: { chosen: null, default: "forecast", mayChoose: true },
+};
 
 function renderScreen() {
   return render(
@@ -66,6 +73,16 @@ describe("NotificationsScreen", () => {
     expect(within(ops).getByRole("switch", { name: "#ops-alerts switched on" })).toBeChecked();
 
     expect(within(screen.getByRole("article", { name: "Weekend team" })).getByText(/Switched off/)).toBeVisible();
+  });
+
+  it("explains the channel cards with one question mark", async () => {
+    const user = userEvent.setup();
+    renderScreen();
+
+    await screen.findByRole("article", { name: "Incident bot" });
+    expect(screen.getAllByRole("button", { name: "What Channels means" })).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "What Channels means" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/14 days/);
   });
 
   it("adds a webhook from the side panel", async () => {

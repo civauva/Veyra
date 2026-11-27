@@ -1,5 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Veyra.Storage.Ingest;
+using Veyra.Storage.Jobs;
 using Veyra.Storage.Logs;
 using Veyra.Storage.Metrics;
 using Veyra.Storage.Schema;
@@ -45,6 +47,8 @@ public static partial class StorageStartup
         await services.GetRequiredService<LogPartitions>().EnsureAsync(cancellationToken);
         await services.GetRequiredService<MetricPartitions>().EnsureAsync(cancellationToken);
         await services.GetRequiredService<SpanPartitions>().EnsureAsync(cancellationToken);
+        await services.GetRequiredService<IngestCountPartitions>().EnsureAsync(cancellationToken);
+        await services.GetRequiredService<JobRunPartitions>().EnsureAsync(cancellationToken);
 
         return true;
     }

@@ -11,11 +11,12 @@ namespace Veyra.Agents.Collector;
 /// </summary>
 internal static partial class PlatformReads
 {
-    // Azure takes a Managed Instance's backups and runs its host and cluster: msdb's backup history, the volumes,
-    // log shipping, the cluster nodes, and the replicas of its own failover group would mislead.
+    // Azure takes a Managed Instance's backups and runs its host and cluster: msdb's backup age and history, the
+    // volumes, log shipping, the cluster nodes, and the replicas of its own failover group would mislead.
     private static readonly HashSet<string> _managedInstanceQueries = new(StringComparer.Ordinal)
     {
         "backup age",
+        "backups",
         "volumes",
         "recovery",
         "availability replicas",
@@ -35,6 +36,7 @@ internal static partial class PlatformReads
         "sqlquery/server",
         "sqlquery/indexes",
         "sqlquery/querystore",
+        "sqlquery/backups",
     };
 
     private static readonly HashSet<string> _databaseQueries = new(StringComparer.Ordinal)
@@ -73,7 +75,7 @@ internal static partial class PlatformReads
     /// <returns>False for a query the platform has nothing for.</returns>
     public static bool Runs(SqlServerPlatform platform, string sql)
     {
-        var name = QueryName().Match(sql) is { Success: true } match ? match.Groups["name"].Value.Trim() : "";
+        var name = QueryNameOf(sql);
 
         return platform switch
         {
@@ -82,6 +84,14 @@ internal static partial class PlatformReads
             _ => true,
         };
     }
+
+    /// <summary>
+    /// The name of a read, from the <c>/* veyra-agent: name */</c> comment in its SQL or statement text.
+    /// </summary>
+    /// <param name="sql">The SQL.</param>
+    /// <returns>The name, such as <c>permissions</c>, or empty when the SQL has none.</returns>
+    public static string QueryNameOf(string sql) =>
+        QueryName().Match(sql ?? "") is { Success: true } match ? match.Groups["name"].Value.Trim() : "";
 
     [GeneratedRegex(@"/\*\s*veyra-agent:(?<name>[^*]+)\*/")]
     private static partial Regex QueryName();

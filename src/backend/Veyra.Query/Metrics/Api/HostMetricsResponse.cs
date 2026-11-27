@@ -21,9 +21,21 @@ public sealed record HostMetricsResponse(
     IReadOnlyList<ChartLineResponse> DiskIo,
     IReadOnlyList<ChartLineResponse> Load)
 {
+    /// <summary>The start of the period the answer covers (ADR 0022).</summary>
+    public DateTimeOffset From { get; init; }
+
+    /// <summary>The end of the period the answer covers: now, or the <c>to</c> asked for (ADR 0022).</summary>
+    public DateTimeOffset To { get; init; }
+
     /// <summary>
     /// The Docker containers on the host that sent within the window, by name, from the Collector's
     /// <c>docker_stats</c> receiver (ADR 0018). Empty when the host runs none or the receiver is not set up.
     /// </summary>
     public IReadOnlyList<ContainerCardResponse> Containers { get; init; } = [];
+
+    /// <summary>How many of its disks fill at the pace of the last week, counted on the server (VEY-68).</summary>
+    public int FillingDisks => Disks.Count(disk => disk.DaysUntilFull is not null);
+
+    /// <summary>How many of its containers restarted within the range, counted on the server (VEY-68).</summary>
+    public int RestartingContainers => Containers.Count(container => container.Restarts > 0);
 }

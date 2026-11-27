@@ -13,3 +13,4 @@ Written pages:
 - [`coding-standards.md`](coding-standards.md) — formatting, comments and XML documentation, and conventions for C#,
   TypeScript, SQL, the REST API, and tests.
 - [`methodology.md`](methodology.md) — how work is planned, built, delivered, and released.
+- [`releasing.md`](releasing.md) — version numbers, release notes, and cutting a release.

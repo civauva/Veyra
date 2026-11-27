@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Veyra.Core.Telemetry;
 using Veyra.Core.Traces;
 
 namespace Veyra.Ingestion.Pipeline;
@@ -13,11 +14,13 @@ namespace Veyra.Ingestion.Pipeline;
 /// </remarks>
 /// <param name="queue">Where accepted spans wait.</param>
 /// <param name="writer">The storage module's writer.</param>
+/// <param name="live">Counts each stored batch, for the live rates (ADR 0022).</param>
 /// <param name="clock">The clock for retry pauses.</param>
 /// <param name="logger">Receives write failures.</param>
 internal sealed partial class SpanWriterService(
     SpanQueue queue,
     ISpanWriter writer,
+    ILiveTelemetry live,
     TimeProvider clock,
     ILogger<SpanWriterService> logger) : BackgroundService
 {
@@ -68,6 +71,7 @@ internal sealed partial class SpanWriterService(
             {
                 await writer.WriteAsync(batch, stoppingToken);
                 queue.MarkWritten(batch.Count);
+                TellLive(batch);
 
                 return;
             }
@@ -96,6 +100,24 @@ internal sealed partial class SpanWriterService(
             delay = TimeSpan.FromTicks(Math.Min(delay.Ticks * 2, _maxRetryDelay.Ticks));
         }
     }
+
+    // As for logs: after the write, and never at the cost of ingestion.
+    private void TellLive(List<Span> batch)
+    {
+        try
+        {
+            live.SpansWritten(LiveCount.Of(batch, span => span.Environment));
+        }
+        catch (Exception exception)
+        {
+            LogLiveFailed(exception, batch.Count);
+        }
+    }
+
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Counting {Count} written spans for the live rates failed")]
+    private partial void LogLiveFailed(Exception exception, int count);
 
     [LoggerMessage(
         Level = LogLevel.Error,

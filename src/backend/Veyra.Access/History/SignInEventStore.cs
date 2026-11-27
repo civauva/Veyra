@@ -104,6 +104,50 @@ internal sealed class SignInEventStore(NpgsqlDataSource dataSource)
         return ((int)reader.GetInt64(0), (int)reader.GetInt64(1));
     }
 
+    /// <summary>
+    /// Counts an account's successful and failed attempts in each of a row of periods, such as days (VEY-68).
+    /// </summary>
+    /// <param name="userId">The account.</param>
+    /// <param name="bounds">The periods' starts, in order, and after them the end of the last period.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    /// <returns>One count per period, in the order of the bounds.</returns>
+    public async Task<IReadOnlyList<(int SignedIn, int Failed)>> CountByPeriodAsync(
+        Guid userId,
+        IReadOnlyList<DateTimeOffset> bounds,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(bounds);
+
+        if (bounds.Count < 2)
+        {
+            return [];
+        }
+
+        // Each attempt falls in the period whose start it is at or after: width_bucket reads the sorted bounds.
+        await using var command = dataSource.CreateCommand(
+            """
+            SELECT width_bucket(at, $2::timestamptz[]) AS period,
+                   count(*) FILTER (WHERE outcome <= 3), count(*) FILTER (WHERE outcome > 3)
+            FROM access.sign_in_event
+            WHERE user_id = $1 AND at >= $3 AND at < $4
+            GROUP BY 1
+            """);
+        command.Parameters.AddWithValue(userId);
+        command.Parameters.AddWithValue(bounds.Select(bound => bound.ToUniversalTime()).ToArray());
+        command.Parameters.AddWithValue(bounds[0].ToUniversalTime());
+        command.Parameters.AddWithValue(bounds[^1].ToUniversalTime());
+
+        var counts = new (int SignedIn, int Failed)[bounds.Count - 1];
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            counts[reader.GetInt32(0) - 1] = ((int)reader.GetInt64(1), (int)reader.GetInt64(2));
+        }
+
+        return counts;
+    }
+
     /// <summary>Deletes attempts older than a time.</summary>
     /// <param name="before">The oldest time kept.</param>
     /// <param name="cancellationToken">Cancels the delete.</param>

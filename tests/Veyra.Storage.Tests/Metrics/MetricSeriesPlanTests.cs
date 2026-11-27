@@ -30,4 +30,17 @@ public class MetricSeriesPlanTests(PostgresFixture postgres)
 
         Assert.Contains("metric_series_block", plan.Indexes);
     }
+
+    [Fact]
+    public async Task CreateBlocksCommand_Kinds_ReadsTheBlockIndex()
+    {
+        await using var database = await postgres.CreateMigratedDatabaseAsync(new StorageMigrations());
+
+        await using var command = MetricStore.CreateBlocksCommand(
+            [Veyra.Core.Alerts.AlertBlockKind.Host, Veyra.Core.Alerts.AlertBlockKind.Container],
+            DateTimeOffset.UtcNow);
+        var plan = await QueryPlan.ExplainAsync(database, command, _largeTable);
+
+        Assert.Contains("metric_series_block", plan.Indexes);
+    }
 }

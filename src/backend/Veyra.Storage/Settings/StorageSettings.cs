@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using Veyra.Core;
 using Veyra.Core.Settings;
 using Veyra.Storage.Activity;
+using Veyra.Storage.Jobs;
 using Veyra.Storage.Metrics;
 using Veyra.Storage.Traces;
 
@@ -31,6 +32,7 @@ internal sealed class StorageSettings(
         new("traces", [SpanStore.Table], "TraceRetentionDays", "MaxTraceStorageGigabytes"),
         new("live sessions", [ActivityTables.Sessions], "DatabaseSessionRetentionDays", null),
         new("database records", [ActivityTables.Records], "DatabaseRecordRetentionDays", null),
+        new("job runs", [JobRuns.Table], "JobRunRetentionDays", null),
     ];
 
     private static readonly StorageOptions _defaults = new();
@@ -70,6 +72,26 @@ internal sealed class StorageSettings(
             _defaults.DatabaseRecordRetentionDays,
             "VEYRA_DATABASE_RECORD_RETENTION_DAYS",
             "query plans, deadlocks, and events") with { Advanced = true },
+        Keep(
+            "Jobs",
+            "JobRunRetentionDays",
+            _defaults.JobRunRetentionDays,
+            "VEYRA_JOB_RUN_RETENTION_DAYS",
+            "job runs") with { Advanced = true },
+        new SettingDefinition(
+            _prefix + "Jobs:NameAttributes",
+            SettingSection.Data,
+            "Jobs",
+            "Job name attributes",
+            "Span attributes that name a job, separated by commas, the first one found wins. A root span that carries "
+            + "one is a run of that job, so Hangfire, Quartz.NET, hosted services, and pipelines show on the Jobs "
+            + "screen. Empty recognises no traced jobs.",
+            SettingKind.Text,
+            _defaults.Jobs.NameAttributes)
+        {
+            Optional = true,
+            Advanced = true,
+        },
     ];
 
     /// <inheritdoc />

@@ -7,6 +7,7 @@ using Veyra.Query.Metrics;
 using Veyra.Query.Metrics.Api;
 using Veyra.Query.Queries.Api;
 using Veyra.Query.Server.Api;
+using Veyra.Query.Systems;
 
 namespace Veyra.Query.Server;
 
@@ -41,17 +42,19 @@ internal sealed class ServerViewBuilder(IMetricSearch search, TimeProvider clock
     /// <summary>Builds the tab.</summary>
     /// <param name="engine">The engine.</param>
     /// <param name="server">The server.</param>
-    /// <param name="range">The range.</param>
+    /// <param name="span">The window: a named range ending now, or a from–to period (ADR 0022).</param>
+    /// <param name="system">Whether the idle waits of the server's background tasks are listed (VEY-66).</param>
     /// <param name="cancellationToken">Cancels the reads.</param>
     /// <returns>The tab, or <see langword="null"/> when the server sent nothing.</returns>
     public async Task<ServerResponse?> ServerAsync(
         string engine,
         string server,
-        string? range,
+        MetricSpan span,
+        bool system,
         CancellationToken cancellationToken)
     {
-        var now = clock.GetUtcNow();
-        var window = MetricWindow.Of(range, now);
+        var window = MetricWindow.Of(span, clock.GetUtcNow());
+        var now = window.End;
         var series = await search.FindSeriesAsync(
             new MetricSeriesQuery(
                 window.Start,
@@ -78,7 +81,7 @@ internal sealed class ServerViewBuilder(IMetricSearch search, TimeProvider clock
 
         await Task.WhenAll(dataReading, recentReading, monthReading);
 
-        return Build(await dataReading, await recentReading, await monthReading, now);
+        return Build(await dataReading, await recentReading, await monthReading, now, system);
     }
 
     /// <summary>Turns the metrics into the tab. Pure; tested without a database.</summary>
@@ -86,8 +89,14 @@ internal sealed class ServerViewBuilder(IMetricSearch search, TimeProvider clock
     /// <param name="recent">The last 15 minutes.</param>
     /// <param name="month">Batch requests over the last four weeks, by hour.</param>
     /// <param name="now">The current time.</param>
+    /// <param name="system">Whether the idle waits are listed.</param>
     /// <returns>The tab.</returns>
-    public static ServerResponse Build(SeriesData data, SeriesData recent, SeriesData month, DateTimeOffset now)
+    public static ServerResponse Build(
+        SeriesData data,
+        SeriesData recent,
+        SeriesData month,
+        DateTimeOffset now,
+        bool system)
     {
         ArgumentNullException.ThrowIfNull(data);
         ArgumentNullException.ThrowIfNull(recent);
@@ -114,9 +123,14 @@ internal sealed class ServerViewBuilder(IMetricSearch search, TimeProvider clock
                 return (Type: group.Key, Seconds: rates.Values.Sum() * data.Window.Bucket.TotalSeconds);
             })
             .Where(wait => wait.Seconds > 0)
+            // Idle waits are ranked apart (VEY-64), so a background timer never pushes a real wait out of the list.
+            .GroupBy(wait => SystemObjects.IsIdleWait(wait.Type))
+            .SelectMany(group => group.OrderByDescending(wait => wait.Seconds).Take(_maxWaits))
             .OrderByDescending(wait => wait.Seconds)
-            .Take(_maxWaits)
-            .Select(wait => new WaitTypeResponse(SqlServerWaits.Explain(wait.Type), wait.Seconds))
+            .Select(wait => new WaitTypeResponse(SqlServerWaits.Explain(wait.Type), wait.Seconds)
+            {
+                System = SystemObjects.IsIdleWait(wait.Type),
+            })
             .ToList();
 
         var response = new ServerResponse(
@@ -143,7 +157,10 @@ internal sealed class ServerViewBuilder(IMetricSearch search, TimeProvider clock
             waits,
             []);
 
-        return response with { Findings = Findings(response) };
+        // The findings read every wait; the list leaves the idle ones out unless asked for (VEY-66).
+        var (listed, hidden) = SystemRows.Keep(waits, system, wait => wait.System, _ => null);
+
+        return response with { Findings = Findings(response), Waits = listed, HiddenWaits = hidden };
     }
 
     private static List<PlanWarningResponse> Findings(ServerResponse server)

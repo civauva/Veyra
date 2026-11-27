@@ -15,4 +15,7 @@ public sealed record TopQueryResponse(
 {
     /// <summary>The database it ran in, when the agent said.</summary>
     public string? Database { get; init; }
+
+    /// <summary>Whether it is the server's own housekeeping rather than an application's work (VEY-64).</summary>
+    public bool System { get; init; }
 }

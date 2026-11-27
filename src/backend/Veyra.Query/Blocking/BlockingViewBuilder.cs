@@ -28,16 +28,16 @@ internal sealed class BlockingViewBuilder(IDatabaseActivitySearch activity, Time
     /// <summary>Builds the tab.</summary>
     /// <param name="engine">The engine.</param>
     /// <param name="server">The server.</param>
-    /// <param name="range">The range.</param>
+    /// <param name="span">The window: a named range ending now, or a from–to period (ADR 0022).</param>
     /// <param name="cancellationToken">Cancels the reads.</param>
     /// <returns>The tab.</returns>
     public async Task<BlockingResponse> BlockingAsync(
         string engine,
         string server,
-        string? range,
+        MetricSpan span,
         CancellationToken cancellationToken)
     {
-        var window = MetricWindow.Of(range, clock.GetUtcNow());
+        var window = MetricWindow.Of(span, clock.GetUtcNow());
         var block = TelemetryBlock.Database(engine, server).Name;
         var rowsReading = activity.ListBlockingAsync(block, window.Start, window.End, _maxRows, cancellationToken);
         var deadlocksReading = activity.ListRecordsAsync(
@@ -54,7 +54,11 @@ internal sealed class BlockingViewBuilder(IDatabaseActivitySearch activity, Time
         return new BlockingResponse(
             window.Range,
             Episodes(await rowsReading),
-            (await deadlocksReading).Select(record => Deadlock(record.Key, record.SampledAt, record.Body)).ToList());
+            (await deadlocksReading).Select(record => Deadlock(record.Key, record.SampledAt, record.Body)).ToList())
+        {
+            From = window.From,
+            To = window.End,
+        };
     }
 
     /// <summary>

@@ -8,7 +8,7 @@ import { api } from "../api/client";
 import type { Agent, PostgresServer, SqlServer } from "../api/types";
 import { App } from "../app/App";
 import { SessionProvider } from "../session/SessionProvider";
-import { settingsPage } from "./testSettings";
+import { listingOf, settingsPage } from "./testSettings";
 
 vi.mock("../api/client", async (importOriginal) => {
   const original = await importOriginal<typeof client>();
@@ -21,8 +21,10 @@ vi.mock("../api/client", async (importOriginal) => {
       signOut: vi.fn(),
       home: vi.fn(),
       settings: vi.fn(),
+      settingsListing: vi.fn(),
       sqlServers: vi.fn(),
       agents: vi.fn(),
+      agentsSummary: vi.fn(),
       createSqlServer: vi.fn(),
       updateSqlServer: vi.fn(),
       deleteSqlServer: vi.fn(),
@@ -37,7 +39,14 @@ vi.mock("../api/client", async (importOriginal) => {
   };
 });
 
-const admin = { id: "1", email: "ana@example.com", displayName: "Ana Admin", role: "Admin" as const, timeZone: null };
+const admin = {
+  id: "1",
+  email: "ana@example.com",
+  displayName: "Ana Admin",
+  role: "Admin" as const,
+  timeZone: null,
+  look: { chosen: null, default: "forecast", mayChoose: true },
+};
 
 const builtIn: Agent = {
   id: "a1",
@@ -102,9 +111,18 @@ beforeEach(() => {
   localStorage.clear();
   vi.mocked(api.currentSession).mockResolvedValue(admin);
   vi.mocked(api.settings).mockResolvedValue(settingsPage);
+  vi.mocked(api.settingsListing).mockImplementation((choices) => Promise.resolve(listingOf(settingsPage, choices)));
   vi.mocked(api.sqlServers).mockResolvedValue([receiving, refused]);
   vi.mocked(api.postgresServers).mockResolvedValue([]);
   vi.mocked(api.agents).mockResolvedValue([builtIn]);
+  // The server counts the servers and agents for the section list (VEY-68).
+  vi.mocked(api.agentsSummary).mockResolvedValue({
+    sqlServers: 2,
+    postgresServers: 0,
+    needLook: 1,
+    agents: 1,
+    agentsOnline: 1,
+  });
 });
 
 describe("PostgreSQL on Database monitoring", () => {
@@ -146,6 +164,13 @@ describe("PostgreSQL on Database monitoring", () => {
 
   it("counts PostgreSQL servers beside SQL Servers in the section list", async () => {
     vi.mocked(api.postgresServers).mockResolvedValue([pgMain]);
+    vi.mocked(api.agentsSummary).mockResolvedValue({
+      sqlServers: 2,
+      postgresServers: 1,
+      needLook: 1,
+      agents: 1,
+      agentsOnline: 1,
+    });
     renderAt("/settings?section=Databases");
 
     const sections = await screen.findByRole("navigation", { name: "Settings sections" });
@@ -249,6 +274,18 @@ describe("Database monitoring", () => {
     expect(within(report).getByText("Login failed")).toBeVisible();
     expect(within(report).getByText(/SQL Server refused the login veyra_monitor/)).toBeVisible();
     expect(within(report).getByRole("button", { name: "Fix" })).toBeVisible();
+  });
+
+  it("explains the agent, the server cards, and their alerts with a question mark", async () => {
+    const user = userEvent.setup();
+    renderAt("/settings?section=Databases");
+
+    await screen.findByRole("article", { name: "sql-prod-01" });
+    const strip = screen.getByRole("status", { name: "Agent" });
+    expect(within(strip).getByRole("button", { name: "What Agent means" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "What Database servers means" })).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "What Alerts for these servers means" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/Deadlocks/);
   });
 
   it("counts the servers that need a look in the section list", async () => {
@@ -422,6 +459,15 @@ describe("Agents", () => {
     expect(
       within(agent).getByText(/Beside Veyra on veyra-agent · reads 2 database servers · version 0.140.1/),
     ).toBeVisible();
+  });
+
+  it("explains an agent's state with a question mark beside it", async () => {
+    const user = userEvent.setup();
+    renderAt("/settings?section=Agents");
+
+    const agent = await screen.findByRole("article", { name: "Built-in agent" });
+    await user.click(within(agent).getByRole("button", { name: "What Online means" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/polls Veyra/);
   });
 
   it("says what to check when the built-in agent never connected", async () => {

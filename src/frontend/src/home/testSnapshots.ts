@@ -1,4 +1,4 @@
-import type { HistogramBucket, HomeBlock, HomeSnapshot } from "../api/types";
+import type { EnvironmentChoices, HistogramBucket, HomeBlock, HomeEnvironment, HomeSnapshot } from "../api/types";
 
 /*
  * Home snapshots for unit tests, matching the approved VEY-17 mockups: a storm over Services at 07:34 UTC and the
@@ -52,10 +52,38 @@ function hours(ratios: number[]): HistogramBucket[] {
   }));
 }
 
+/**
+ * The hours with the totals the server adds to them (VEY-68). Test data only: the app never adds them up itself.
+ *
+ * @param observed - The hours.
+ * @returns The hourly strip as the API sends it.
+ */
+function hourly(observed: HistogramBucket[]): HomeSnapshot["hourly"] {
+  const past = observed.slice(0, -1);
+
+  return {
+    observed,
+    expected,
+    daysOfHistory: 3,
+    records: observed.reduce((sum, bucket) => sum + bucket.total, 0),
+    errors: observed.reduce((sum, bucket) => sum + bucket.errors, 0),
+    averageRecords: past.reduce((sum, bucket) => sum + bucket.total, 0) / past.length,
+  };
+}
+
 const expected = [1.1, 1.4, 1.6, 1.5, null, null].map((load, index) => ({
   start: new Date(Date.UTC(2026, 10, 7, 8 + index)).toISOString(),
   load,
 }));
+
+/** The services of the storm, by name: a warning on payments-gateway and a caution on billing-worker. */
+const stormBlocks = services.map((name) =>
+  name === "payments-gateway"
+    ? block(name, "Warning", ["alert-1"])
+    : name === "billing-worker"
+      ? block(name, "Caution", ["alert-2"])
+      : block(name),
+);
 
 /** A warning on payments-gateway and a caution on billing-worker; 6 of 8 services are dry. */
 export const stormSnapshot: HomeSnapshot = {
@@ -122,13 +150,7 @@ export const stormSnapshot: HomeSnapshot = {
       resolvedAt: "2026-11-07T03:24:00Z",
     },
   ],
-  blocks: services.map((name) =>
-    name === "payments-gateway"
-      ? block(name, "Warning", ["alert-1"])
-      : name === "billing-worker"
-        ? block(name, "Caution", ["alert-2"])
-        : block(name),
-  ),
+  blocks: stormBlocks,
   metrics: {
     errorRatio: 0.058,
     ingestPerSecond: 66.4,
@@ -136,7 +158,7 @@ export const stormSnapshot: HomeSnapshot = {
     windowSeconds: 300,
     latency: { p95Seconds: 0.38, slowestService: "checkout-web", slowestP95Seconds: 0.48, services: 4 },
   },
-  hourly: { observed: hours([0.0002, 0.0002, 0.0003, 0.0003, 0.013, 0.004, 0.058]), expected, daysOfHistory: 3 },
+  hourly: hourly(hours([0.0002, 0.0002, 0.0003, 0.0003, 0.013, 0.004, 0.058])),
   storage: {
     usedBytes: 1.2 * gigabyte,
     budgetBytes: 20 * gigabyte,
@@ -149,7 +171,43 @@ export const stormSnapshot: HomeSnapshot = {
     { host: "web-01", mountpoint: "/", ratio: 0.81, daysUntilFull: 23 },
     { host: "db-01", mountpoint: "/data", ratio: 0.58, daysUntilFull: null },
   ],
+  // As the server works it out (VEY-68): the alerted services first, host tiles by name, web-01's disk filling.
+  estate: {
+    services: stormBlocks,
+    servicesWorstFirst: [
+      block("payments-gateway", "Warning", ["alert-1"]),
+      block("billing-worker", "Caution", ["alert-2"]),
+      ...stormBlocks.filter((one) => one.health === "Ok"),
+    ],
+    serviceCounts: { warning: 1, caution: 1, ok: 6, unknown: 0 },
+    hosts: [
+      {
+        name: "db-01",
+        health: "Ok",
+        disk: { host: "db-01", mountpoint: "/data", ratio: 0.58, daysUntilFull: null },
+        filling: false,
+      },
+      {
+        name: "web-01",
+        health: "Ok",
+        disk: { host: "web-01", mountpoint: "/", ratio: 0.81, daysUntilFull: 23 },
+        filling: true,
+      },
+    ],
+    hostCounts: { warning: 0, caution: 0, ok: 2, unknown: 0 },
+    databases: [],
+    databaseCounts: { warning: 0, caution: 0, ok: 0, unknown: 0 },
+    diskOutlook: {
+      filling: [{ host: "web-01", mountpoint: "/", ratio: 0.81, daysUntilFull: 23 }],
+      hosts: 2,
+      allAlerted: false,
+    },
+    alertCounts: { warnings: 1, cautions: 1 },
+  },
 };
+
+/** The services with nothing open. */
+const clearBlocks = services.map((name) => block(name));
 
 /** The same estate with nothing open. */
 export const clearSnapshot: HomeSnapshot = {
@@ -158,8 +216,48 @@ export const clearSnapshot: HomeSnapshot = {
   condition: { kind: "Clear", over: null, errorRatio: 0.0004 },
   counts: { warning: 0, caution: 0, ok: 8, unknown: 0 },
   alerts: [],
-  blocks: services.map((name) => block(name)),
+  blocks: clearBlocks,
   metrics: { ...stormSnapshot.metrics, errorRatio: 0.0004 },
-  hourly: { ...stormSnapshot.hourly, observed: hours([0.0002, 0.0002, 0.0003, 0.0003, 0.0004, 0.0004, 0.0004]) },
+  hourly: hourly(hours([0.0002, 0.0002, 0.0003, 0.0003, 0.0004, 0.0004, 0.0004])),
   disks: [{ host: "web-01", mountpoint: "/", ratio: 0.47, daysUntilFull: null }],
+  estate: {
+    services: clearBlocks,
+    servicesWorstFirst: clearBlocks,
+    serviceCounts: { warning: 0, caution: 0, ok: 8, unknown: 0 },
+    hosts: [
+      {
+        name: "web-01",
+        health: "Ok",
+        disk: { host: "web-01", mountpoint: "/", ratio: 0.47, daysUntilFull: null },
+        filling: false,
+      },
+    ],
+    hostCounts: { warning: 0, caution: 0, ok: 1, unknown: 0 },
+    databases: [],
+    databaseCounts: { warning: 0, caution: 0, ok: 0, unknown: 0 },
+    diskOutlook: { filling: [], hosts: 1, allAlerted: false },
+    alertCounts: { warnings: 0, cautions: 0 },
+  },
 };
+
+/**
+ * What the server lists in the environment switcher for these environments and this search (VEY-67), by its own rule:
+ * names that hold the search in any case, and "All environments" with the worst weather when it holds the search.
+ *
+ * @param environments - Every environment seen recently.
+ * @param search - What the find box holds.
+ * @returns The list.
+ */
+export function environmentChoicesOf(environments: HomeEnvironment[], search: string): EnvironmentChoices {
+  const needle = search.trim().toLowerCase();
+  const order = ["Clear", "Showers", "Storm"];
+  const worst = environments.reduce(
+    (current, next) => (order.indexOf(next.condition) > order.indexOf(current) ? next.condition : current),
+    "Clear" as HomeEnvironment["condition"],
+  );
+
+  return {
+    all: "all environments".includes(needle) ? { condition: worst } : null,
+    environments: environments.filter((environment) => environment.name.toLowerCase().includes(needle)),
+  };
+}

@@ -9,6 +9,7 @@ using NpgsqlTypes;
 using Veyra.Core.Alerts;
 using Veyra.Core.Metrics;
 using Veyra.Core.Telemetry;
+using Veyra.Storage.Ingest;
 using Veyra.Storage.Schema;
 
 namespace Veyra.Storage.Metrics;
@@ -93,7 +94,7 @@ internal sealed partial class MetricStore(
 
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         var rolledUpTo = await LockRollupStateAsync(connection, cancellationToken);
-        var stored = 0;
+        var stored = new List<(DateTimeOffset At, string? Environment)>(points.Count);
         var droppedNames = new SortedSet<string>(StringComparer.Ordinal);
         var lateHours = new SortedSet<DateTimeOffset>();
 
@@ -109,7 +110,7 @@ internal sealed partial class MetricStore(
                 }
 
                 await WritePointAsync(writer, series.Id, points[index], cancellationToken);
-                stored++;
+                stored.Add((points[index].Timestamp, points[index].Environment));
 
                 if (points[index].Timestamp < rolledUpTo)
                 {
@@ -121,18 +122,21 @@ internal sealed partial class MetricStore(
         }
 
         await MarkLateHoursAsync(connection, lateHours, cancellationToken);
+
+        // Only the points stored are counted, in the same transaction, so the counts never disagree with them.
+        await IngestCounts.AddAsync(connection, IngestSignal.Points, stored, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        _written.Enqueue((now, stored));
+        _written.Enqueue((now, stored.Count));
 
-        var dropped = points.Count - stored;
+        var dropped = points.Count - stored.Count;
 
         if (dropped > 0)
         {
             WarnAboutDropped(dropped, droppedNames, now);
         }
 
-        return new MetricWriteResult(stored, dropped);
+        return new MetricWriteResult(stored.Count, dropped);
     }
 
     /// <inheritdoc />
@@ -190,8 +194,28 @@ internal sealed partial class MetricStore(
         }
 
         AppendEquals(sql, command, "service_name", query.ServiceName);
-        AppendEquals(sql, command, "environment", query.Environment);
+
+        if (query.Environment is not null && query.OrNoEnvironment)
+        {
+            command.Parameters.AddWithValue(query.Environment);
+            sql.Append(
+                CultureInfo.InvariantCulture,
+                $" AND (environment = ${command.Parameters.Count} OR environment IS NULL)");
+        }
+        else
+        {
+            AppendEquals(sql, command, "environment", query.Environment);
+        }
+
         AppendEquals(sql, command, "host_name", query.HostName);
+
+        if (!string.IsNullOrWhiteSpace(query.BlockNameContains))
+        {
+            command.Parameters.AddWithValue(EscapeLike(query.BlockNameContains.Trim()));
+            sql.Append(
+                CultureInfo.InvariantCulture,
+                $" AND block_name ILIKE '%' || ${command.Parameters.Count} || '%' ESCAPE '\\'");
+        }
 
         if (query.Block is { } block)
         {
@@ -334,6 +358,79 @@ internal sealed partial class MetricStore(
         }
 
         return names;
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<MetricBlockSeen>> ListBlocksAsync(
+        IReadOnlyList<AlertBlockKind> kinds,
+        DateTimeOffset firstSeenBefore,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(kinds);
+
+        if (kinds.Count == 0)
+        {
+            return [];
+        }
+
+        await using var command = CreateBlocksCommand(kinds, firstSeenBefore);
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        command.Connection = connection;
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        var blocks = new List<MetricBlockSeen>();
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            blocks.Add(new MetricBlockSeen(
+                Block: new TelemetryBlock((AlertBlockKind)reader.GetInt16(0), reader.GetString(1)),
+                Environment: reader.IsDBNull(2) ? null : reader.GetString(2),
+                Host: reader.IsDBNull(3) ? null : reader.GetString(3),
+                Hosts: reader.GetFieldValue<string[]>(4),
+                Instances: (int)reader.GetInt64(5),
+                ResourceAttributes: Deserialize(reader.GetString(6)),
+                FirstSeen: reader.GetFieldValue<DateTimeOffset>(7),
+                LastSeen: reader.GetFieldValue<DateTimeOffset>(8)));
+        }
+
+        return blocks;
+    }
+
+    /// <summary>
+    /// Builds the statement that lists the blocks of some kinds, grouped through the block index. The plan tests
+    /// explain it.
+    /// </summary>
+    /// <remarks>
+    /// A container is listed once per host, as its alerts and links tell them apart (ADR 0018). The resource attributes
+    /// are those of the block's most recently seen series, such as its operating system or image.
+    /// </remarks>
+    /// <param name="kinds">The kinds of block.</param>
+    /// <param name="firstSeenBefore">Only blocks whose first series arrived before this time.</param>
+    /// <returns>The command, without a connection, which the caller disposes.</returns>
+    internal static NpgsqlCommand CreateBlocksCommand(
+        IReadOnlyList<AlertBlockKind> kinds,
+        DateTimeOffset firstSeenBefore)
+    {
+        ArgumentNullException.ThrowIfNull(kinds);
+
+        var command = new NpgsqlCommand(
+            """
+            SELECT block_kind, block_name, environment,
+                   CASE WHEN block_kind = 4 THEN host_name END,
+                   coalesce(array_agg(DISTINCT host_name) FILTER (WHERE host_name IS NOT NULL), '{}'),
+                   count(DISTINCT coalesce(resource_attributes ->> 'service.instance.id', host_name)),
+                   (array_agg(resource_attributes::text ORDER BY last_seen DESC, id DESC))[1],
+                   min(first_seen), max(last_seen)
+            FROM storage.metric_series
+            WHERE block_kind = ANY($1) AND first_seen < $2
+            GROUP BY 1, 2, 3, 4
+            ORDER BY 1, 2, 3, 4
+            """);
+        command.Parameters.AddWithValue(kinds.Select(kind => (short)kind).ToArray());
+        command.Parameters.AddWithValue(firstSeenBefore);
+
+        return command;
     }
 
     /// <inheritdoc />

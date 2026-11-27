@@ -31,9 +31,14 @@ internal static class MetricReadPlan
         IReadOnlyList<(DateTimeOffset From, DateTimeOffset To)> unrolled)
     {
         // A rollup row can only be used when it falls into one bucket: buckets must be whole multiples of it and start
-        // on its boundaries.
-        var fiveMinutes = TimeBins.IsMultiple(bucketSize, _fiveMinutes) && TimeBins.Floor(from, bucketSize) == from;
-        var hours = fiveMinutes && TimeBins.IsMultiple(bucketSize, _hour);
+        // on its boundaries. A read that is a single bucket, such as a total over a range ending now, holds every row
+        // inside it whatever its width, so it only needs to start on a boundary (VEY-65).
+        var single = bucketSize >= to - from;
+        var fiveMinutes = single
+            ? TimeBins.Floor(from, _fiveMinutes) == from
+            : TimeBins.IsMultiple(bucketSize, _fiveMinutes) && TimeBins.Floor(from, bucketSize) == from;
+        var hours = fiveMinutes
+            && (single ? TimeBins.Floor(from, _hour) == from : TimeBins.IsMultiple(bucketSize, _hour));
 
         if (!fiveMinutes)
         {

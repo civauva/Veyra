@@ -1,4 +1,7 @@
+using System.Text.Json;
 using Npgsql;
+using NpgsqlTypes;
+using Veyra.Agents.Integrations;
 
 namespace Veyra.Agents.SqlServers;
 
@@ -7,10 +10,14 @@ namespace Veyra.Agents.SqlServers;
 internal sealed class SqlServerStore(NpgsqlDataSource dataSource)
 {
     private const string _columns =
-        "id, name, address, port, environment, agent_id, login, encryption, created_at, changed_at, password, platform, database_name";
+        "id, name, address, port, environment, agent_id, login, encryption, created_at, changed_at, password, " +
+        "platform, database_name, instance, authentication, modules, template_version, template_set_at, " +
+        "template_set_by";
 
     // PostgreSQL's code for a unique violation, raised when another server has the name.
     private const string _uniqueViolation = "23505";
+
+    private static readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web);
 
     /// <summary>Stores a new server.</summary>
     /// <param name="server">The server.</param>
@@ -21,7 +28,10 @@ internal sealed class SqlServerStore(NpgsqlDataSource dataSource)
     public async Task InsertAsync(SqlServer server, string protectedPassword, CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(
-            $"INSERT INTO agents.sql_server ({_columns}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)");
+            $"""
+            INSERT INTO agents.sql_server ({_columns})
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+            """);
         AddAll(command, server, protectedPassword);
 
         await ExecuteAsync(command, server.Name, cancellationToken);
@@ -45,7 +55,8 @@ internal sealed class SqlServerStore(NpgsqlDataSource dataSource)
             UPDATE agents.sql_server
             SET name = $2, address = $3, port = $4, environment = $5, agent_id = $6, login = $7, encryption = $8,
                 changed_at = $10, password = COALESCE($11, password), platform = $12,
-                database_name = $13
+                database_name = $13, instance = $14, authentication = $15, modules = $16, template_version = $17,
+                template_set_at = $18, template_set_by = $19
             WHERE id = $1
             """);
         AddAll(command, server, protectedPassword);
@@ -119,9 +130,19 @@ internal sealed class SqlServerStore(NpgsqlDataSource dataSource)
         command.Parameters.AddWithValue((short)server.Encryption);
         command.Parameters.AddWithValue(server.CreatedAt);
         command.Parameters.AddWithValue(server.ChangedAt);
-        command.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Text, (object?)protectedPassword ?? DBNull.Value);
+        command.Parameters.AddWithValue(NpgsqlDbType.Text, (object?)protectedPassword ?? DBNull.Value);
         command.Parameters.AddWithValue((short)server.Platform);
-        command.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Text, (object?)server.Database ?? DBNull.Value);
+        command.Parameters.AddWithValue(NpgsqlDbType.Text, (object?)server.Database ?? DBNull.Value);
+        command.Parameters.AddWithValue(NpgsqlDbType.Text, (object?)server.Instance ?? DBNull.Value);
+        command.Parameters.AddWithValue((short)server.Authentication);
+
+        // Only what differs from the defaults is stored, so a later default reaches every server that kept it.
+        command.Parameters.AddWithValue(
+            NpgsqlDbType.Jsonb,
+            JsonSerializer.Serialize(SqlServerModules.Overrides(server.Choices), _json));
+        command.Parameters.AddWithValue(server.Version);
+        command.Parameters.AddWithValue(server.TemplateSetAt ?? server.CreatedAt);
+        command.Parameters.AddWithValue(NpgsqlDbType.Text, (object?)server.TemplateSetBy ?? DBNull.Value);
     }
 
     private static async Task<int> ExecuteAsync(NpgsqlCommand command, string name, CancellationToken cancellationToken)
@@ -158,11 +179,30 @@ internal sealed class SqlServerStore(NpgsqlDataSource dataSource)
                 CreatedAt: reader.GetFieldValue<DateTimeOffset>(8),
                 ChangedAt: reader.GetFieldValue<DateTimeOffset>(9),
                 Platform: (SqlServerPlatform)reader.GetInt16(11),
-                Database: reader.IsDBNull(12) ? null : reader.GetString(12));
+                Database: reader.IsDBNull(12) ? null : reader.GetString(12),
+                Instance: reader.IsDBNull(13) ? null : reader.GetString(13),
+                Authentication: (SqlServerAuthentication)reader.GetInt16(14),
+                Modules: SqlServerModules.FromStored(Modules(reader.GetString(15))),
+                TemplateVersion: reader.GetString(16),
+                TemplateSetAt: reader.GetFieldValue<DateTimeOffset>(17),
+                TemplateSetBy: reader.IsDBNull(18) ? null : reader.GetString(18));
 
             servers.Add((server, reader.GetString(10)));
         }
 
         return servers;
+    }
+
+    // Stored choices that cannot be read count as none: the server reads at its defaults rather than not at all.
+    private static List<SqlServerModuleChoice> Modules(string json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<List<SqlServerModuleChoice>>(json, _json) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
     }
 }

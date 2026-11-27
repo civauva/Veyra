@@ -1,5 +1,5 @@
 import { api } from "../api/client";
-import type { AlertRule, AlertSeverity, CatalogRule, CatalogUnit } from "../api/types";
+import type { AlertRule, AlertSeverity, CatalogRule, CatalogUnit, FixStep } from "../api/types";
 import { formatRatio, severityWord } from "../home/homeFormat";
 import { formatAmount, formatSpan } from "../metrics/metricFormat";
 
@@ -232,4 +232,16 @@ export function catalogSentence(rule: CatalogRuleId, severity: AlertSeverity, th
  */
 export function catalogMeasures(rule: CatalogRuleId): string {
   return catalog.get(rule)?.description ?? catalogName(rule);
+}
+
+/**
+ * What a catalog rule's alert means and how to resolve it (VEY-60), with its placeholders still in.
+ *
+ * @param rule - The rule.
+ * @returns The meaning and the steps, or null until the catalog is loaded.
+ */
+export function catalogGuidance(rule: CatalogRuleId): { meaning: string; steps: FixStep[] } | null {
+  const entry = catalog.get(rule);
+
+  return entry?.meaning ? { meaning: entry.meaning, steps: entry.steps } : null;
 }

@@ -1,14 +1,17 @@
-import { useSearchParams } from "react-router";
+import { useEffect } from "react";
+import { useLocation, useSearchParams } from "react-router";
 
-import { api } from "../api/client";
+import { ScreenBar } from "../ui/ScreenBar";
 import { useShell } from "../app/shellContext";
-import { useViewMode, ViewToggle } from "../app/ViewToggle";
+import { useViewMode } from "../ui/ViewToggle";
 import type { MetricsOverview, MetricRange } from "../api/types";
 import { ContainerCardView, DatabaseCardView, HostCardView, ServiceCardView } from "./MetricCards";
 import { MetricBrowser } from "./MetricBrowser";
 import { formatAmount, formatRate } from "./metricFormat";
-import { RangePicker, rangeFrom } from "./RangePicker";
-import { useMetricData } from "./useMetricData";
+import { rangeOf, rangeWords, withRange } from "./metricRange";
+import { RangePicker } from "./RangePicker";
+import { FigureName, PanelName } from "./TileName";
+import { useMetricsOverview } from "./useMetricsOverview";
 import "./metrics.css";
 
 /**
@@ -17,12 +20,22 @@ import "./metrics.css";
  */
 export function MetricsScreen() {
   const [params, setParams] = useSearchParams();
-  const range = rangeFrom(params.get("range"));
+  const range = rangeOf(params);
   const tab = params.get("tab") === "all" ? "all" : "overview";
   const [mode] = useViewMode();
   const search = params.get("search") ?? "";
   const { status } = useShell();
-  const { data, error } = useMetricData(`overview-${range}`, (signal) => api.metricsOverview(range, signal));
+  // The server keeps only the cards of the search and the environment (VEY-67); a change asks again at once.
+  const { data, error } = useMetricsOverview(range, search, status.environment);
+  const { hash } = useLocation();
+  const loaded = data !== null;
+
+  // A trail's group, such as Database servers, leads back here to its section (VEY-62), once the cards are drawn.
+  useEffect(() => {
+    if (loaded && hash.length > 1) {
+      document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView?.({ block: "start" });
+    }
+  }, [hash, loaded]);
 
   function update(changes: Record<string, string | null>) {
     const next = new URLSearchParams(params);
@@ -40,17 +53,19 @@ export function MetricsScreen() {
 
   return (
     <main className="metrics">
+      <ScreenBar trail={[{ label: "Metrics" }]} view>
+        <RangePicker value={range} onChange={(next) => setParams(withRange(params, next), { replace: true })} />
+      </ScreenBar>
       <div className="metrics-head">
         <div>
           <h1>Metrics</h1>
           <p>
             {tab === "all"
               ? "Every metric Veyra has received, by name. Pick one to chart it and split it by an attribute."
-              : `Hosts and services that send metrics over OTLP. Numbers are the last 5 minutes; lines are the last ${range}.`}
+              : "Hosts and services that send metrics over OTLP. Numbers are the last 5 minutes; " +
+                `lines are ${rangeWords(range)}.`}
           </p>
         </div>
-        <ViewToggle />
-        <RangePicker value={range} onChange={(next) => update({ range: next === "6h" ? null : next })} />
         {tab === "overview" && (
           <label className="metrics-search">
             <span className="visually-hidden">Find a host or service</span>
@@ -89,13 +104,7 @@ export function MetricsScreen() {
       {tab === "all" ? (
         <MetricBrowser range={range} />
       ) : data ? (
-        <Overview
-          overview={data}
-          range={range}
-          search={search}
-          environment={status.environment}
-          advanced={mode === "advanced"}
-        />
+        <Overview overview={data} range={range} search={search} advanced={mode === "advanced"} />
       ) : (
         !error && <p className="metrics-empty">Loading metrics…</p>
       )}
@@ -105,49 +114,28 @@ export function MetricsScreen() {
 
 /** Props for {@link Overview}. */
 interface OverviewProps {
-  /** The hosts, services, and storage use. */
+  /** The cards the server kept for the search and the environment, with its counts over them. */
   overview: MetricsOverview;
   /** The window of the cards' lines. */
   range: MetricRange;
-  /** Text a card's name must hold. */
+  /** The search the cards were asked for, to name in the message when none match. */
   search: string;
-  /** The environment chosen in the top bar, or null for all (VEY-23). */
-  environment: string | null;
   /** Whether to show the usage counts of the Advanced view. */
   advanced: boolean;
 }
 
 /**
- * The usage strip and the host and service cards of the chosen environment. Hosts whose metrics name no environment
- * belong to every environment, as on the home.
+ * The usage strip and the cards the server kept. The server filters by the search and the chosen environment, where
+ * hosts whose metrics name no environment belong to every one, and counts the strip's figures (VEY-67); this only
+ * lays them out.
  */
-function Overview({ overview, range, search, environment, advanced }: OverviewProps) {
+function Overview({ overview, range, search, advanced }: OverviewProps) {
   const now = new Date(overview.at);
-  const needle = search.trim().toLowerCase();
-  const inEnvironment = (named: string | null, hostLike: boolean) =>
-    environment === null || named === environment || (hostLike && named === null);
-  const hosts = overview.hosts.filter(
-    (host) => inEnvironment(host.environment, true) && host.name.toLowerCase().includes(needle),
-  );
-  const services = overview.services.filter(
-    (service) => inEnvironment(service.environment, false) && service.name.toLowerCase().includes(needle),
-  );
-  const databases = overview.databases.filter(
-    (database) => inEnvironment(database.environment, true) && database.server.toLowerCase().includes(needle),
-  );
-  const containers = overview.containers.filter(
-    (container) => inEnvironment(container.environment, true) && container.name.toLowerCase().includes(needle),
-  );
-  const filling = overview.hosts.filter((host) => host.fillingDisk).length;
-  const restarting = overview.containers.filter((container) => (container.restarts ?? 0) > 0).length;
-  const { usage } = overview;
+  const { usage, summary, hosts, services, databases, containers } = overview;
+  const filling = summary.fillingDisks;
+  const restarting = summary.restarting;
 
-  if (
-    overview.hosts.length === 0 &&
-    overview.services.length === 0 &&
-    overview.databases.length === 0 &&
-    overview.containers.length === 0
-  ) {
+  if (!summary.anySent) {
     return (
       <div className="metrics-empty">
         <b>No metrics yet</b>
@@ -163,51 +151,70 @@ function Overview({ overview, range, search, environment, advanced }: OverviewPr
     <>
       <dl className="metrics-strip">
         <div>
-          <dt>Hosts</dt>
+          <FigureName name="Hosts">
+            Hosts sending metrics from the Collector&apos;s hostmetrics receiver. Under the count: how many have a disk
+            that is full within 30 days at the pace of its last day.
+          </FigureName>
           <dd>
-            {overview.hosts.length}{" "}
+            {summary.hosts}{" "}
             <small>{filling === 0 ? "disks steady" : `${filling} ${filling === 1 ? "disk" : "disks"} filling`}</small>
           </dd>
         </div>
         <div>
-          <dt>Services</dt>
+          <FigureName name="Services">
+            Services sending HTTP server or runtime metrics from their OpenTelemetry SDK.
+          </FigureName>
           <dd>
-            {overview.services.length} <small>with metrics</small>
+            {summary.services} <small>with metrics</small>
           </dd>
         </div>
-        {overview.databases.length > 0 && (
+        {summary.databases > 0 && (
           <div>
-            <dt>Databases</dt>
+            <FigureName name="Databases">
+              Database servers a Collector watches with its database receivers, such as SQL Server and PostgreSQL.
+            </FigureName>
             <dd>
-              {overview.databases.length} <small>{overview.databases.length === 1 ? "server" : "servers"}</small>
+              {summary.databases} <small>{summary.databases === 1 ? "server" : "servers"}</small>
             </dd>
           </div>
         )}
-        {overview.containers.length > 0 && (
+        {summary.containers > 0 && (
           <div>
-            <dt>Containers</dt>
+            <FigureName name="Containers">
+              Docker containers from the Collector&apos;s docker_stats receiver. Under the count: how many of them
+              restarted {rangeWords(range, "in")}.
+            </FigureName>
             <dd>
-              {overview.containers.length}{" "}
-              <small>{restarting === 0 ? "none restarting" : `${restarting} restarting`}</small>
+              {summary.containers} <small>{restarting === 0 ? "none restarting" : `${restarting} restarting`}</small>
             </dd>
           </div>
         )}
         {advanced && (
           <>
             <div>
-              <dt>Series</dt>
+              <FigureName name="Series">
+                Each metric name with one set of attributes is one series. Veyra keeps at most{" "}
+                {usage.maxSeries.toLocaleString("en-US")}; points of new series beyond that are dropped, so a count near
+                the limit needs a look, often at an attribute with too many values.
+              </FigureName>
               <dd>
                 {usage.series.toLocaleString("en-US")} <small>of {usage.maxSeries.toLocaleString("en-US")}</small>
               </dd>
             </div>
             <div>
-              <dt>Points</dt>
+              <FigureName name="Points">
+                Metric points received per second over the last 5 minutes, from every sender. A sudden fall can mean a
+                sender stopped.
+              </FigureName>
               <dd>
                 {formatRate(usage.pointsPerSecond)} <small>per second</small>
               </dd>
             </div>
             <div>
-              <dt>Storage</dt>
+              <FigureName name="Storage">
+                The disk space metrics take in PostgreSQL: series and points with their indexes. Points stay
+                {usage.retentionDays} days, then are dropped.
+              </FigureName>
               <dd>
                 {formatAmount(usage.usedBytes)} <small>{usage.retentionDays} days kept</small>
               </dd>
@@ -219,7 +226,11 @@ function Overview({ overview, range, search, environment, advanced }: OverviewPr
       {hosts.length > 0 && (
         <section aria-labelledby="metrics-hosts">
           <div className="metrics-section">
-            <h2 id="metrics-hosts">Hosts</h2>
+            <PanelName id="metrics-hosts" name="Hosts" label="a host card">
+              Each card is a host: CPU over the last 5 minutes, memory, and its fullest disk, as rings that turn amber
+              from 75% and red from 90%. The line is CPU {rangeWords(range, "over")}; the foot names a disk that is full
+              within 30 days at the pace of its last day.
+            </PanelName>
             <span>from the Collector&apos;s hostmetrics receiver</span>
           </div>
           <div className="metric-cards">
@@ -233,7 +244,11 @@ function Overview({ overview, range, search, environment, advanced }: OverviewPr
       {databases.length > 0 && (
         <section aria-labelledby="metrics-databases">
           <div className="metrics-section">
-            <h2 id="metrics-databases">Databases</h2>
+            <PanelName id="metrics-databases" name="Database servers" label="a database server card">
+              Each card is a database server. SQL Server shows batch requests per second, sessions blocked now, and the
+              longest query running now, then failed SQL Agent jobs or a full backup older than 26 hours. PostgreSQL
+              shows its connections of the maximum instead, and how close it is to transaction ID wraparound.
+            </PanelName>
             <span>from the Collector&apos;s database receivers</span>
           </div>
           <div className="metric-cards">
@@ -252,7 +267,11 @@ function Overview({ overview, range, search, environment, advanced }: OverviewPr
       {containers.length > 0 && (
         <section aria-labelledby="metrics-containers">
           <div className="metrics-section">
-            <h2 id="metrics-containers">Containers</h2>
+            <PanelName id="metrics-containers" name="Containers" label="a container card">
+              Each card is a container: CPU over the last 5 minutes as a share of one CPU, so two busy CPUs read 200%,
+              memory of its limit, and restarts {rangeWords(range, "in")}. A card is marked from 90% of its memory limit
+              or two restarts.
+            </PanelName>
             <span>from the Collector&apos;s docker_stats receiver</span>
           </div>
           <div className="metric-cards">
@@ -271,7 +290,11 @@ function Overview({ overview, range, search, environment, advanced }: OverviewPr
       {services.length > 0 && (
         <section aria-labelledby="metrics-services">
           <div className="metrics-section">
-            <h2 id="metrics-services">Services</h2>
+            <PanelName id="metrics-services" name="Services" label="a service card">
+              Each card is a service: HTTP requests per second, the 95th percentile of their duration, and the share
+              answered with a 5xx status, over the last 5 minutes. They come from http.server.request.duration. The line
+              is p95 {rangeWords(range, "over")}.
+            </PanelName>
             <span>from the OpenTelemetry SDKs: HTTP server and runtime metrics</span>
           </div>
           <div className="metric-cards">

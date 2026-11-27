@@ -7,8 +7,12 @@ namespace Veyra.Query.Traces.Api;
 /// The most a request reads; when <paramref name="Read"/> reaches it, older traces are left out.
 /// </param>
 /// <param name="P95Ms">The 95th percentile of the durations read, in milliseconds, or <see langword="null"/>.</param>
+/// <param name="Failed">How many traces read failed, counted on the server (VEY-68).</param>
+/// <param name="Slow">How many traces read did not fail and took at least the 95th percentile (VEY-68).</param>
 public sealed record TraceDurationsResponse(
     IReadOnlyList<TraceDurationPointResponse> Points,
     int Read,
     int MaxRead,
-    double? P95Ms);
+    double? P95Ms,
+    int Failed,
+    int Slow);

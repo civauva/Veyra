@@ -19,7 +19,7 @@ async function scrollsSideways(page: Page): Promise<boolean> {
 
 test.describe("Forecast home", () => {
   test("reads the storm and lays out for the screen size", async ({ page }, testInfo) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/");
 
     const title = page.getByRole("heading", { level: 1, name: "Storm over Services" });
@@ -49,7 +49,7 @@ test.describe("Forecast home", () => {
   });
 
   test("numbers each alert in Needs you on a round badge", async ({ page }) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/");
     const pane = page.getByRole("region", { name: "Needs you" });
     await expect(pane).toBeVisible();
@@ -68,7 +68,7 @@ test.describe("Forecast home", () => {
   });
 
   test("opens the logs of an alert from Needs you", async ({ page }) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/");
 
     await page.getByRole("region", { name: "Needs you" }).getByRole("link", { name: "Open logs" }).click();
@@ -79,7 +79,7 @@ test.describe("Forecast home", () => {
 
   test("opens another alert with the keyboard", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name === "phone", "Phones have no keyboard to tab with.");
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/");
 
     const second = page.getByRole("button", { name: /billing-worker/ });
@@ -92,7 +92,7 @@ test.describe("Forecast home", () => {
 
   test("paints the storm at night in the dark theme", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "dark" });
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/");
     await expect(page.getByRole("heading", { level: 1, name: "Storm over Services" })).toBeVisible();
 
@@ -105,7 +105,7 @@ test.describe("Forecast home", () => {
 
   test("shows clear skies by day in the light theme", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "light" });
-    await answerApi(page, { home: clearSnapshot });
+    await answerApi(page, { look: "forecast", home: clearSnapshot });
     await page.goto("/");
 
     await expect(page.getByRole("heading", { level: 1, name: "Clear skies" })).toBeVisible();

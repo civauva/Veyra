@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Time.Testing;
+using Veyra.Core.Alerts;
 using Veyra.Core.Metrics;
+using Veyra.Core.Telemetry;
 using Veyra.Query.Metrics;
 using static Veyra.Query.Tests.Metrics.MetricTestData;
 
@@ -36,7 +38,7 @@ public class MetricViewBuilderTests
     [Theory]
     [InlineData("1h", 60, 60)]
     [InlineData("6h", 300, 72)]
-    [InlineData("24h", 1800, 48)]
+    [InlineData("24h", 3600, 24)]
     [InlineData("7d", 10800, 56)]
     public async Task OverviewAsync_Range_CardLinesHaveAtMostSeventyTwoPoints(
         string range,
@@ -147,6 +149,25 @@ public class MetricViewBuilderTests
     }
 
     [Fact]
+    public async Task ServiceAsync_SlowRoutePastTheBusiestTen_IsAmongTheSlowest()
+    {
+        // Ten busy, quick routes fill the busiest ten; the slow one is the least busy (VEY-68).
+        for (var route = 0; route < 10; route++)
+        {
+            var quick = _store.Add(Durations("orders", 200, _now, route: $"/quick-{route}"));
+            Grow(_store, quick, _baseline, 6, [100, 0, 0]);
+        }
+
+        Grow(_store, _store.Add(Durations("orders", 200, _now, route: "/report")), _baseline, 6, [0, 0, 5]);
+
+        var view = (await Builder().ServiceAsync("orders", "production", "1h", CancellationToken.None))!;
+
+        Assert.DoesNotContain(view.Routes, route => route.Route == "/report");
+        Assert.Equal("/report", view.SlowestRoutes[0].Route);
+        Assert.Equal(5, view.SlowestRoutes.Count);
+    }
+
+    [Fact]
     public async Task ServiceAsync_GeneratedInstanceId_IsShortened()
     {
         // The .NET SDK makes up a GUID per process when the instance ID is not configured.
@@ -198,6 +219,8 @@ public class MetricViewBuilderTests
         Assert.Equal(("rate", "By/s"), (chart.Show, chart.Unit));
         Assert.Equal(["idle", "user"], chart.Lines.Select(line => line.Label));
         Assert.Equal(0.6, chart.Lines[0].Latest!.Value, 6);
+        Assert.Equal(0.6, chart.Lines[0].Average!.Value, 6);
+        Assert.Equal(0.6, chart.Lines[0].Highest!.Value, 6);
         Assert.Contains("state", chart.SplitKeys);
     }
 
@@ -213,7 +236,88 @@ public class MetricViewBuilderTests
         Assert.Equal(0.94375, Assert.Single(chart.Lines).Latest!.Value, 6);
     }
 
+    [Fact]
+    public async Task OverviewAsync_SearchForAHostPastTheSeriesLimit_ListsIt()
+    {
+        // Another host fills the 2,000 series the overview reads, so without the search web-01 is cut off.
+        for (var cpu = 0; cpu < 2_000; cpu++)
+        {
+            AddHost("busy-01", "system.cpu.time", null, ("cpu", cpu.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        }
+
+        AddHost("web-01", "system.cpu.time", null, ("cpu", "0"));
+
+        var all = await Builder().OverviewAsync("1h", CancellationToken.None);
+        var found = await Builder().OverviewAsync("1h", new MetricsOverviewFilter("WEB", null), CancellationToken.None);
+
+        Assert.DoesNotContain(all.Hosts, host => host.Name == "web-01");
+        Assert.Equal("web-01", Assert.Single(found.Hosts).Name);
+        Assert.Equal(1, found.Summary.Hosts);
+    }
+
+    [Fact]
+    public async Task OverviewAsync_Environment_KeepsItsServicesAndHostsThatNameNone()
+    {
+        AddHost("web-01", "system.memory.usage", null);
+        AddHost("stage-01", "system.memory.usage", "staging");
+        AddService("orders", "production");
+        AddService("orders", "staging");
+
+        var overview = await Builder().OverviewAsync(
+            "1h",
+            new MetricsOverviewFilter(null, "production"),
+            CancellationToken.None);
+
+        Assert.Equal("web-01", Assert.Single(overview.Hosts).Name);
+        Assert.Equal("production", Assert.Single(overview.Services).Environment);
+        Assert.Equal((1, 1), (overview.Summary.Hosts, overview.Summary.Services));
+    }
+
+    [Fact]
+    public async Task OverviewAsync_SearchMatchingNothing_SaysOtherMetricsExist()
+    {
+        AddHost("web-01", "system.memory.usage", null);
+
+        var overview = await Builder().OverviewAsync(
+            "1h",
+            new MetricsOverviewFilter("nothing", null),
+            CancellationToken.None);
+
+        Assert.Empty(overview.Hosts);
+        Assert.True(overview.Summary.AnySent);
+    }
+
+    [Fact]
+    public async Task OverviewAsync_NoMetricsAtAll_SaysNoneWereSent()
+    {
+        var overview = await Builder().OverviewAsync("1h", CancellationToken.None);
+
+        Assert.False(overview.Summary.AnySent);
+    }
+
     private MetricViewBuilder Builder() => new(_store, new FakeTimeProvider(_now));
+
+    private void AddHost(string host, string name, string? environment, params (string Key, string Value)[] attributes)
+    {
+        var series = _store.Add(HostSeries(name, MetricKind.Sum, false, _now, attributes) with
+        {
+            HostName = host,
+            Environment = environment,
+            ResourceAttributes = new Dictionary<string, string> { ["host.name"] = host },
+            Block = new TelemetryBlock(AlertBlockKind.Host, host),
+        });
+        _store.Point(series, _now.AddMinutes(-1), 1);
+    }
+
+    private void AddService(string service, string environment)
+    {
+        var series = _store.Add(Durations(service, 200, _now) with
+        {
+            Environment = environment,
+            Block = new TelemetryBlock(AlertBlockKind.Service, service),
+        });
+        Grow(_store, series, _baseline, 6, [1, 0, 0]);
+    }
 
     private void AddCpu(string state, double perSecond, string cpu = "0")
     {

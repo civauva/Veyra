@@ -13,6 +13,11 @@ namespace Veyra.Alerting.Alerts;
 /// <param name="Kind">Only alerts about services, or only about hosts.</param>
 /// <param name="Block">Only alerts whose block name or part holds this text, in any case.</param>
 /// <param name="After">Where the previous page ended; <see langword="null"/> for the first page.</param>
+/// <param name="Name">Only alerts about the block of exactly this name, for a block's own screen (VEY-68).</param>
+/// <param name="Part">Only alerts about exactly this part, such as a disk or a container's host (VEY-68).</param>
+/// <param name="WorstFirst">
+/// Warnings first, then cautions, each the oldest first, instead of the newest first (VEY-68).
+/// </param>
 internal sealed record AlertListQuery(
     DateTimeOffset From,
     DateTimeOffset To,
@@ -23,4 +28,7 @@ internal sealed record AlertListQuery(
     string? Environment = null,
     AlertBlockKind? Kind = null,
     string? Block = null,
-    AlertCursor? After = null);
+    AlertCursor? After = null,
+    string? Name = null,
+    string? Part = null,
+    bool WorstFirst = false);

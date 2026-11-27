@@ -48,11 +48,13 @@ internal sealed class DeliveryStore(NpgsqlDataSource dataSource)
                    a.opened_at, a.updated_at, a.resolved_at,
                    c.id, c.name, c.kind, c.enabled, c.send_warning, c.send_caution, c.send_resolved,
                    c.webhook_url_protected, c.webhook_url_hint, c.email_recipients, c.created_at, c.updated_at,
-                   a.block_kind, a.part
+                   a.block_kind, a.part, i.id, i.number
             FROM claimed
             JOIN alerting.alert_event e ON e.id = claimed.event_id
             JOIN alerting.alert a ON a.id = e.alert_id
             JOIN alerting.channel c ON c.id = claimed.channel_id
+            LEFT JOIN alerting.incident_alert ia ON ia.alert_id = a.id
+            LEFT JOIN alerting.incident i ON i.id = ia.incident_id
             ORDER BY claimed.id
             """);
         command.Parameters.AddWithValue(now);
@@ -99,7 +101,14 @@ internal sealed class DeliveryStore(NpgsqlDataSource dataSource)
                 CreatedAt: reader.GetFieldValue<DateTimeOffset>(29),
                 UpdatedAt: reader.GetFieldValue<DateTimeOffset>(30));
 
-            claimed.Add(new DueDelivery(reader.GetInt64(0), reader.GetInt32(1), alertEvent, alert, channel));
+            claimed.Add(new DueDelivery(
+                reader.GetInt64(0),
+                reader.GetInt32(1),
+                alertEvent,
+                alert,
+                channel,
+                reader.IsDBNull(33) ? null : reader.GetGuid(33),
+                reader.IsDBNull(34) ? null : reader.GetInt64(34)));
         }
 
         return claimed;
@@ -181,28 +190,31 @@ internal sealed class DeliveryStore(NpgsqlDataSource dataSource)
             """);
         command.Parameters.AddWithValue(alertId);
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await ReadDeliveriesAsync(command, cancellationToken);
+    }
 
-        var deliveries = new List<Delivery>();
+    /// <summary>Lists every delivery about the alerts of an incident, in the order they were queued (ADR 0026).</summary>
+    /// <param name="incidentId">The incident's ID.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    /// <returns>The deliveries with their channel's name and kind.</returns>
+    public async Task<IReadOnlyList<Delivery>> ListForIncidentAsync(
+        Guid incidentId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(
+            """
+            SELECT d.id, d.event_id, d.channel_id, c.name, c.kind, d.state, d.attempts, d.next_attempt_at,
+                   d.last_attempt_at, d.last_status, d.last_error, d.sent_at
+            FROM alerting.delivery d
+            JOIN alerting.alert_event e ON e.id = d.event_id
+            JOIN alerting.incident_alert ia ON ia.alert_id = e.alert_id
+            JOIN alerting.channel c ON c.id = d.channel_id
+            WHERE ia.incident_id = $1
+            ORDER BY d.id
+            """);
+        command.Parameters.AddWithValue(incidentId);
 
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            deliveries.Add(new Delivery(
-                Id: reader.GetInt64(0),
-                EventId: reader.GetInt64(1),
-                ChannelId: reader.GetGuid(2),
-                ChannelName: reader.GetString(3),
-                ChannelKind: (ChannelKind)reader.GetInt16(4),
-                State: (DeliveryState)reader.GetInt16(5),
-                Attempts: reader.GetInt32(6),
-                NextAttemptAt: reader.GetFieldValue<DateTimeOffset>(7),
-                LastAttemptAt: reader.IsDBNull(8) ? null : reader.GetFieldValue<DateTimeOffset>(8),
-                LastStatus: reader.IsDBNull(9) ? null : reader.GetInt32(9),
-                LastError: reader.IsDBNull(10) ? null : reader.GetString(10),
-                SentAt: reader.IsDBNull(11) ? null : reader.GetFieldValue<DateTimeOffset>(11)));
-        }
-
-        return deliveries;
+        return await ReadDeliveriesAsync(command, cancellationToken);
     }
 
     /// <summary>
@@ -291,5 +303,34 @@ internal sealed class DeliveryStore(NpgsqlDataSource dataSource)
         }
 
         return activity;
+    }
+
+    // Rows of the columns both lists of deliveries select, in their order.
+    private static async Task<IReadOnlyList<Delivery>> ReadDeliveriesAsync(
+        NpgsqlCommand command,
+        CancellationToken cancellationToken)
+    {
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        var deliveries = new List<Delivery>();
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            deliveries.Add(new Delivery(
+                Id: reader.GetInt64(0),
+                EventId: reader.GetInt64(1),
+                ChannelId: reader.GetGuid(2),
+                ChannelName: reader.GetString(3),
+                ChannelKind: (ChannelKind)reader.GetInt16(4),
+                State: (DeliveryState)reader.GetInt16(5),
+                Attempts: reader.GetInt32(6),
+                NextAttemptAt: reader.GetFieldValue<DateTimeOffset>(7),
+                LastAttemptAt: reader.IsDBNull(8) ? null : reader.GetFieldValue<DateTimeOffset>(8),
+                LastStatus: reader.IsDBNull(9) ? null : reader.GetInt32(9),
+                LastError: reader.IsDBNull(10) ? null : reader.GetString(10),
+                SentAt: reader.IsDBNull(11) ? null : reader.GetFieldValue<DateTimeOffset>(11)));
+        }
+
+        return deliveries;
     }
 }

@@ -117,9 +117,39 @@ public class LiveViewTests
         Assert.Equal("no-read", Assert.Single(view.Findings).Kind);
     }
 
+    [Fact]
+    public void Build_FilteredByProgram_ListsItsSessionsAndKeepsTheirChainsWhole()
+    {
+        var view = View(Chain(), new LiveFilter(Program: "checkout-api"));
+
+        Assert.Equal([131, 140], view.Sessions.Select(session => session.Id));
+        Assert.Equal(88, Assert.Single(view.Blocking).Session);
+        // The chain's other sessions come apart, so the chain can still name who blocks whom.
+        Assert.Equal([117, 88], view.Chained.Select(session => session.Id));
+        // The tiles and findings stay the server's: a filter narrows the list, not what the server suffers.
+        Assert.Equal(3, view.Tiles.Blocked);
+        Assert.Equal(117, view.Tiles.LongestRequestSession);
+        Assert.Equal("blocking", view.Findings[0].Kind);
+    }
+
+    [Fact]
+    public void Build_FilteredByDatabaseAndWait_KeepsOnlySessionsThatMeetBoth()
+    {
+        var reporting = View(Chain(), new LiveFilter(Database: "reporting"));
+        var waiting = View(
+            Chain(),
+            new LiveFilter(Database: "shop", Wait: "LCK_M_U", Host: "web-21", Login: "svc_shop"));
+
+        Assert.Equal([203], reporting.Sessions.Select(session => session.Id));
+        Assert.Empty(reporting.Blocking);
+        Assert.Empty(reporting.Chained);
+        Assert.Equal([117], waiting.Sessions.Select(session => session.Id));
+        Assert.Equal([88, 131, 140], waiting.Chained.Select(session => session.Id).Order());
+    }
+
     private static readonly Dictionary<DateTimeOffset, double> _empty = [];
 
-    private static LiveResponse View(IReadOnlyList<SessionSample> sessions) =>
+    private static LiveResponse View(IReadOnlyList<SessionSample> sessions, LiveFilter? filter = null) =>
         LiveViewBuilder.Build(
             "microsoft.sql_server",
             "sql-prod-01",
@@ -133,5 +163,6 @@ public class LiveViewTests
             At.AddSeconds(7),
             _window,
             _empty,
-            _empty);
+            _empty,
+            filter);
 }

@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { api } from "../api/client";
 import { defaultFilters, filtersToUrl } from "../logs/logFilters";
 import { formatClockTime } from "./metricFormat";
+import { PanelName } from "./TileName";
 import { useMetricData } from "./useMetricData";
 
 /** Props for {@link HostIssues}. */
@@ -42,7 +43,10 @@ export function HostIssues({ host }: HostIssuesProps) {
   return (
     <section className="metric-panel wide" aria-labelledby="host-issues">
       <div className="metric-panel-head">
-        <h2 id="host-issues">Recent errors</h2>
+        <PanelName id="host-issues" name="Recent errors">
+          The newest errors of the last day in the host&apos;s own logs, such as the Windows Event Log errors its agent
+          reads. All of them, and what came before each, are in Logs.
+        </PanelName>
         <Link to={`/logs?${all}`}>All of the last day ›</Link>
       </div>
       <ul className="host-issues">

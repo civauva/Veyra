@@ -56,9 +56,11 @@ describe("filtersToUrl and filtersFromUrl", () => {
   it("round-trip every filter, so a link reopens the same view", () => {
     const filters: LogFilters = {
       range: "6h",
+      window: null,
       minimumSeverity: "Error",
       services: ["payments"],
       text: "timeout",
+      query: "host:web-01",
       attributes: [{ key: "http.route", value: "/a:b" }],
       traceId: "5b8efff798038103d269b633813fc60c",
       around: "2026-11-09T10:00:00.000Z",
@@ -71,5 +73,37 @@ describe("filtersToUrl and filtersFromUrl", () => {
     const filters = filtersFromUrl(new URLSearchParams("range=3w&severity=Loud&attribute=broken&around=yesterday"));
 
     expect(filters).toEqual(defaultFilters);
+  });
+});
+
+describe("a window of one's own (ADR 0022)", () => {
+  it("filtersFromUrl_FromAndTo_SearchThatWindowAndKeepItInTheAddress", () => {
+    const filters = filtersFromUrl(new URLSearchParams("from=2026-11-20T00:00:00.000Z&to=2026-11-21T00:00:00.000Z"));
+
+    expect(filters.window).toEqual({ from: "2026-11-20T00:00:00.000Z", to: "2026-11-21T00:00:00.000Z" });
+    expect(filtersToApiParams(filters, new Date("2026-11-26T09:00:00Z")).get("from")).toBe("2026-11-20T00:00:00.000Z");
+    expect(filtersToUrl(filters)).toContain("from=2026-11-20T00%3A00%3A00.000Z");
+  });
+
+  it("filtersFromUrl_PresetBesideAWindow_ThePresetWins", () => {
+    expect(
+      filtersFromUrl(new URLSearchParams("range=7d&from=2026-11-20T00:00:00Z&to=2026-11-21T00:00:00Z")).window,
+    ).toBeNull();
+  });
+});
+
+describe("the query of the query bar (ADR 0024)", () => {
+  it("filtersFromUrl_Q_ReadsTheQuery", () => {
+    expect(filtersFromUrl(new URLSearchParams("q=service%3Aorders")).query).toBe("service:orders");
+  });
+
+  it("filtersToApiParams_Query_SendsItAsQ", () => {
+    const params = filtersToApiParams({ ...defaultFilters, query: ' level>=warning "timed out" ' }, now);
+
+    expect(params.get("q")).toBe('level>=warning "timed out"');
+  });
+
+  it("filtersToUrl_EmptyQuery_LeavesItOut", () => {
+    expect(filtersToUrl({ ...defaultFilters, query: "  " })).not.toContain("q=");
   });
 });

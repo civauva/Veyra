@@ -15,3 +15,4 @@ configuration in `/integrations/<target>/`.
 | Veyra agents | the Collector and its OpAMP supervisor, configured by Veyra | [`agents.md`](agents.md) |
 | .NET applications | OpenTelemetry .NET SDK, OTLP exporter | [`dotnet.md`](dotnet.md) |
 | Traces and sampling | OTLP exporter, `tail_sampling` processor | [`traces.md`](traces.md) |
+| Jobs and pipelines | Root spans with a job name, from the OpenTelemetry SDKs | [`jobs.md`](jobs.md) |

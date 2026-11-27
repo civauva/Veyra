@@ -37,4 +37,10 @@ public sealed record DatabasePartResponse(
 
     /// <summary>How many times its tables were vacuumed over the last day (PostgreSQL).</summary>
     public double? Vacuums { get; init; }
+
+    /// <summary>
+    /// Whether the engine keeps it for itself (VEY-64), such as master or postgres, which the screen hides unless
+    /// asked; alerts still watch it.
+    /// </summary>
+    public bool System { get; init; }
 }

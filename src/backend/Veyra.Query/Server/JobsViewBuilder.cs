@@ -4,6 +4,7 @@ using Veyra.Core.Metrics;
 using Veyra.Core.Telemetry;
 using Veyra.Query.Metrics;
 using Veyra.Query.Server.Api;
+using Veyra.Query.Systems;
 
 namespace Veyra.Query.Server;
 
@@ -32,11 +33,15 @@ internal sealed class JobsViewBuilder(IMetricSearch search, IDatabaseActivitySea
     /// <summary>Builds the tab.</summary>
     /// <param name="engine">The engine.</param>
     /// <param name="server">The server.</param>
+    /// <param name="system">Whether the jobs SQL Server set up itself are listed (VEY-66).</param>
+    /// <param name="simple">Whether only the jobs that need a look are listed (VEY-67).</param>
     /// <param name="cancellationToken">Cancels the reads.</param>
     /// <returns>The jobs, those that need a look first.</returns>
-    public async Task<IReadOnlyList<JobResponse>> JobsAsync(
+    public async Task<JobsResponse> JobsAsync(
         string engine,
         string server,
+        bool system,
+        bool simple,
         CancellationToken cancellationToken)
     {
         var now = clock.GetUtcNow();
@@ -76,7 +81,7 @@ internal sealed class JobsViewBuilder(IMetricSearch search, IDatabaseActivitySea
             .GroupBy(record => record.Attributes.GetValueOrDefault("job_name") ?? "")
             .ToDictionary(group => group.Key, group => group.ToList());
 
-        return failed.Keys.Union(running.Keys).Union(next.Keys)
+        var jobs = failed.Keys.Union(running.Keys).Union(next.Keys)
             .Select(job =>
             {
                 double? Value(Dictionary<string, double> values) =>
@@ -114,13 +119,34 @@ internal sealed class JobsViewBuilder(IMetricSearch search, IDatabaseActivitySea
                     Value(next) is { } at ? DateTimeOffset.FromUnixTimeSeconds((long)at) : null,
                     Value(late) >= 1,
                     Value(usual),
-                    runs);
+                    runs)
+                {
+                    System = SystemObjects.IsSystemJob(job),
+                };
             })
-            .OrderByDescending(job => job.Failed
-                || job.Late
-                || (job.RunningSeconds > 300 && job.RunningSeconds > 2 * job.UsualSeconds))
+            .ToList();
+
+        return Keep(jobs, system, simple);
+    }
+
+    /// <summary>
+    /// Orders the jobs, those that need a look first, and keeps those asked for. Pure; tested without a database.
+    /// </summary>
+    /// <param name="jobs">Every enabled job.</param>
+    /// <param name="system">Whether the jobs SQL Server set up itself are listed (VEY-66).</param>
+    /// <param name="simple">Whether only the jobs that need a look are listed, as in the Simple view (VEY-67).</param>
+    /// <returns>The tab.</returns>
+    public static JobsResponse Keep(IReadOnlyList<JobResponse> jobs, bool system, bool simple)
+    {
+        ArgumentNullException.ThrowIfNull(jobs);
+
+        var ordered = jobs
+            .OrderByDescending(job => job.NeedsLook)
             .ThenBy(job => job.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
+        var (listed, hidden) = SystemRows.Keep(ordered, system, job => job.System, job => job.Name);
+
+        return new JobsResponse([.. listed.Where(job => !simple || job.NeedsLook)], hidden, listed.Count);
     }
 
     private static double Number(ActivityRecord record, string key) =>

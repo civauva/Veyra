@@ -25,5 +25,8 @@ public sealed class AccessOptionsRules : OptionsRules<AccessOptions>
         yield return (
             options.SignInHistoryDays is >= 1 and <= 3650,
             "Veyra:Access:SignInHistoryDays must be between 1 and 3650.");
+        yield return (
+            Users.Looks.IsKnown(options.DefaultLook),
+            $"Veyra:Access:DefaultLook must be one of: {string.Join(", ", Users.Looks.All)}.");
     }
 }

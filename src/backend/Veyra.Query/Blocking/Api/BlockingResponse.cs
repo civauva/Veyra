@@ -7,4 +7,11 @@ namespace Veyra.Query.Blocking.Api;
 public sealed record BlockingResponse(
     string Range,
     IReadOnlyList<EpisodeResponse> Episodes,
-    IReadOnlyList<DeadlockResponse> Deadlocks);
+    IReadOnlyList<DeadlockResponse> Deadlocks)
+{
+    /// <summary>The start of the period the answer covers (ADR 0022).</summary>
+    public DateTimeOffset From { get; init; }
+
+    /// <summary>The end of the period the answer covers: now, or the <c>to</c> asked for (ADR 0022).</summary>
+    public DateTimeOffset To { get; init; }
+}

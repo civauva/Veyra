@@ -13,6 +13,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Veyra.Access.About;
 using Veyra.Access.Api;
 using Veyra.Access.History;
 using Veyra.Access.Keys;
@@ -21,6 +22,7 @@ using Veyra.Access.Sessions;
 using Veyra.Access.Settings;
 using Veyra.Access.Setup;
 using Veyra.Access.Users;
+using Veyra.Access.Views;
 using Veyra.Core;
 using Veyra.Core.Maintenance;
 using Veyra.Core.Schema;
@@ -83,6 +85,8 @@ public static class AccessServiceCollectionExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<ISchemaMigrationSource, AccessMigrations>();
 
+        services.AddSingleton<BuildIdentity>();
+
         services.AddSingleton<IPasswordHasher<AccessUser>, PasswordHasher<AccessUser>>();
         services.AddSingleton<PasswordPolicy>();
         services.AddSingleton<UserStore>();
@@ -99,8 +103,11 @@ public static class AccessServiceCollectionExtensions
         services.AddSingleton<SettingStore>();
         services.AddSingleton<SettingsService>();
         services.AddSingleton<IMonitoringHistory, MonitoringHistory>();
+        services.AddSingleton<ISavedSettings, SavedSettings>();
         services.AddHostedService<SavedSettingsRefreshService>();
         services.AddSingleton<UserDirectory>();
+        services.AddSingleton<SavedViewStore>();
+        services.AddSingleton<SavedViewService>();
         services.AddSingleton<AccessCleanup>();
         services.AddHostedService<AccessCleanupService>();
         services.AddSingleton<SetupService>();
@@ -133,12 +140,14 @@ public static class AccessServiceCollectionExtensions
             provider.GetRequiredService<SecondFactorService>(),
             provider.GetRequiredService<UserService>(),
             provider.GetRequiredService<UserStore>(),
-            provider.GetRequiredService<IAntiforgery>()));
+            provider.GetRequiredService<IAntiforgery>(),
+            provider.GetRequiredService<IOptionsMonitor<AccessOptions>>()));
         services.AddTransient(provider => new UsersController(
             provider.GetRequiredService<UserService>(),
             provider.GetRequiredService<UserDirectory>(),
             provider.GetRequiredService<SecondFactorService>(),
-            provider.GetRequiredService<SessionService>()));
+            provider.GetRequiredService<SessionService>(),
+            provider.GetRequiredService<TimeProvider>()));
         services.AddTransient(provider => new AccountController(
             provider.GetRequiredService<UserDirectory>(),
             provider.GetRequiredService<UserService>(),
@@ -147,9 +156,11 @@ public static class AccessServiceCollectionExtensions
         services.AddTransient(provider =>
             new IngestionKeysController(provider.GetRequiredService<IngestionKeyService>()));
         services.AddTransient(provider => new SettingsController(provider.GetRequiredService<SettingsService>()));
+        services.AddTransient(provider => new ViewsController(provider.GetRequiredService<SavedViewService>()));
         services.AddTransient(provider => new ClearTelemetryController(
             provider.GetServices<ITelemetryClearer>(),
             provider.GetRequiredService<ILogger<ClearTelemetryController>>()));
+        services.AddTransient(provider => new AboutController(provider.GetRequiredService<BuildIdentity>()));
     }
 
     private static void AddSessions(IServiceCollection services, IConfiguration configuration)

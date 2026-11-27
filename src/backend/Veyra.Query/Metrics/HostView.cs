@@ -98,7 +98,11 @@ internal static class HostView
                 lines.Line("1m", window.Levels(window.Named(MetricNames.Load1))),
                 lines.Line("5m", window.Levels(window.Named(MetricNames.Load5))),
                 lines.Line("15m", window.Levels(window.Named(MetricNames.Load15))),
-            ]);
+            ])
+        {
+            From = lines.From,
+            To = lines.End,
+        };
     }
 
     /// <summary>The share of CPU time not idle, per bucket.</summary>
@@ -132,6 +136,27 @@ internal static class HostView
                     .Where(pair => total.GetValueOrDefault(pair.Key) > 0)
                     .ToDictionary(pair => pair.Key, pair => pair.Value / total[pair.Key]),
                 StringComparer.Ordinal);
+    }
+
+    /// <summary>The share of memory in use, per bucket, as the host's card and chart read it.</summary>
+    /// <param name="data">The host's series.</param>
+    /// <returns>The share from 0 to 1 per bucket start.</returns>
+    public static Dictionary<DateTimeOffset, double> MemoryUsed(SeriesData data) => MemoryShare(data, "used");
+
+    /// <summary>
+    /// The share in use of the host's fullest real disk, per bucket: the Overview's host trend (ADR 0023). Read-only
+    /// and pseudo file systems are left out, as on the host's card.
+    /// </summary>
+    /// <param name="data">The host's filesystem series.</param>
+    /// <returns>The highest share from 0 to 1 per bucket start.</returns>
+    public static Dictionary<DateTimeOffset, double> FullestDisk(SeriesData data)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+
+        return Mounts(data)
+            .SelectMany(mount => DiskShare(data, mount.Key))
+            .GroupBy(pair => pair.Key)
+            .ToDictionary(group => group.Key, group => group.Max(pair => pair.Value));
     }
 
     private static Dictionary<DateTimeOffset, double> MemoryTotal(SeriesData data) =>
@@ -217,7 +242,9 @@ internal static class HostView
     /// A short OS name for the card. The Collector's <c>os.description</c> is a distribution with its code name, or,
     /// where it cannot read one (in a container), the whole kernel description; then the OS type is shorter.
     /// </summary>
-    private static string? OsName(IReadOnlyDictionary<string, string> resource)
+    /// <param name="resource">The host's resource attributes.</param>
+    /// <returns>The name, or null when the resource names no OS.</returns>
+    public static string? OsName(IReadOnlyDictionary<string, string> resource)
     {
         var description = resource.GetValueOrDefault("os.description");
         var type = resource.GetValueOrDefault("os.type");

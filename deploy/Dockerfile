@@ -16,14 +16,16 @@ RUN npm run build
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /repo
 
-# Build settings that apply to every project.
-COPY global.json Directory.Build.props Directory.Packages.props .editorconfig ./
+# Build settings that apply to every project, and the release notes the Access module embeds (VEY-82).
+COPY global.json Directory.Build.props Directory.Packages.props .editorconfig CHANGELOG.md ./
 
 # Backend sources only. Tests, docs, and tooling stay out of the build context (see .dockerignore).
 COPY src/backend/ src/backend/
 
 # The tested Collector template the Agents module builds its agents' configuration from (ADR 0019).
 COPY integrations/sqlserver/collector.yaml integrations/sqlserver/collector.yaml
+COPY integrations/sqlserver/collector.0.1.0.yaml integrations/sqlserver/collector.0.1.0.yaml
+COPY integrations/sqlserver/probe.yaml integrations/sqlserver/probe.yaml
 COPY integrations/sqlserver/azure-sql-database.yaml integrations/sqlserver/azure-sql-database.yaml
 COPY integrations/windows/collector.yaml integrations/windows/collector.yaml
 COPY integrations/windows/iis.yaml integrations/windows/iis.yaml

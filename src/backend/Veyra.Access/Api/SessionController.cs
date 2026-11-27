@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Options;
 using Veyra.Access.SecondFactor;
 using Veyra.Access.Sessions;
 using Veyra.Access.Users;
@@ -30,6 +31,7 @@ public sealed class SessionController : ControllerBase
     private readonly UserService _users;
     private readonly UserStore _store;
     private readonly IAntiforgery _antiforgery;
+    private readonly IOptionsMonitor<AccessOptions> _options;
 
     internal SessionController(
         SignInService signIn,
@@ -37,7 +39,8 @@ public sealed class SessionController : ControllerBase
         SecondFactorService secondFactor,
         UserService users,
         UserStore store,
-        IAntiforgery antiforgery)
+        IAntiforgery antiforgery,
+        IOptionsMonitor<AccessOptions> options)
     {
         _signIn = signIn;
         _sessions = sessions;
@@ -45,6 +48,7 @@ public sealed class SessionController : ControllerBase
         _users = users;
         _store = store;
         _antiforgery = antiforgery;
+        _options = options;
     }
 
     /// <summary>Signs in with a local email and password, and sets the session cookie.</summary>
@@ -192,7 +196,7 @@ public sealed class SessionController : ControllerBase
         var result = await _signIn.FinishAfterSetupAsync(user, SignInClient.From(HttpContext), cancellationToken);
         await BeginSessionAsync(result, cancellationToken);
 
-        return Ok(new SetupConfirmedResponse(AccessResponses.Session(result.User!), codes));
+        return Ok(new SetupConfirmedResponse(AccessResponses.Session(result.User!, _options.CurrentValue), codes));
     }
 
     /// <summary>Returns the signed-in user.</summary>
@@ -207,7 +211,7 @@ public sealed class SessionController : ControllerBase
     {
         var user = await _store.FindByIdAsync(User.UserId(), cancellationToken);
 
-        return user is null ? Unauthorized() : Ok(AccessResponses.Session(user));
+        return user is null ? Unauthorized() : Ok(AccessResponses.Session(user, _options.CurrentValue));
     }
 
     /// <summary>Signs out: ends the session and removes the session cookie.</summary>
@@ -276,7 +280,7 @@ public sealed class SessionController : ControllerBase
     {
         await BeginSessionAsync(result, cancellationToken);
 
-        return Ok(AccessResponses.Session(result.User!));
+        return Ok(AccessResponses.Session(result.User!, _options.CurrentValue));
     }
 
     // Records the session, replaces a pending cookie with the session cookie.

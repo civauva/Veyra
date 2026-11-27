@@ -138,13 +138,22 @@ whether it runs. See [`docs/integrations/sqlserver.md`](../integrations/sqlserve
 ## Settings
 
 Admins change Veyra's settings on the **Settings** screen: retention and size budgets, the alert rules, the email
-server, sign-in and lockout, queue lengths, and a few advanced ones. A change applies at once, without a restart
-([ADR 0017](../adr/0017-settings-in-the-admin-ui.md)).
+server, sign-in and lockout, the look of the app, queue lengths, and a few advanced ones. A change applies at once,
+without a restart ([ADR 0017](../adr/0017-settings-in-the-admin-ui.md)).
 
 - **Simple and Advanced.** The Simple view shows the basics: retention, each rule's switch and levels, the email
-  server, and sign-in. Advanced adds the rest, such as how rules measure and clear and the queue lengths. The search
-  finds every setting in either view. Metrics, Logs, Traces, and Alerts have the same toggle, and the choice holds
-  across them: Simple shows the fundamentals, Advanced everything.
+  server, sign-in, and the look. Advanced adds the rest, such as how rules measure and clear and the queue lengths.
+  The search finds every setting in either view. Metrics, Logs, Traces, and Alerts have the same toggle, and the
+  choice holds across them: Simple shows the fundamentals, Advanced everything.
+- **Look.** The Appearance section sets the default look, Console or Forecast, and whether people may
+  pick their own ([ADR 0021](../adr/0021-looks.md), [ADR 0029](../adr/0029-console-remaining-screens.md)). An
+  installation whose Admin never saved a default look shows Console after the upgrade that made it the default; one
+  that saved Forecast keeps it, and so does a person who picked it. With choosing off, everyone sees the default
+  look; the look each person picked stays saved for when choosing is on again.
+- **Inventory.** Under Advanced, **Hosts are silent after** (5 minutes) and **Services are silent after** (2 hours)
+  decide when the Resources lists mark something silent: it stays listed, and counts as not online, while its metrics
+  are kept ([ADR 0022](../adr/0022-shared-time-live-and-search.md)). The hosts' setting also covers containers and
+  database servers. Make the services' longer than the gap between runs of a batch job.
 - **First values.** `deploy/.env` gives the first values. A value saved on the screen wins; **Reset** goes back to
   the value from `deploy/.env`, or to Veyra's default when the file sets none. The screen says where each default
   comes from.
@@ -279,6 +288,7 @@ The variables marked *first value* can be changed later on the Settings screen, 
 | `VEYRA_MAX_TRACE_STORAGE_GB` | veyra | *First value.* Size budget for trace storage; the oldest days go first. |
 | `VEYRA_DATABASE_RECORD_RETENTION_DAYS` | veyra | *First value.* Days of database plans, deadlocks, events, and setting snapshots to keep. Default `90`. |
 | `VEYRA_DATABASE_SESSION_RETENTION_DAYS` | veyra | *First value.* Days of database servers' live sessions to keep. Default `7`. |
+| `VEYRA_JOB_RUN_RETENTION_DAYS` | veyra | *First value.* Days of job runs, traced and SQL Server Agent, to keep. Default `30`. |
 | `VEYRA_SIGN_IN_HISTORY_DAYS` | veyra | *First value.* Days of sign-in attempts and ended sessions to keep. |
 | `VEYRA_REMOVE_SECOND_FACTOR` | veyra | Empty. Only for the lost-phone case above. |
 | `VEYRA_MAX_METRIC_SERIES` | veyra | *First value.* Most metric series accepted. Default `50000`. |

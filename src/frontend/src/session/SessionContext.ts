@@ -1,5 +1,6 @@
 import { createContext } from "react";
 
+import type { LookId } from "../api/looks";
 import type { Session, SignInNext } from "../api/types";
 
 /** Where the person stands when the app starts or after a sign-in, sign-out, or setup. */
@@ -31,6 +32,12 @@ export interface SessionValue {
    * @param timeZone - An IANA name, or null to use the browser's zone again.
    */
   setTimeZone(timeZone: string | null): Promise<void>;
+  /**
+   * Keeps the look the person picked (VEY-71); throws an ApiError the form can show.
+   *
+   * @param look - The look, or null for the instance's default.
+   */
+  setLook(look: LookId | null): Promise<void>;
 }
 
 /** The session context. Use {@link useSession} to read it. */

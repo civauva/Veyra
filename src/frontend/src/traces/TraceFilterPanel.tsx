@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { TraceService } from "../api/types";
-import { formatClock, formatCount } from "../logs/format";
+import { useTimeInBar } from "../app/shellContext";
+import { HelpTip } from "../ui/HelpTip";
+import { formatCount, formatSpan } from "../logs/format";
 import { AttributeFilters } from "../logs/FilterPanel";
 import { zoneLabel } from "../time/zone";
 import { serviceColor } from "./serviceColors";
 import { traceRanges, type TraceFilters, type TraceShow } from "./traceFilters";
-import { useViewMode } from "../app/ViewToggle";
+import { useViewMode } from "../ui/ViewToggle";
 
 /** How many services show before "Show all". */
 const collapsedServiceCount = 8;
@@ -54,6 +56,8 @@ export function TraceFilterPanel({
   const advanced = mode === "advanced";
   const doneRef = useRef<HTMLButtonElement>(null);
   const picked = filters.from !== null;
+  // Where the shell's top bar chooses the range, the panel only says which window it shows.
+  const inBar = useTimeInBar();
 
   useEffect(() => {
     if (open) {
@@ -103,21 +107,23 @@ export function TraceFilterPanel({
         <h3 id="trace-filter-time" className="section-title">
           Time
         </h3>
-        <div className="segmented">
-          {traceRanges.map((range) => (
-            <button
-              key={range}
-              type="button"
-              className="chip-button"
-              aria-pressed={!picked && filters.range === range}
-              onClick={() => onChange({ ...filters, range, from: null, to: null })}
-            >
-              {range}
-            </button>
-          ))}
-        </div>
+        {!inBar && (
+          <div className="segmented">
+            {traceRanges.map((range) => (
+              <button
+                key={range}
+                type="button"
+                className="chip-button"
+                aria-pressed={!picked && filters.range === range}
+                onClick={() => onChange({ ...filters, range, from: null, to: null })}
+              >
+                {range}
+              </button>
+            ))}
+          </div>
+        )}
         <p className="filter-note">
-          {formatClock(from)} – {formatClock(to)} {zoneLabel(to)}
+          {formatSpan(from, to)} {zoneLabel(to)}
           {picked && (
             <>
               {" · "}
@@ -134,9 +140,15 @@ export function TraceFilterPanel({
       </section>
 
       <section className="filter-group" aria-labelledby="trace-filter-show">
-        <h3 id="trace-filter-show" className="section-title">
-          Show
-        </h3>
+        <div className="filter-head">
+          <h3 id="trace-filter-show" className="section-title">
+            Show
+          </h3>
+          <HelpTip label="Show">
+            Failed traces are requests that ended in an error where they came in, at the trace&apos;s first span. Slow
+            ones are as slow as the slowest 5% of the window. The numbers count them on the chart.
+          </HelpTip>
+        </div>
         <div className="chip-row">
           {shows.map((show) => (
             <button
@@ -200,9 +212,15 @@ export function TraceFilterPanel({
       )}
 
       <section className="filter-group" aria-labelledby="trace-filter-services">
-        <h3 id="trace-filter-services" className="section-title">
-          Services
-        </h3>
+        <div className="filter-head">
+          <h3 id="trace-filter-services" className="section-title">
+            Services
+          </h3>
+          <HelpTip label="Services">
+            The services requests came in to, with how many traces each started in the window, most first. The counts
+            ignore which services are ticked; tick some to see only their traces.
+          </HelpTip>
+        </div>
         {listed.length === 0 && <p className="filter-note">No traces in this window.</p>}
         <ul className="service-list">
           {shown.map((service) => (

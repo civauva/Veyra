@@ -48,7 +48,7 @@ describe("headline", () => {
 
 describe("stateLine", () => {
   it("says open, the severity, and for how long", () => {
-    expect(stateLine(openWarning, new Date("2026-11-10T07:34:00Z"))).toBe("Open · warning · 36 min");
+    expect(stateLine(openWarning, new Date("2026-11-10T07:34:00Z"))).toBe("Open for 36 min · warning");
   });
 
   it("says resolved, the last severity, and how long it lasted", () => {
@@ -59,7 +59,7 @@ describe("stateLine", () => {
 describe("alertStory", () => {
   it("tells when each threshold was crossed and when it clears", () => {
     expect(alertStory(openWarning)).toBe(
-      "The error rate in production went above 1% at 06:58 and above 5% at 07:01. It eases to caution below 2.5% " +
+      "The error rate in the production environment went above 1% at 06:58 and above 5% at 07:01. It eases to caution below 2.5% " +
         "and clears when it stays below 0.5% for 5 minutes.",
     );
   });

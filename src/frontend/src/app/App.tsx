@@ -1,29 +1,16 @@
 import { Navigate, Route, Routes } from "react-router";
 
-import { AlertScreen } from "../alerts/AlertScreen";
-import { AlertsScreen } from "../alerts/AlertsScreen";
 import { SetupScreen } from "../auth/SetupScreen";
 import { SignInScreen } from "../auth/SignInScreen";
-import { HomeScreen } from "../home/HomeScreen";
-import { KeysScreen } from "../keys/KeysScreen";
-import { LogExplorer } from "../logs/LogExplorer";
-import { HostScreen } from "../metrics/HostScreen";
-import { DatabaseScreen } from "../metrics/DatabaseScreen";
-import { QueryScreen } from "../metrics/database/QueryScreen";
-import { MetricsScreen } from "../metrics/MetricsScreen";
-import { ServiceScreen } from "../metrics/ServiceScreen";
-import { NotificationsScreen } from "../notifications/NotificationsScreen";
-import { SettingsScreen } from "../settings/SettingsScreen";
 import { useSession } from "../session/useSession";
-import { TraceScreen } from "../traces/TraceScreen";
-import { TracesScreen } from "../traces/TracesScreen";
-import { AccountScreen } from "../account/AccountScreen";
-import { UsersScreen } from "../users/UsersScreen";
-import { Shell } from "./Shell";
+import { mayOpen, screenOf } from "./look";
+import { currentLook } from "./looks";
+import { routes } from "./routes";
 
 /**
  * The root of the Veyra UI. Which screens exist depends on the session: first-run setup, sign-in, or the app itself.
- * The URL is kept while signed out, so after signing in the person lands where they were going.
+ * The URL is kept while signed out, so after signing in the person lands where they were going. Signed in, the
+ * current look draws the frame and the home, and the route registry gives every other screen (ADR 0021).
  */
 export function App() {
   const { state } = useSession();
@@ -45,31 +32,28 @@ export function App() {
     case "signedOut":
       return <SignInScreen notice={state.notice} />;
 
-    case "signedIn":
+    case "signedIn": {
+      const look = currentLook(state.session);
+
       return (
         <Routes>
-          <Route element={<Shell session={state.session} />}>
-            <Route index element={<HomeScreen />} />
-            <Route path="/logs" element={<LogExplorer />} />
-            <Route path="/traces" element={<TracesScreen />} />
-            <Route path="/traces/:traceId" element={<TraceScreen />} />
-            <Route path="/alerts" element={<AlertsScreen />} />
-            <Route path="/alerts/:id" element={<AlertScreen />} />
-            <Route path="/metrics" element={<MetricsScreen />} />
-            <Route path="/metrics/hosts/:host" element={<HostScreen />} />
-            <Route path="/metrics/databases/:engine/:server" element={<DatabaseScreen />} />
-            <Route path="/metrics/databases/:engine/:server/queries/:hash" element={<QueryScreen />} />
-            <Route path="/metrics/services/:service" element={<ServiceScreen />} />
-            {/* Only administrators manage keys and notification channels (ADR 0008); for others the paths fall through
-                to the home. */}
-            {state.session.role === "Admin" && <Route path="/keys" element={<KeysScreen />} />}
-            {state.session.role === "Admin" && <Route path="/users" element={<UsersScreen />} />}
-            {state.session.role === "Admin" && <Route path="/notifications" element={<NotificationsScreen />} />}
-            {state.session.role === "Admin" && <Route path="/settings" element={<SettingsScreen />} />}
-            <Route path="/account" element={<AccountScreen />} />
+          <Route element={<look.Shell session={state.session} />}>
+            {/* Routes a role may not open are left out, so their paths fall through to the home (ADR 0008). */}
+            {routes
+              .filter((route) => mayOpen(route, state.session.role))
+              .map((route) => {
+                const Screen = screenOf(look, route);
+
+                return route.path === "/" ? (
+                  <Route key={route.id} index element={<Screen />} />
+                ) : (
+                  <Route key={route.id} path={route.path} element={<Screen />} />
+                );
+              })}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
       );
+    }
   }
 }

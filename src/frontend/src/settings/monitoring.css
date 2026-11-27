@@ -14,7 +14,7 @@
   gap: 10px;
   padding: 10px 14px;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: var(--radius-tile);
   background: var(--panel);
   font-size: 13px;
 }
@@ -82,6 +82,7 @@
 .monitor-kinds {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
 }
 
@@ -91,7 +92,7 @@
   gap: 8px;
   padding: 8px 12px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: min(12px, var(--radius-tile));
   font-size: 13px;
   font-weight: 600;
 }
@@ -117,9 +118,9 @@
 /* ---- Cards ---- */
 
 .monitor-card {
-  padding: 14px 18px;
+  padding: min(14px, var(--pad-panel)) var(--pad-panel);
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: var(--radius-panel);
   background: var(--panel);
 }
 
@@ -149,7 +150,7 @@
 }
 
 .monitor-main b {
-  font-size: 15px;
+  font-size: min(15px, var(--size-panel-title));
   font-weight: 650;
   overflow-wrap: anywhere;
 }
@@ -180,6 +181,12 @@
   color: var(--amber);
 }
 
+/* A state's chip with the question mark that explains it (VEY-60), kept together. */
+.monitor-state-help {
+  display: inline-flex;
+  align-items: center;
+}
+
 .monitor-actions {
   display: flex;
   flex-wrap: wrap;
@@ -193,7 +200,7 @@
   align-items: center;
   gap: 7px;
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 12px;
   font-weight: 650;
   white-space: nowrap;
@@ -309,7 +316,7 @@
 
 .monitor-install h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: min(15px, var(--size-panel-title));
   font-weight: 650;
 }
 
@@ -335,7 +342,7 @@
   align-items: center;
   gap: 6px 12px;
   padding: 10px 12px;
-  border-radius: 12px;
+  border-radius: min(12px, var(--radius-tile));
   background: var(--selected);
 }
 
@@ -472,7 +479,7 @@
 
 .monitor-chips span {
   padding: 3px 9px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--chip);
   color: var(--muted);
   font-size: 11.5px;
@@ -514,13 +521,13 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 18px 22px 14px;
+  padding: var(--pad-panel) calc(var(--pad-panel) + 4px) 14px;
   border-bottom: 1px solid var(--line);
 }
 
 .monitor-panel-head h2 {
   margin: 0;
-  font-size: 19px;
+  font-size: var(--size-panel-title);
   font-weight: 600;
 }
 
@@ -537,7 +544,7 @@
   flex-direction: column;
   gap: 22px;
   min-height: 0;
-  padding: 18px 22px;
+  padding: var(--pad-panel) calc(var(--pad-panel) + 4px);
   overflow-y: auto;
 }
 
@@ -603,7 +610,7 @@
   min-width: 0;
   padding: 8px 10px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: var(--input);
   color: var(--fg);
   font: inherit;
@@ -636,7 +643,7 @@
   position: relative;
   margin-bottom: 10px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: min(12px, var(--radius-tile));
   background: var(--chip);
 }
 
@@ -664,7 +671,7 @@
   margin: 0;
   padding: 3px;
   border: 0;
-  border-radius: 11px;
+  border-radius: calc(var(--radius-control) + 1px);
   background: var(--chip);
 }
 
@@ -678,7 +685,7 @@
 
 .monitor-segments label {
   padding: 6px 11px;
-  border-radius: 8px;
+  border-radius: calc(var(--radius-control) - 2px);
   color: var(--muted);
   font-size: 12.5px;
   font-weight: 600;
@@ -754,7 +761,7 @@
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-  padding: 14px 22px 18px;
+  padding: min(14px, var(--pad-panel)) calc(var(--pad-panel) + 4px) var(--pad-panel);
   border-top: 1px solid var(--line);
 }
 

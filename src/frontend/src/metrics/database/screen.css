@@ -1,0 +1,66 @@
+/*
+ * A database server's screen (VEY-62): the weather beside its name, tiles that lead
+ * somewhere, and the parts they lead to. Colours come from the theme tokens, so light and dark both work.
+ */
+
+.db-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+
+.db-weather {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.db-weather.warning {
+  color: var(--error-fg);
+}
+
+.db-weather.caution {
+  color: var(--warning-fg);
+}
+
+/* A figure tile that leads somewhere: a button over the whole tile, under its name's row (see live.css). */
+.database-tile.opens {
+  position: relative;
+  cursor: pointer;
+}
+
+.database-tile.opens:hover,
+.database-tile.opens:has(.live-tile-open:focus-visible) {
+  border-color: var(--accent);
+}
+
+/* Where a tile leads, under its figure; the tile's own rule sets every span in it to small capitals, so it is reset. */
+.db-tile-where,
+.database-tile .db-tile-where {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.database-tile .live-tile-go {
+  font-size: 14px;
+  letter-spacing: 0;
+}
+
+/* What a tile led to shows where it is with the accent's outline while it has the focus. */
+.db-drill-target:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+tr.db-drill-target:focus {
+  outline-offset: -2px;
+}
+
+.pg-ring-go {
+  display: block;
+  margin: 6px auto 0;
+  font-size: 13px;
+}

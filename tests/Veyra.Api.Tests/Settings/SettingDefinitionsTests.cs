@@ -7,6 +7,7 @@ using Microsoft.Extensions.Hosting.Internal;
 using Veyra.Access;
 using Veyra.Agents;
 using Veyra.Alerting;
+using Veyra.Alerting.Alerts;
 using Veyra.Alerting.Catalog;
 using Veyra.Core;
 using Veyra.Core.Settings;
@@ -45,7 +46,13 @@ public sealed class SettingDefinitionsTests
     [Fact]
     public void Definitions_EveryBoundOption_HasExactlyOneDefinition()
     {
-        var expected = BoundOptions().Select(option => option.Key).Concat(CatalogKeys()).Except(_outside).Order().ToList();
+        var expected = BoundOptions()
+            .Select(option => option.Key)
+            .Concat(CatalogKeys())
+            .Concat(RunbookKeys())
+            .Except(_outside)
+            .Order()
+            .ToList();
 
         var defined = Definitions().Select(definition => definition.Key).Order().ToList();
 
@@ -135,6 +142,8 @@ public sealed class SettingDefinitionsTests
             "Veyra:Access:LockoutThreshold",
             "Veyra:Access:LockoutDuration",
             "Veyra:Access:SignInHistoryDays",
+            "Veyra:Access:DefaultLook",
+            "Veyra:Access:PeopleChooseLook",
         ];
 
         var shown = Definitions().Where(definition => !definition.Advanced).Select(definition => definition.Key);
@@ -176,6 +185,10 @@ public sealed class SettingDefinitionsTests
 
         return services.BuildServiceProvider().GetServices<IModuleSettings>().ToList();
     }
+
+    // Runbook links bind into a dictionary by rule, so reflection cannot see them: every rule has one (ADR 0026).
+    private static IEnumerable<string> RunbookKeys() =>
+        AlertRules.All.Select(rule => $"Veyra:Alerting:Runbooks:{rule}");
 
     // The catalog rules bind into a dictionary, so reflection cannot see them: each has a switch, and its levels
     // unless it is a flag (ADR 0020). Their defaults are the catalog's, checked by the catalog's own tests.

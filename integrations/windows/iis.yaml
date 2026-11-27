@@ -1,11 +1,13 @@
 # IIS on a Windows host, added to collector.yaml: --config collector.yaml --config iis.yaml (ADR 0018). Every IIS site
 # becomes a service in Veyra, named after its log folder, such as W3SVC1 for the Default Web Site: each request is a
-# log record with its method, path, status, and time taken; status 5xx is an error, so the error-rate rule watches the
-# site. The iis receiver adds requests, connections, queues, and application pool state per site to the host.
+# log record with its method, path, status, bytes, and time taken; status 5xx is an error, so the error-rate rule
+# watches the site. The iis receiver adds requests, connections, queues, and application pool state per site to the
+# host.
 #
 #   IIS_LOG_DIR   where IIS writes its W3C logs, C:\inetpub\logs\LogFiles by default
 #
-# IIS must log in the W3C format with its default fields, as it does unless changed (IIS Manager, Logging).
+# IIS must log in the W3C format with its default fields, as it does unless changed (IIS Manager, Logging). The bytes
+# sent and received (sc-bytes, cs-bytes) may be logged too.
 
 receivers:
   iis:
@@ -14,21 +16,22 @@ receivers:
   # IIS writes each site's requests to its own folder, W3SVC<site ID>, one file a day, with UTC times. Lines starting
   # with # are the file's headers. The default fields are, in order: date time s-ip cs-method cs-uri-stem
   # cs-uri-query s-port cs-username c-ip cs(User-Agent) cs(Referer) sc-status sc-substatus sc-win32-status time-taken.
+  # With the bytes logged, as on GitHub's Windows runners, sc-bytes and cs-bytes come before time-taken.
   filelog/iis:
     include:
       - ${env:IIS_LOG_DIR:-C:\inetpub\logs\LogFiles}\W3SVC*\*.log
     include_file_path: true
     start_at: end
     operators:
-      # Only requests go on, and each starts with its date. The file is UTF-8 with a byte order mark before its first
-      # header, so that header does not start with # as read; it does not start with a digit either.
+      # Only requests go on, and each starts with its date; headers start with #, and a byte order mark before the
+      # first header, where a file has one, is not a digit either.
       - type: filter
         expr: 'not (body matches "^[0-9]")'
       - type: regex_parser
         # Folded over three lines; YAML joins them with the single space that separates the fields.
         regex: '^(?P<date>\S+) (?P<time>\S+) (?P<server_ip>\S+) (?P<method>\S+) (?P<path>\S+)
           (?P<query>\S+) (?P<port>\S+) (?P<user>\S+) (?P<client>\S+) (?P<agent>\S+) (?P<referer>\S+)
-          (?P<status>\d+) (?P<substatus>\d+) (?P<win32>\d+) (?P<taken>\d+)$'
+          (?P<status>\d+) (?P<substatus>\d+) (?P<win32>\d+)(?: (?P<sent>\d+) (?P<received>\d+))? (?P<taken>\d+)$'
       - type: add
         field: attributes.at
         value: EXPR(attributes.date + " " + attributes.time)
@@ -64,6 +67,21 @@ receivers:
       - type: move
         from: attributes.client
         to: attributes["client.address"]
+      # The bytes only where the site logs them; elsewhere the parser leaves them empty, and they are dropped.
+      - type: move
+        if: attributes.sent != ""
+        from: attributes.sent
+        to: attributes["http.response.body.size"]
+      - type: move
+        if: attributes.received != ""
+        from: attributes.received
+        to: attributes["http.request.body.size"]
+      - type: remove
+        if: attributes.sent != nil
+        field: attributes.sent
+      - type: remove
+        if: attributes.received != nil
+        field: attributes.received
       - type: move
         from: attributes.taken
         to: attributes["iis.time_taken_ms"]

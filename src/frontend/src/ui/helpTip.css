@@ -1,0 +1,69 @@
+/*
+ * The question mark beside a tile's name and its explanation (HelpTip, VEY-60). The explanation sits on the page
+ * itself, above every screen, placed under the question mark by the component.
+ */
+
+.help-tip {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
+  vertical-align: middle;
+  opacity: 0.75;
+  cursor: help;
+}
+
+.help-tip:hover,
+.help-tip:focus-visible,
+.help-tip[aria-expanded="true"] {
+  opacity: 1;
+}
+
+.help-tip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* A larger target on touch screens, without moving the tile's name. */
+@media (pointer: coarse) {
+  .help-tip {
+    position: relative;
+  }
+
+  .help-tip::after {
+    content: "";
+    position: absolute;
+    inset: -12px;
+  }
+}
+
+.help-tip-text {
+  position: fixed;
+  z-index: 1000;
+  width: max-content;
+  max-width: min(300px, calc(100vw - 24px));
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--popover);
+  color: var(--fg);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+  text-align: left;
+  text-transform: none;
+}

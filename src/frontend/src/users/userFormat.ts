@@ -95,17 +95,6 @@ export function formatSince(iso: string, now: Date): string {
   return shortDate(iso);
 }
 
-/**
- * Days between a time and now, for the last-sign-in track.
- *
- * @param iso - The time, or null.
- * @param now - The current time.
- * @returns Whole days, or null for never.
- */
-export function daysSince(iso: string | null, now: Date): number | null {
-  return iso ? Math.max(0, Math.floor((now.getTime() - new Date(iso).getTime()) / 86_400_000)) : null;
-}
-
 // The day as a number of days, so two days a daylight saving change apart are still one day apart.
 function startOfDay(date: Date): number {
   return Date.parse(`${localDay(date)}T00:00:00Z`);

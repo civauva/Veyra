@@ -11,7 +11,11 @@ namespace Veyra.Core.Traces;
 /// <param name="Name">Only traces whose root span's name contains this, ignoring case.</param>
 /// <param name="Attributes">Only traces whose root span has all these attributes.</param>
 /// <param name="Limit">The most traces on a page.</param>
-/// <param name="After">The page to continue, or <see langword="null"/> for the newest traces.</param>
+/// <param name="After">The page of the newest-first list to continue, or <see langword="null"/> for its first.</param>
+/// <param name="Order">The order of the list; the chart and the services always read the newest traces.</param>
+/// <param name="AfterWorst">
+/// The page of the worst-first list to continue (ADR 0029), or <see langword="null"/> for its first.
+/// </param>
 public sealed record TraceQuery(
     DateTimeOffset From,
     DateTimeOffset To,
@@ -23,4 +27,6 @@ public sealed record TraceQuery(
     string? Name = null,
     IReadOnlyDictionary<string, string>? Attributes = null,
     int Limit = 50,
-    TraceCursor? After = null);
+    TraceCursor? After = null,
+    TraceOrder Order = TraceOrder.Newest,
+    TraceWorstCursor? AfterWorst = null);

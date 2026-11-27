@@ -5,6 +5,7 @@ using OpAmp.Proto.V1;
 using Veyra.Agents.Agents;
 using Veyra.Agents.Collector;
 using Veyra.Agents.PostgresServers;
+using Veyra.Agents.Probes;
 using Veyra.Agents.SqlServers;
 using Veyra.Core.Security;
 
@@ -28,12 +29,14 @@ namespace Veyra.Agents.OpAmp;
 /// <param name="agents">Where agents and their reports are stored.</param>
 /// <param name="servers">The SQL Servers each agent reads.</param>
 /// <param name="postgres">The PostgreSQL servers each agent reads (VEY-33).</param>
+/// <param name="probes">The connection probes each agent runs now (ADR 0028).</param>
 /// <param name="keys">Checks the key each poll is signed with.</param>
 /// <param name="clock">The clock for the time an agent was last seen.</param>
 internal sealed class OpAmpServer(
     AgentStore agents,
     SqlServerService servers,
     PostgresServerService postgres,
+    ProbeService probes,
     IIngestionKeyValidator keys,
     TimeProvider clock)
 {
@@ -80,9 +83,10 @@ internal sealed class OpAmpServer(
 
         var targets = await servers.TargetsAsync(agent.Id, cancellationToken);
         var postgresTargets = await postgres.TargetsAsync(agent.Id, cancellationToken);
+        var probeTargets = await probes.TargetsAsync(agent.Id, cancellationToken);
         var connection = new AgentConnection(veyraUrl, key);
         var config = Encoding.UTF8.GetBytes(
-            CollectorConfig.Build(connection, targets, HostReadsOf(agent), postgresTargets));
+            CollectorConfig.Build(connection, targets, HostReadsOf(agent), postgresTargets, probeTargets));
 
         return new ServerToAgent
         {

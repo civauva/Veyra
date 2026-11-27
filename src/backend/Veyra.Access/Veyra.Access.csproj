@@ -17,6 +17,9 @@
   <ItemGroup>
     <!-- Forward-only schema scripts for the access schema, applied by the Storage module at startup. -->
     <EmbeddedResource Include="Migrations\*.sql" />
+    <!-- The release notes, served behind the version in the app (VEY-82). They stay at the repository root, where
+         people look for them; deploy/Dockerfile copies the file into the build. -->
+    <EmbeddedResource Include="..\..\..\CHANGELOG.md" LogicalName="Veyra.Access.About.CHANGELOG.md" />
   </ItemGroup>
 
   <ItemGroup>

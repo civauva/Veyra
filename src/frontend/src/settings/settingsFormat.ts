@@ -127,18 +127,21 @@ export function describeValue(setting: Setting, value: string | null): string {
 }
 
 /**
- * Whether a setting matches what the person typed in the search box: its label, card, help, or key.
+ * One unsaved change in words, as the save bar lists it: the setting, its value now, and what it becomes. A secret only
+ * says it changed.
  *
  * @param setting - The setting.
- * @param query - The search text.
- * @returns True when every word of the query is found.
+ * @param value - The new value in configuration form, or null to reset it to its default.
+ * @returns For example `Logs, Keep: 14 days to 30 days`.
  */
-export function matchesSearch(setting: Setting, query: string): boolean {
-  const haystack = `${setting.label} ${setting.group} ${setting.help} ${setting.key}`.toLowerCase();
+export function changeWords(setting: Setting, value: string | null): string {
+  const name = `${setting.group}, ${setting.label}`;
 
-  return query
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(Boolean)
-    .every((word) => haystack.includes(word));
+  if (setting.kind === "Secret") {
+    return `${name}: changed`;
+  }
+
+  const to = value === null ? `the default, ${describeValue(setting, setting.default)}` : describeValue(setting, value);
+
+  return `${name}: ${describeValue(setting, setting.value)} to ${to}`;
 }

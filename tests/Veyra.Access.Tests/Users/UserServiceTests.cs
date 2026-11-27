@@ -183,4 +183,53 @@ public class UserServiceTests(PostgresFixture postgres)
             SignInClient.Unknown,
             CancellationToken.None)).Succeeded);
     }
+
+    [Fact]
+    public async Task SetLookAsync_KnownLook_IsKeptOnTheAccount()
+    {
+        var access = new AccessServices(await AccessDatabase.CreateAsync(postgres), _clock);
+        var user = await CreateAnaAsync(access);
+
+        var change = await access.Users.SetLookAsync(user.Id, "console", CancellationToken.None);
+
+        Assert.Equal(LookChange.Kept, change);
+        Assert.Equal("console", (await access.Store.FindByIdAsync(user.Id, CancellationToken.None))!.Look);
+    }
+
+    [Fact]
+    public async Task SetLookAsync_UnknownLook_IsRefused()
+    {
+        var access = new AccessServices(await AccessDatabase.CreateAsync(postgres), _clock);
+        var user = await CreateAnaAsync(access);
+
+        var change = await access.Users.SetLookAsync(user.Id, "city", CancellationToken.None);
+
+        Assert.Equal(LookChange.UnknownLook, change);
+        Assert.Null((await access.Store.FindByIdAsync(user.Id, CancellationToken.None))!.Look);
+    }
+
+    [Fact]
+    public async Task SetLookAsync_PeopleMayNotChoose_IsNotAllowed()
+    {
+        var access = new AccessServices(
+            await AccessDatabase.CreateAsync(postgres),
+            _clock,
+            new AccessOptions { PeopleChooseLook = false });
+        var user = await CreateAnaAsync(access);
+
+        var change = await access.Users.SetLookAsync(user.Id, "console", CancellationToken.None);
+
+        Assert.Equal(LookChange.NotAllowed, change);
+        Assert.Null((await access.Store.FindByIdAsync(user.Id, CancellationToken.None))!.Look);
+    }
+
+    private static Task<AccessUser> CreateAnaAsync(AccessServices access) =>
+        access.Users.CreateAsync(
+            "ana@example.com",
+            "Ana",
+            VeyraRole.Viewer,
+            _password,
+            null,
+            null,
+            CancellationToken.None);
 }

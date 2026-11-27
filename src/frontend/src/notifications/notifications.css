@@ -9,11 +9,10 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: min(16px, var(--gap-panel));
   width: 100%;
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: 24px clamp(16px, 4vw, 40px) 40px;
+  /* Scrolls across the whole width, its scrollbar at the window's edge; the content keeps to 1180 px in the middle. */
+  padding: 24px max(clamp(16px, 4vw, 40px), calc((100% - 1180px) / 2)) 40px;
   overflow-y: auto;
 }
 
@@ -29,7 +28,7 @@
 
 .notifications-head h1 {
   margin: 0;
-  font-size: 30px;
+  font-size: var(--size-heading);
   font-weight: 600;
   letter-spacing: -0.02em;
 }
@@ -45,7 +44,7 @@
 .drawer-error {
   margin: 0;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: var(--error-bg);
   color: var(--error-fg);
 }
@@ -54,7 +53,7 @@
   margin: 0;
   padding: 24px;
   border: 1px dashed var(--line);
-  border-radius: 18px;
+  border-radius: var(--radius-panel);
   color: var(--muted);
   text-align: center;
 }
@@ -73,7 +72,7 @@
   margin: 0;
   padding: 12px 16px;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: min(14px, var(--radius-panel));
   background: var(--panel);
   font-size: 13.5px;
 }
@@ -107,10 +106,26 @@
 
 /* ---- Cards ---- */
 
+/* The cards' heading with the question mark that explains them (VEY-60). */
+.channels-head {
+  display: flex;
+  align-items: center;
+  margin-bottom: -6px;
+  color: var(--faint);
+}
+
+.channels-head h2 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
 .channel-cards {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: min(14px, var(--gap-panel));
 }
 
 .channel-card {
@@ -118,11 +133,11 @@
   flex-direction: column;
   gap: 14px;
   min-width: 0;
-  padding: 18px;
+  padding: var(--pad-panel);
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: var(--radius-panel);
   background: var(--panel);
-  box-shadow: 0 10px 30px rgba(14, 36, 64, 0.05);
+  box-shadow: var(--shadow-panel);
 }
 
 .channel-card.failing {
@@ -166,7 +181,7 @@
 
 .channel-name h2 {
   margin: 0;
-  font-size: 17px;
+  font-size: min(17px, var(--size-panel-title));
   font-weight: 600;
   overflow-wrap: anywhere;
 }
@@ -197,7 +212,7 @@
   min-height: 26px;
   padding: 0 10px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--faint);
   font-size: 12.5px;
   font-weight: 600;
@@ -251,7 +266,7 @@
 .channel-problem {
   margin: 0;
   padding: 9px 11px;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: var(--error-bg);
   color: var(--error-fg);
   font-size: 12.5px;
@@ -320,7 +335,7 @@
 .drawer-test {
   margin: 0;
   padding: 8px 11px;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   font-size: 13px;
 }
 
@@ -378,13 +393,13 @@
 }
 
 .drawer-head {
-  padding: 20px 22px 14px;
+  padding: calc(var(--pad-panel) + 2px) calc(var(--pad-panel) + 4px) 14px;
   border-bottom: 1px solid var(--line);
 }
 
 .drawer-head h2 {
   margin: 0;
-  font-size: 20px;
+  font-size: calc(var(--size-panel-title) + 1px);
   font-weight: 600;
 }
 
@@ -400,7 +415,7 @@
   flex-direction: column;
   gap: 16px;
   min-height: 0;
-  padding: 18px 22px 0;
+  padding: var(--pad-panel) calc(var(--pad-panel) + 4px) 0;
   overflow-y: auto;
 }
 
@@ -410,7 +425,7 @@
   margin: 0;
   padding: 4px;
   border: 0;
-  border-radius: 12px;
+  border-radius: calc(var(--radius-control) + 2px);
   background: var(--chip);
 }
 
@@ -419,8 +434,8 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 38px;
-  border-radius: 9px;
+  min-height: min(38px, var(--height-control));
+  border-radius: min(9px, var(--radius-control));
   color: var(--muted);
   font-size: 14px;
   font-weight: 600;
@@ -469,14 +484,14 @@
 
 .field input:not([type="checkbox"]),
 .field textarea {
-  min-height: 40px;
+  min-height: var(--height-control);
   padding: 8px 12px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: var(--input);
   color: var(--fg);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--size-body);
 }
 
 .field input.mono {
@@ -522,7 +537,7 @@
   margin: 0;
   padding: 12px 14px;
   overflow: auto;
-  border-radius: 12px;
+  border-radius: min(12px, var(--radius-tile));
   background: #0e1730;
   color: #dce4f8;
   font-family: var(--mono);
@@ -538,7 +553,7 @@
   display: flex;
   gap: 8px;
   margin: auto -22px 0;
-  padding: 14px 22px;
+  padding: min(14px, var(--pad-panel)) calc(var(--pad-panel) + 4px);
   border-top: 1px solid var(--line);
   background: var(--panel);
 }
@@ -552,7 +567,7 @@
   }
 
   .notifications-head h1 {
-    font-size: 26px;
+    font-size: min(26px, var(--size-heading));
   }
 
   .channel-cards {
@@ -563,6 +578,6 @@
     top: 56px;
     width: 100%;
     border-left: 0;
-    border-radius: 20px 20px 0 0;
+    border-radius: min(20px, var(--radius-sheet)) min(20px, var(--radius-sheet)) 0 0;
   }
 }

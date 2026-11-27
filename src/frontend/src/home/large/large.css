@@ -37,7 +37,7 @@
 .home-side {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: min(16px, var(--gap-panel));
   min-width: 0;
 }
 
@@ -45,7 +45,7 @@
 
 .home-body[data-layout="wall"] {
   grid-template-columns: minmax(0, 1fr) 480px;
-  gap: 20px;
+  gap: calc(var(--gap-panel) + 2px);
   align-items: stretch;
   box-sizing: border-box;
   min-height: 100dvh;
@@ -54,14 +54,14 @@
 .wall {
   display: grid;
   grid-template-rows: auto auto minmax(380px, 1fr);
-  gap: 20px;
+  gap: calc(var(--gap-panel) + 2px);
   min-width: 0;
 }
 
 .wall-top {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
-  gap: 20px;
+  gap: calc(var(--gap-panel) + 2px);
   align-items: center;
 }
 
@@ -72,20 +72,20 @@
 .wall-mid {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
-  gap: 20px;
+  gap: calc(var(--gap-panel) + 2px);
 }
 
 .wall-low {
   display: grid;
   grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr);
-  gap: 20px;
+  gap: calc(var(--gap-panel) + 2px);
   min-height: 0;
 }
 
 .wall-stack {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: calc(var(--gap-panel) + 2px);
   min-height: 0;
 }
 
@@ -105,7 +105,7 @@
 
 .lg-panel {
   min-width: 0;
-  padding: 16px 18px;
+  padding: min(16px, var(--pad-panel)) var(--pad-panel);
 }
 
 .lg-head {
@@ -166,7 +166,7 @@
   align-items: center;
   padding: 10px 12px;
   border: 1px solid var(--glass-line);
-  border-radius: 12px;
+  border-radius: min(12px, var(--radius-tile));
   background: var(--scene-chip);
   color: inherit;
   text-decoration: none;
@@ -261,7 +261,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 18px 20px 16px;
+  padding: var(--pad-panel) calc(var(--pad-panel) + 2px) min(16px, var(--pad-panel));
 }
 
 .lg-legend i {

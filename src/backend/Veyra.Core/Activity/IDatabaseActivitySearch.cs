@@ -47,6 +47,27 @@ public interface IDatabaseActivitySearch
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Lists the records of one kind of a server over a period whose attribute matches, the newest first. Storage
+    /// leaves the others out before the limit, so an older match is found past many newer records (VEY-68).
+    /// </summary>
+    /// <param name="block">The server's block.</param>
+    /// <param name="kind">The kind, such as <c>sqlserver.event</c>.</param>
+    /// <param name="periodStart">The start of the period.</param>
+    /// <param name="periodEnd">The end of the period.</param>
+    /// <param name="match">Which records to keep.</param>
+    /// <param name="limit">The most records.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The records.</returns>
+    Task<IReadOnlyList<ActivityRecord>> ListRecordsMatchingAsync(
+        string block,
+        string kind,
+        DateTimeOffset periodStart,
+        DateTimeOffset periodEnd,
+        ActivityAttributeMatch match,
+        int limit,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Lists the sessions the live view saw block or wait for another over a period, for blocking episodes.
     /// </summary>
     /// <param name="block">The server's block.</param>

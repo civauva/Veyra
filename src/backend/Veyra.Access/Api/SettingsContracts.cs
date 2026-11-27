@@ -105,7 +105,17 @@ public sealed record SystemSettingResponse(string Label, string Value, string So
 public sealed record SettingsPageResponse(
     long Version,
     IReadOnlyList<SettingResponse> Settings,
-    IReadOnlyList<SystemSettingResponse> System);
+    IReadOnlyList<SystemSettingResponse> System)
+{
+    /// <summary>How many alert rules there are, each switched by its On setting, for the Rules line (VEY-68).</summary>
+    public int Rules => RuleSwitches.Count();
+
+    /// <summary>How many of the alert rules are switched on now (VEY-68).</summary>
+    public int RulesOn => RuleSwitches.Count(setting => setting.Value == "true");
+
+    private IEnumerable<SettingResponse> RuleSwitches =>
+        Settings.Where(setting => setting.Section == "Rules" && setting.Label == "On");
+}
 
 /// <summary>Why a change cannot be saved.</summary>
 /// <param name="Key">The setting to fix; null when it concerns no single one.</param>

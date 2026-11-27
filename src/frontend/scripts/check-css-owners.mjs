@@ -5,8 +5,9 @@
 // "live" dot once moved the Alerts screen's bars off their track, and its person badge stretched the home's round
 // alert numbers into pills. This check fails when a class that one stylesheet styles on its own (as the first part of
 // a selector) appears in any selector of another feature's stylesheet. Stylesheets in one feature folder, such as
-// home/ and home/large/, count as one. The shared stylesheet, styles/tokens.css, is meant to be built on and is
-// exempt; deliberate sharing between features is listed below with its reason.
+// home/ and home/large/, count as one. Each look under looks/ is an owner of its own, so two looks never style the
+// same class (ADR 0021). The shared stylesheet, styles/tokens.css, is meant to be built on and is exempt; deliberate
+// sharing between features is listed below with its reason.
 //
 // Run: node scripts/check-css-owners.mjs (part of npm run lint).
 import { readdirSync, readFileSync } from "node:fs";
@@ -28,10 +29,16 @@ const allowed = {
     cap: "The alert screens use the home's small-capitals headings.",
     fine: "The alert screens use the home's fine print.",
     "step-button": "The alert screens use the home's step buttons.",
+    "screen-bar": "Each look fits the shared screen bar into its own frame (ADR 0021).",
+    "screen-trail": "Each look sets the shared screen bar's trail in its own type (ADR 0021).",
 };
 
-/** The feature a stylesheet belongs to: its first folder under src. */
-const featureOf = (file) => file.split("/")[0];
+/** The feature a stylesheet belongs to: its first folder under src, or for a look its own folder under looks/. */
+const featureOf = (file) => {
+    const [first, second] = file.split("/");
+
+    return first === "looks" ? `looks/${second}` : first;
+};
 
 /** Every stylesheet under src, by its path relative to src. */
 function stylesheets(directory) {

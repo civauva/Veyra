@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { Logo } from "../app/Logo";
+import { Logo } from "../ui/Logo";
 import "./auth.css";
 
 /** Props for {@link AuthLayout}. */

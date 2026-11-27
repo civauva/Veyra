@@ -1,0 +1,168 @@
+/*
+ * A host, service, or database server screen with its open alerts beside it (VEY-63). Below 1800 px the wrappers step
+ * aside, so the screen lays out exactly as without them, and the rail is not shown: the banner tells the alerts.
+ */
+
+.block-page,
+.block-main {
+  display: contents;
+}
+
+.alert-rail {
+  display: none;
+}
+
+@media (min-width: 1800px) {
+  /*
+   * The content keeps up to its 1360 px, and the rail takes the spare width beside it. At 1800 px the content is as
+   * wide as on a 1440 px window without the rail.
+   */
+  .metrics:has(> .block-page > .alert-rail) {
+    padding-inline: max(clamp(12px, 3vw, 28px), calc((100% - 1720px) / 2));
+  }
+
+  .block-page:has(> .alert-rail) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    align-items: start;
+    gap: calc(var(--gap-panel) + 2px);
+  }
+
+  .block-page:has(> .alert-rail) > .block-main {
+    display: flex;
+    flex-direction: column;
+    gap: min(16px, var(--gap-panel));
+    min-width: 0;
+  }
+
+  /* The rail lists what the banner would say, so the banner gives way. */
+  .block-page:has(> .alert-rail) .block-status {
+    display: none;
+  }
+
+  /* It stays in view while the screen scrolls, and scrolls itself when the window is short. */
+  .alert-rail {
+    position: sticky;
+    top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: calc(100dvh - 120px);
+    overflow-y: auto;
+    padding: 14px 12px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-panel);
+    background: var(--panel);
+  }
+}
+
+.alert-rail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 6px;
+}
+
+.alert-rail-head h2 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.alert-rail-head h2 b {
+  margin-left: 4px;
+  color: var(--fg);
+}
+
+.alert-rail-head a {
+  margin-left: auto;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.alert-rail-close {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.alert-rail-close:hover {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+
+.alert-rail ol {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.alert-rail li + li {
+  border-top: 1px solid var(--line);
+}
+
+/* A row: the severity's dot, the alert in words, and its area and age under it. */
+.alert-rail li a {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: 3px 10px;
+  padding: 9px 8px;
+  border-radius: var(--radius-control);
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.35;
+  text-decoration: none;
+}
+
+.alert-rail li a:hover {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+.alert-rail li a span {
+  overflow-wrap: anywhere;
+}
+
+.alert-rail li a i {
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--warning-fg);
+}
+
+.alert-rail li a.warning i {
+  background: var(--error-fg);
+}
+
+.alert-rail li a small {
+  grid-column: 2;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.alert-rail-more {
+  padding: 8px 8px 2px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.alert-rail a:focus-visible,
+.alert-rail-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

@@ -11,6 +11,7 @@ namespace Veyra.Query.Metrics;
 internal static class ServiceView
 {
     private const int _maxRoutes = 10;
+    private const int _slowestRoutes = 5;
 
     /// <summary>The numbers of a service's overview card.</summary>
     /// <param name="service">The service name.</param>
@@ -90,7 +91,12 @@ internal static class ServiceView
                         .ToDictionary(pair => pair.Key, pair => pair.Value * 60)),
                 lines.Line("queue", window.Levels(window.Named(MetricNames.DotnetThreadPoolQueue))),
                 lines.Line("threads", window.Levels(window.Named(MetricNames.DotnetThreadPoolThreads))),
-            ]);
+            ])
+        {
+            From = lines.From,
+            To = lines.End,
+            SlowestRoutes = SlowestRoutes(recent),
+        };
     }
 
     /// <summary>A quantile of the request durations, per bucket.</summary>
@@ -127,12 +133,35 @@ internal static class ServiceView
     }
 
     private static IEnumerable<MetricSeries> ServerErrors(SeriesData data) =>
-        data.Named(MetricNames.RequestDuration).Where(series => StatusCode(series) >= 500);
+        data.Named(MetricNames.RequestDuration).Where(IsServerError);
+
+    /// <summary>Whether a request duration series counts requests answered with a 5xx status.</summary>
+    /// <param name="series">The series.</param>
+    /// <returns><see langword="true"/> for a status of 500 or more.</returns>
+    public static bool IsServerError(MetricSeries series) => StatusCode(series) >= 500;
 
     /// <summary>The busiest routes of a service over a window, with their request rates and latencies.</summary>
     /// <param name="recent">The service's request durations over the window.</param>
     /// <returns>Up to ten routes, busiest first.</returns>
-    public static List<RouteResponse> Routes(SeriesData recent)
+    public static List<RouteResponse> Routes(SeriesData recent) =>
+        [.. AllRoutes(recent).OrderByDescending(route => route.RequestsPerSecond).Take(_maxRoutes)];
+
+    /// <summary>
+    /// The slowest routes of a service over a window, by their 95th percentile, from every route and not only the
+    /// busiest, for the Simple view (VEY-68).
+    /// </summary>
+    /// <param name="recent">The service's request durations over the window.</param>
+    /// <returns>Up to five routes, slowest first.</returns>
+    public static List<RouteResponse> SlowestRoutes(SeriesData recent) =>
+    [
+        .. AllRoutes(recent)
+            .Where(route => route.P95Seconds is not null)
+            .OrderByDescending(route => route.P95Seconds)
+            .ThenByDescending(route => route.RequestsPerSecond)
+            .Take(_slowestRoutes),
+    ];
+
+    private static IEnumerable<RouteResponse> AllRoutes(SeriesData recent)
     {
         ArgumentNullException.ThrowIfNull(recent);
 
@@ -157,10 +186,7 @@ internal static class ServiceView
                         total.Count == 0 ? null : (errors?.Count ?? 0) / (double)total.Count);
             })
             .OfType<RouteResponse>()
-            .Where(route => route.RequestsPerSecond > 0)
-            .OrderByDescending(route => route.RequestsPerSecond)
-            .Take(_maxRoutes)
-            .ToList();
+            .Where(route => route.RequestsPerSecond > 0);
     }
 
     private static int? StatusCode(MetricSeries series) =>

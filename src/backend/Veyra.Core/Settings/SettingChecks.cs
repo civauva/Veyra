@@ -51,7 +51,8 @@ public static partial class SettingChecks
             .ToList();
     }
 
-    // "Veyra:Test:WarningDays must not be above …" names the key first; other messages name none.
+    // "Veyra:Test:WarningDays must not be above …" names the key first; other messages name none. A key may end in a
+    // rule name with hyphens, such as Veyra:Alerting:Runbooks:error-rate (ADR 0026).
     private static string? KeyOf(string message) => LeadingKey().Match(message) is { Success: true } match
         ? match.Groups["key"].Value
         : null;
@@ -60,7 +61,7 @@ public static partial class SettingChecks
     private static string? UnreadableKey(string section, InvalidOperationException exception) =>
         BinderPath().Match(exception.Message) is { Success: true } match ? match.Groups["key"].Value : section;
 
-    [GeneratedRegex(@"^(?<key>Veyra(:[A-Za-z0-9]+)+)\b")]
+    [GeneratedRegex(@"^(?<key>Veyra(:[A-Za-z0-9]+(-[A-Za-z0-9]+)*)+)\b")]
     private static partial Regex LeadingKey();
 
     [GeneratedRegex(@"at '(?<key>[^']+)'")]

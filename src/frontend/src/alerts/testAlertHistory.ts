@@ -84,6 +84,7 @@ const base: AlertListItem = {
   openedAt: "2026-11-10T06:58:00Z",
   updatedAt: "2026-11-10T07:34:00Z",
   resolvedAt: null,
+  area: null,
 };
 
 /** The newest alerts: today, yesterday, and Nov 8. */

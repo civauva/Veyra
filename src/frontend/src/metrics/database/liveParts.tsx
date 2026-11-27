@@ -2,8 +2,9 @@ import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
 
 import type { ChartLine, FindingAction, WaitTerm } from "../../api/types";
-import { usePopover } from "../../app/usePopover";
+import { usePopover } from "../../ui/usePopover";
 import { Sparkline } from "../Sparkline";
+import { TileName } from "./helpNames";
 import type { FilterKind } from "./liveFilters";
 import { copyText } from "./liveFormat";
 
@@ -160,6 +161,8 @@ export function FindingActions({ actions, sampledAt, onSession }: FindingActions
 export interface LiveTileProps {
   /** What the number is. */
   label: string;
+  /** What the number means, behind the question mark beside its name (VEY-60). */
+  help: ReactNode;
   /** The number, formatted. */
   value: string;
   /** The unit after it. */
@@ -172,31 +175,44 @@ export interface LiveTileProps {
   tone?: "warn" | "bad";
   /** Opens what it counts; without it, the tile is not a button. */
   onOpen?: () => void;
+  /** Where the tile leads, in a few words, such as "See who blocks whom"; shown under the number (VEY-62). */
+  where?: string;
 }
 
-/** One number at the top of the Live tab; a button when it opens what it counts (ADR 0020). */
-export function LiveTile({ label, value, unit, below, line, tone, onOpen }: LiveTileProps) {
-  const body = (
-    <>
-      <span className="live-tile-label">{label}</span>
+/**
+ * One number at the top of the Live tab, with a question mark that explains it (ADR 0020, VEY-60). A tile that opens
+ * what it counts lays a button over itself, under its name's row, since a button cannot hold the question mark's, and
+ * says where it leads (VEY-62).
+ */
+export function LiveTile({ label, help, value, unit, below, line, tone, onOpen, where }: LiveTileProps) {
+  const className = `live-tile${tone ? ` ${tone}` : ""}${onOpen ? " opens" : ""}`;
+
+  return (
+    <div className={className}>
+      <TileName name={label} help={help} className="live-tile-label" />
       <b>
         {value}
         {unit && <small> {unit}</small>}
       </b>
       {below && <span className="live-tile-below">{below}</span>}
       {line && <Sparkline line={line} color={tone ? "var(--warning-fg)" : "var(--accent)"} />}
-    </>
-  );
-  const className = `live-tile${tone ? ` ${tone}` : ""}`;
-
-  return onOpen ? (
-    <button type="button" className={`${className} opens`} onClick={onOpen} aria-label={`${label}: ${value}. Open`}>
-      {body}
-      <span className="live-tile-go" aria-hidden="true">
-        ›
-      </span>
-    </button>
-  ) : (
-    <div className={className}>{body}</div>
+      {onOpen && where && (
+        <span className="db-tile-where" aria-hidden="true">
+          {where} ›
+        </span>
+      )}
+      {onOpen && (
+        <button
+          type="button"
+          className="live-tile-open"
+          onClick={onOpen}
+          aria-label={`${label}: ${value}. ${where ?? "Open"}`}
+        >
+          <span className="live-tile-go" aria-hidden="true">
+            ›
+          </span>
+        </button>
+      )}
+    </div>
   );
 }

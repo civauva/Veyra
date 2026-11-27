@@ -23,6 +23,18 @@ export interface Session {
   role: Role;
   /** The IANA time zone the user picked on the Account page, or null to use the browser's (VEY-22). */
   timeZone: string | null;
+  /** Which look of the app to draw (ADR 0021). */
+  look: LookChoice;
+}
+
+/** The person's look, the instance's default, and whether people may choose (VEY-71). */
+export interface LookChoice {
+  /** The look the person picked, or null when they have not; kept even while choosing is off. */
+  chosen: string | null;
+  /** The look an Admin set for the instance. */
+  default: string;
+  /** Whether people may choose; when not, everyone sees the default. */
+  mayChoose: boolean;
 }
 
 /** One stored log record. */
@@ -51,6 +63,8 @@ export interface LogEntry {
   attributes: Record<string, string>;
   /** The attributes of the resource that wrote it. */
   resourceAttributes: Record<string, string>;
+  /** The host that wrote it, from the resource (ADR 0024); null or missing when the sender named none. */
+  hostName?: string | null;
 }
 
 /** One page of log records. */
@@ -69,6 +83,8 @@ export interface HistogramBucket {
   total: number;
   /** Matching records at Error or worse. */
   errors: number;
+  /** Matching records per level, by severity name (ADR 0024); missing levels have none. */
+  levels?: Partial<Record<Severity, number>>;
 }
 
 /** How many records a service wrote in the window. */
@@ -87,6 +103,67 @@ export interface LogSummary {
   buckets: HistogramBucket[];
   /** The busiest services, most first. Ignores the service filter. */
   services: ServiceCount[];
+  /** The matching records of the whole window, added up on the server (VEY-68). */
+  total: number;
+  /** Those at Error or worse (VEY-68). */
+  errors: number;
+  /** The matching records of the whole window per level, by severity name (ADR 0024). */
+  levels?: Partial<Record<Severity, number>>;
+}
+
+/** The field a term of a log query filters on (ADR 0024). */
+export type LogQueryField = "service" | "environment" | "host" | "level" | "trace" | "span" | "attribute" | "text";
+
+/** One term of a log query, as the server located it in the text (`GET /api/v1/logs/parse`). */
+export interface LogQueryTerm {
+  /** What the term filters on; `text` for a word or a quoted phrase of the message. */
+  field: LogQueryField;
+  /** `:` for "is", `>=` for "this level or worse"; null for a word or phrase of the message. */
+  op: ":" | ">=" | null;
+  /** The value, without quotes. */
+  value: string;
+  /** The attribute's name, for an attribute term; null for the others. */
+  key?: string | null;
+  /** Where the term starts in the text, counted in characters from 0. */
+  start: number;
+  /** Where it ends, exclusive. */
+  end: number;
+}
+
+/** The terms of a parsed log query. */
+export interface LogQueryParse {
+  /** The terms in the order written. */
+  terms: LogQueryTerm[];
+}
+
+/** A saved view of a screen's query (ADR 0024): the query, not the time range. */
+export interface SavedView {
+  /** The view's ID. */
+  id: string;
+  /** Its name. */
+  name: string;
+  /** The screen it belongs to; `logs` in this version. */
+  screen: string;
+  /** The query text. */
+  query: string;
+  /** Whether everyone may open it. */
+  shared: boolean;
+  /** Whether the signed-in person owns it, and so may change or delete it. */
+  mine: boolean;
+  /** Who owns it, for a view shared by someone else. */
+  ownerName: string | null;
+}
+
+/** What a person sends to save a view. */
+export interface SavedViewInput {
+  /** The name, 1 to 80 characters. */
+  name: string;
+  /** The screen it belongs to. */
+  screen: string;
+  /** The query text. */
+  query: string;
+  /** Whether everyone may open it. */
+  shared: boolean;
 }
 
 /** An ingestion key, without its secret. */
@@ -211,6 +288,21 @@ export interface CatalogRule {
   caution: number | null;
   /** The warning level in its unit. */
   warning: number;
+  /** What its alert means and why it matters, with `{server}` and `{part}` to fill in (VEY-60). */
+  meaning: string;
+  /** What to do to resolve its alert, in order. */
+  steps: FixStep[];
+}
+
+/**
+ * One thing a person does to resolve an alert (VEY-60). In a script, `{part}` is filled in so that it is safe inside
+ * `N'…'`, and `[{part}]` as a bracketed name.
+ */
+export interface FixStep {
+  /** What to do and why, with `{server}` and `{part}` to fill in. */
+  text: string;
+  /** A query or command to run, or null. */
+  script: string | null;
 }
 
 /**
@@ -245,6 +337,14 @@ export interface HomeEnvironment {
   condition: ConditionKind;
   /** The share of its records that are errors right now, from 0 to 1; null without records. */
   errorRatio: number | null;
+}
+
+/** The environment switcher's list from `GET /api/v1/home/environments` (VEY-67). */
+export interface EnvironmentChoices {
+  /** The choice of every environment together, with the worst weather of any; null when the search leaves it out. */
+  all: { condition: ConditionKind } | null;
+  /** The environments whose names hold the search, by name. */
+  environments: HomeEnvironment[];
 }
 
 /** One alert in the Needs you pane, or one resolved recently. */
@@ -357,11 +457,79 @@ export interface HomeSnapshot {
     latency: HomeLatency | null;
   };
   /** The past hours observed and the coming hours expected. */
-  hourly: { observed: HistogramBucket[]; expected: ExpectedHour[]; daysOfHistory: number };
+  hourly: {
+    observed: HistogramBucket[];
+    expected: ExpectedHour[];
+    daysOfHistory: number;
+    /** The records of the observed hours, added up on the server (VEY-68). */
+    records: number;
+    /** The records at Error or worse of the observed hours (VEY-68). */
+    errors: number;
+    /** The average records of an hour past, without the hour still filling, which scales the expected hours. */
+    averageRecords: number;
+  };
   /** Log storage and its outlook. */
   storage: HomeStorage;
   /** Every disk watched through host metrics: those that fill soonest first, then the fullest. */
   disks: HomeDisk[];
+  /** What the dashboards show of the estate, worked out on the server (VEY-68). */
+  estate: HomeEstate;
+}
+
+/** How many blocks are at each health. */
+export interface HealthCounts {
+  /** With an open warning. */
+  warning: number;
+  /** With an open caution and no warning. */
+  caution: number;
+  /** Without an open alert. */
+  ok: number;
+  /** Whose health is not known. */
+  unknown: number;
+}
+
+/** The home's estate, outlook, and counts, worked out on the server so the dashboards only lay them out (VEY-68). */
+export interface HomeEstate {
+  /** The services, by name. */
+  services: HomeBlock[];
+  /** The same services, warnings first, then cautions, then the rest, for a home with room for only some. */
+  servicesWorstFirst: HomeBlock[];
+  /** How many services are at each health. */
+  serviceCounts: HealthCounts;
+  /** The hosts that have an open alert or report disks, by name. */
+  hosts: HomeHostTile[];
+  /** How many hosts are at each health. */
+  hostCounts: HealthCounts;
+  /** The database servers that have an open alert, by name. */
+  databases: HomeBlock[];
+  /** How many database servers are at each health. */
+  databaseCounts: HealthCounts;
+  /** The disks that fill within 30 days and have no open alert. */
+  diskOutlook: HomeDiskOutlook;
+  /** How many of the open alerts the home tells are warnings, and how many cautions. */
+  alertCounts: { warnings: number; cautions: number };
+}
+
+/** One host tile of the home. */
+export interface HomeHostTile {
+  /** The host name. */
+  name: string;
+  /** Its worst state from its open alerts. */
+  health: BlockHealth;
+  /** The disk it draws: the one that fills soonest within 30 days, or else its fullest; null without disk metrics. */
+  disk: HomeDisk | null;
+  /** Whether that disk fills within 30 days, so the tile says when instead of how full. */
+  filling: boolean;
+}
+
+/** The home's disk outlook. */
+export interface HomeDiskOutlook {
+  /** The disks that fill within 30 days and have no open alert, the soonest first. */
+  filling: HomeDisk[];
+  /** How many hosts report disks. */
+  hosts: number;
+  /** Whether disks fill within 30 days but every one has an open alert, which Needs you tells instead. */
+  allAlerted: boolean;
 }
 
 /** How fast the environment answers HTTP requests over the last five minutes. */
@@ -519,6 +687,8 @@ export interface AlertLatency {
 export interface AlertDetails {
   /** The alert ID. */
   id: string;
+  /** The channels it told, each once, in the order they were first told (VEY-68). */
+  told: { id: string; name: string }[];
   /** The rule that raised it. */
   rule: AlertRule;
   /** The environment; null when the sender set none. */
@@ -569,6 +739,27 @@ export interface AlertDetails {
   disk: AlertDisk | null;
   /** For the latency rule, the request durations; otherwise null. */
   latency: AlertLatency | null;
+  /**
+   * For a database server's severe error, memory error, and failed login rules, the errors they counted, newest
+   * first; otherwise null or absent (VEY-61).
+   */
+  serverErrors?: ServerError[] | null;
+  /** The incident the alert belongs to (ADR 0026); null or absent when it belongs to none. */
+  incidentId?: string | null;
+  /** That incident's key, such as "INC-42". */
+  incidentKey?: string | null;
+}
+
+/** One error a database server's error alert counted (VEY-61). */
+export interface ServerError {
+  /** When the server was read with it, within a minute of when it happened. */
+  at: string;
+  /** SQL Server's error number, such as 824. */
+  error: number;
+  /** Its severity, from 0 to 25. */
+  severity: number;
+  /** What SQL Server said, or what Veyra says of an event without a message. */
+  message: string;
 }
 
 /** One alert in the list of `GET /api/v1/alerts`. */
@@ -601,6 +792,25 @@ export interface AlertListItem {
   updatedAt: string;
   /** When it resolved; null while open. */
   resolvedAt: string | null;
+  /**
+   * For a database server, the area of its screen the alert belongs to, such as `blocking` (VEY-68); null for other
+   * blocks.
+   */
+  area: string | null;
+  /** The incident the alert belongs to (ADR 0026); null when it belongs to none. */
+  incidentId?: string | null;
+  /** That incident's key, such as "INC-42". */
+  incidentKey?: string | null;
+}
+
+/** How one area of a database server is, from its open alerts, as `GET /api/v1/alerts/areas` ranks it (VEY-68). */
+export interface AlertAreaState {
+  /** The area, by its tab's name in the address. */
+  area: string;
+  /** Warning, Caution, or Ok, from its worst open alert. */
+  health: BlockHealth;
+  /** Its open alerts, the warnings first. */
+  alerts: AlertListItem[];
 }
 
 /** One page of `GET /api/v1/alerts`, newest first. */
@@ -654,6 +864,16 @@ export interface AlertQuery {
   text: string;
   /** Only alerts of this environment, the one chosen in the top bar; null for all. */
   environment: string | null;
+  /** Only alerts about this kind of block. */
+  kind?: BlockKind;
+  /** Only alerts about the block of exactly this name, for a block's own screen (VEY-68). */
+  block?: string;
+  /** Only alerts about exactly this part, such as a disk or a container's host (VEY-68). */
+  part?: string;
+  /** `worst` lists warnings first, each the oldest first; the newest first otherwise (VEY-68). */
+  order?: "newest" | "worst";
+  /** The most alerts on the page, up to 200; 50 when left out. */
+  limit?: number;
 }
 
 /** A channel's deliveries on one UTC day. */
@@ -850,20 +1070,61 @@ export interface MetricUsage {
   names: number;
 }
 
-/** The range a metrics screen shows. */
-export type MetricRange = "1h" | "6h" | "24h" | "7d";
+/** A range of the shared time (ADR 0022) that ends now. */
+export type MetricPreset = "15m" | "1h" | "6h" | "24h" | "7d" | "30d";
 
-/** The Metrics overview from `GET /api/v1/metrics/overview`. */
+/**
+ * The range a metrics screen shows (ADR 0022): a preset ending now, or a window of the person's own written
+ * `from~to`, two ISO instants, so it stays one string that keys and links can carry.
+ */
+export type MetricRange = MetricPreset | `${string}~${string}`;
+
+/** The range a metrics answer covers: the preset asked for, or `custom` for a window of `from` and `to`. */
+export type AnsweredRange = MetricPreset | "custom";
+
+/** The figures over the Metrics overview's cards (VEY-67). */
+export interface MetricsSummary {
+  /** Hosts listed. */
+  hosts: number;
+  /** Listed hosts with a disk that is full within 30 days at the pace of its last day. */
+  fillingDisks: number;
+  /** Services listed. */
+  services: number;
+  /** Database servers listed. */
+  databases: number;
+  /** Containers listed. */
+  containers: number;
+  /** Listed containers that restarted within the range. */
+  restarting: number;
+  /** Whether anything sent metrics recently, listed or not: false shows how to start sending. */
+  anySent: boolean;
+}
+
+/** What the Metrics overview is asked for (VEY-67); the server keeps only the cards that match. */
+export interface MetricsOverviewChoices {
+  /** Text a card's name must hold, in any case; empty for every card. */
+  search: string;
+  /** The environment chosen in the top bar, or null for all. */
+  environment: string | null;
+}
+
+/** The Metrics overview from `GET /api/v1/metrics/overview`: the cards that match its choices. */
 export interface MetricsOverview {
   /** When it was put together. */
   at: string;
   /** The window of the lines. */
-  range: MetricRange;
+  range: AnsweredRange;
+  /** The start of the window the answer covers, as an ISO instant (ADR 0022). */
+  from: string;
+  /** The end of the window the answer covers: now, or the `to` asked for (ADR 0022). */
+  to: string;
   /** The width of each point. */
   bucketSeconds: number;
   /** How much metric data is stored. */
   usage: MetricUsage;
-  /** The hosts. */
+  /** The figures over the cards, counted by the server over the cards it lists (VEY-67). */
+  summary: MetricsSummary;
+  /** The hosts that match the search and the environment. */
   hosts: HostCard[];
   /** The services. */
   services: ServiceCard[];
@@ -984,6 +1245,8 @@ export interface DatabasePart {
   deadRowsRatio: number | null;
   /** How many times its tables were vacuumed over the last day (PostgreSQL). */
   vacuums: number | null;
+  /** Whether the engine keeps it for itself, such as master or postgres (VEY-64); hidden unless asked. */
+  system: boolean;
 }
 
 /** A PostgreSQL table with dead rows, which updates and deletes leave behind until a vacuum clears them. */
@@ -1002,6 +1265,8 @@ export interface DatabaseTable {
   deadRowsRatio: number | null;
   /** How many times it was vacuumed over the last day. */
   vacuums: number | null;
+  /** Whether it is a catalog table, or in a database the engine keeps for itself (VEY-64). */
+  system: boolean;
 }
 
 /** The last run of a SQL Agent job. */
@@ -1014,6 +1279,8 @@ export interface AgentJob {
   lastRun: string | null;
   /** How long the last run took, in seconds. */
   durationSeconds: number | null;
+  /** Whether SQL Server set it up for a feature of its own, such as policy management (VEY-64). */
+  system: boolean;
 }
 
 /** A request running now for longer than ten seconds. */
@@ -1050,6 +1317,8 @@ export interface TopQuery {
   logicalReads: number | null;
   /** The database it ran in, when the agent said. */
   database: string | null;
+  /** Whether it is the server's own housekeeping rather than an application's work (VEY-64). */
+  system: boolean;
 }
 
 /** What Veyra's agent itself asked of a server over the range, kept out of the top queries. */
@@ -1064,8 +1333,14 @@ export interface AgentWork {
 export interface DatabaseMetrics {
   /** The head of the screen. */
   card: DatabaseCard;
+  /** The figures the Overview tab tells beside its weather, worked out on the server from the lists sent (VEY-68). */
+  overview: DatabaseOverview;
   /** The window. */
-  range: MetricRange;
+  range: AnsweredRange;
+  /** The start of the window the answer covers, as an ISO instant (ADR 0022). */
+  from: string;
+  /** The end of the window the answer covers: now, or the `to` asked for (ADR 0022). */
+  to: string;
   /** The width of a point of the lines, in seconds. */
   bucketSeconds: number;
   /** Batch requests per second; for PostgreSQL, transactions committed or rolled back per second. */
@@ -1100,14 +1375,31 @@ export interface DatabaseMetrics {
   rollbacks: ChartLine | null;
   /** The tables with the most dead rows now, the most first (PostgreSQL); empty for other engines. */
   tables: DatabaseTable[];
+
+  /** The server's own databases, left out of `databases` unless System is on (VEY-66). */
+  hiddenDatabases: HiddenRows;
+  /** The jobs SQL Server set up itself, left out of `jobs`. */
+  hiddenJobs: HiddenRows;
+  /** The server's own statements, left out of `topQueries`. */
+  hiddenTopQueries: HiddenRows;
+  /** The catalog's tables, left out of `tables` (PostgreSQL). */
+  hiddenTables: HiddenRows;
 }
 
 /** One host's metrics from `GET /api/v1/metrics/hosts/{host}`. */
 export interface HostMetrics {
   /** The card numbers. */
   card: HostCard;
+  /** How many of its disks fill at the pace of the last week, counted on the server (VEY-68). */
+  fillingDisks: number;
+  /** How many of its containers restarted within the range, counted on the server (VEY-68). */
+  restartingContainers: number;
   /** The window. */
-  range: MetricRange;
+  range: AnsweredRange;
+  /** The start of the window the answer covers, as an ISO instant (ADR 0022). */
+  from: string;
+  /** The end of the window the answer covers: now, or the `to` asked for (ADR 0022). */
+  to: string;
   /** The width of each point. */
   bucketSeconds: number;
   /** CPU in use: total, user, system, wait. */
@@ -1145,7 +1437,11 @@ export interface ServiceMetrics {
   /** The card numbers. */
   card: ServiceCard;
   /** The window. */
-  range: MetricRange;
+  range: AnsweredRange;
+  /** The start of the window the answer covers, as an ISO instant (ADR 0022). */
+  from: string;
+  /** The end of the window the answer covers: now, or the `to` asked for (ADR 0022). */
+  to: string;
   /** The width of each point. */
   bucketSeconds: number;
   /** The instances. */
@@ -1156,6 +1452,8 @@ export interface ServiceMetrics {
   requests: ChartLine[];
   /** The busiest routes. */
   routes: MetricRoute[];
+  /** Up to five routes, the slowest first by p95, from every route and not only the busiest (VEY-68). */
+  slowestRoutes: MetricRoute[];
   /** CPU from 0 to 1, and memory in bytes. */
   resources: ChartLine[];
   /** Runtime: gc per minute, queue, threads. */
@@ -1198,7 +1496,18 @@ export interface MetricChart {
   /** The width of each point. */
   bucketSeconds: number;
   /** At most eight lines. */
-  lines: ChartLine[];
+  lines: MetricChartLine[];
+}
+
+/**
+ * One line of a metric's chart, with its figures over the window, read with the points (ADR 0029); its `latest` is its
+ * last value in the window.
+ */
+export interface MetricChartLine extends ChartLine {
+  /** Its average over the window; null when it has no value. */
+  average: number | null;
+  /** Its highest value in the window; null when it has no value. */
+  highest: number | null;
 }
 
 /** What follows a correct password when the session does not start yet (ADR 0011). */
@@ -1323,6 +1632,47 @@ export interface UserSummary {
   lastActiveAt: string | null;
 }
 
+/** Which people the Users screen lists, one chip each (VEY-67). */
+export type UserShow = "everyone" | "nofactor" | "locked" | "off";
+
+/** What the Users screen is asked for (VEY-67); the server keeps only the people that match. */
+export interface UserListChoices {
+  /** Text a name, email, or team must hold, in any case; empty for everyone. */
+  search: string;
+  /** The chip. */
+  show: UserShow;
+}
+
+/** The Users screen from `GET /api/v1/users` (VEY-67): the people that match, and every figure the screen shows. */
+export interface UserList {
+  /** The people the search and the chip keep, ordered by email. */
+  people: UserSummary[];
+  /** How many of the people that match the search each chip would list. */
+  counts: Record<"everyone" | "noFactor" | "locked" | "off", number>;
+  /** The rings and the second-factor note, over everyone whatever the search. */
+  posture: UserPosture;
+  /** How many people hold each role, switched off or not. */
+  roles: { admins: number; editors: number; viewers: number };
+}
+
+/** How well everyone's accounts are protected, counted by the server (VEY-67). */
+export interface UserPosture {
+  /** Everyone, switched off or not. */
+  people: number;
+  /** People who use a second factor. */
+  withSecondFactor: number;
+  /** People who signed in within the last 30 days. */
+  recentSignIns: number;
+  /** Admins who are not switched off. */
+  admins: number;
+  /** Of those Admins, the ones with a second factor. */
+  adminsWithSecondFactor: number;
+  /** People who can sign in but have no second factor. */
+  missing: number;
+  /** Of those, the Admins. */
+  missingAdmins: number;
+}
+
 /** One person in full, for the person panel. */
 export interface UserDetail {
   /** The account, as the list shows it. */
@@ -1343,6 +1693,28 @@ export interface UserDetail {
   failedLast30Days: number;
   /** Changes to the account, newest first. */
   events: UserEvent[];
+  /** Every sign-in attempt of the last 14 days, counted per day on the viewer's calendar (VEY-68). */
+  signInDays: SignInDays;
+}
+
+/** A person's sign-in attempts per day, counted on the server over every attempt (VEY-68). */
+export interface SignInDays {
+  /** Fourteen days, the oldest first, today last. */
+  days: SignInDay[];
+  /** Attempts of the fourteen days that signed in. */
+  signedIn: number;
+  /** Attempts of the fourteen days that did not. */
+  failed: number;
+}
+
+/** One day of a person's sign-in attempts. */
+export interface SignInDay {
+  /** The day on the viewer's calendar, `YYYY-MM-DD`. */
+  day: string;
+  /** Attempts that signed in, a recovery code included. */
+  signedIn: number;
+  /** Attempts that did not. */
+  failed: number;
 }
 
 /** The signed-in person's own account. */
@@ -1484,6 +1856,10 @@ export interface TraceDurations {
   maxRead: number;
   /** The 95th percentile of the durations read, in milliseconds, or null when there were none. */
   p95Ms: number | null;
+  /** How many traces read failed, counted on the server though the points hold fewer (VEY-68). */
+  failed: number;
+  /** How many traces read did not fail and took at least the 95th percentile (VEY-68). */
+  slow: number;
 }
 
 /** A service that received requests in the window. */
@@ -1492,6 +1868,28 @@ export interface TraceService {
   service: string;
   /** How many of the traces read it received. */
   traces: number;
+  /** The 95th percentile of their durations, in milliseconds; null without traces (ADR 0029). */
+  p95Ms: number | null;
+  /** How many of them failed (ADR 0029). */
+  failed: number;
+}
+
+/** The figures of the traces of a window under the list's filters, from `GET /api/v1/traces/summary` (ADR 0029). */
+export interface TracesSummary {
+  /** The traces of the window. */
+  traces: number;
+  /** The traces of the period of the same length before it, for the change; null when nothing was kept then. */
+  previousTraces: number | null;
+  /** The traces that failed. */
+  failed: number;
+  /** The traces that took at least the window's 95th percentile. */
+  slow: number;
+  /** The median duration, in milliseconds; null without traces. */
+  p50Ms: number | null;
+  /** The 95th percentile of the durations, in milliseconds; null without traces. */
+  p95Ms: number | null;
+  /** The services that sent traces in the window. */
+  services: number;
 }
 
 /** A moment during a span; an exception is an event named `exception`. */
@@ -1548,18 +1946,48 @@ export interface TraceSpan {
   links: TraceSpanLink[];
   /** How much the sender or Veyra's limits left out. */
   dropped: { attributes: number; events: number; links: number };
+  /** How many ancestors it has among the spans sent; 0 for the root and for a span whose parent is missing. */
+  depth: number;
+  /** How many of its direct children were sent. */
+  children: number;
+  /** True when it names a parent that has not arrived (ADR 0014). */
+  missingParent: boolean;
 }
 
 /** A whole trace: every span that has arrived, by start time. */
 export interface Trace {
   /** The trace ID. */
   traceId: string;
-  /** The spans. */
+  /** The spans; with `errorsOnly`, only the failed ones and the spans above them (VEY-67). */
   spans: TraceSpan[];
+  /** The figures of every span, whatever the view, worked out by the server. */
+  summary: TraceSummary;
+}
+
+/** The figures of a whole trace, worked out by the server (VEY-67). */
+export interface TraceSummary {
+  /** When the first span started. */
+  start: string;
+  /** From the start of the first span to the end of the last, in milliseconds. */
+  durationMs: number;
+  /** How many spans have arrived. */
+  spans: number;
+  /** How many of them ended in an error. */
+  failed: number;
+  /** How many name a parent that has not arrived. */
+  missingParents: number;
+  /** The services of those spans, by name. */
+  missingParentServices: string[];
+  /** The spans per service, most first, then by name. */
+  services: TraceShare[];
+  /** The IDs of the spans on the critical path. */
+  criticalPath: string[];
+  /** The ID of the failed span that most likely caused the failure, or null when nothing failed. */
+  cause: string | null;
 }
 
 /** The sections of the Settings screen, in the order it shows them (ADR 0017). */
-export type SettingSection = "Data" | "Rules" | "Email" | "Security" | "Ingestion" | "Advanced";
+export type SettingSection = "Data" | "Appearance" | "Rules" | "Email" | "Security" | "Ingestion" | "Advanced";
 
 /** How a setting is edited. */
 export type SettingKind = "WholeNumber" | "Number" | "Ratio" | "Duration" | "Switch" | "Text" | "Choice" | "Secret";
@@ -1636,6 +2064,42 @@ export interface SettingsPage {
   settings: Setting[];
   /** What is set where Veyra is installed. */
   system: SystemSetting[];
+  /** How many alert rules there are, counted on the server (VEY-68). */
+  rules: number;
+  /** How many of them are switched on now (VEY-68). */
+  rulesOn: number;
+}
+
+/** How many monitored servers and agents there are and how they stand, counted on the server (VEY-68). */
+export interface AgentsSummary {
+  /** The SQL Servers agents read. */
+  sqlServers: number;
+  /** The PostgreSQL servers agents read. */
+  postgresServers: number;
+  /** The servers whose monitoring fails and needs a look. */
+  needLook: number;
+  /** The active agents. */
+  agents: number;
+  /** Those online now. */
+  agentsOnline: number;
+}
+
+/** What the Settings screen is asked to list (VEY-67). */
+export interface SettingsListingChoices {
+  /** Words a setting's label, card, help, or key must all hold; empty lists the section. */
+  search: string;
+  /** The section, such as `Data`. */
+  section: string;
+  /** The view: the Simple view keeps a section to its basics. */
+  view: "simple" | "advanced";
+}
+
+/** What the Settings screen lists, from `GET /api/v1/settings/listing` (VEY-67). */
+export interface SettingsListing {
+  /** The keys of the settings to show, in screen order. */
+  keys: string[];
+  /** The sections of the list, by name. */
+  sections: string[];
 }
 
 /** One change to send: a value in configuration form, or null to reset to the default. */
@@ -1834,6 +2298,233 @@ export interface SqlServer extends MonitoredServer {
   platform: SqlServerPlatform;
   /** The one database it is read in, for an Azure SQL Database; otherwise null. */
   database: string | null;
+  /** The named instance (`HOST\INSTANCE`, ADR 0028), read through the SQL Server Browser; null for the port. */
+  instance?: string | null;
+  /** How the agent signs in (ADR 0028); SQL authentication when the server did not say. */
+  authentication?: SqlServerAuthentication;
+  /** Each module's switch and interval (ADR 0028). */
+  modules?: IntegrationModule[];
+  /** The integration template's version it is read with, such as `0.2.0` (ADR 0028). */
+  version?: string;
+}
+
+/**
+ * How the agent signs in to a SQL Server (ADR 0028): a SQL login and password, a domain login and password over NTLM
+ * from any agent, or the agent's own service account, only on a Windows agent.
+ */
+export type SqlServerAuthentication = "sql" | "ntlm" | "integrated";
+
+/** One module of an integration as a server stores it (ADR 0028): whether it is read and how often. */
+export interface IntegrationModule {
+  /** The module, such as `core`, `activity`, `queries`, `storage`, `backups`, `jobs`, `events`. */
+  id: string;
+  /** Whether it is read; Core always is. */
+  enabled: boolean;
+  /** How often it is read, in seconds, one of the module's choices. */
+  intervalSeconds: number;
+}
+
+/** A module of the SQL Server template as the catalog describes it (`GET /api/v1/integrations/modules/sqlserver`). */
+export interface IntegrationModuleInfo {
+  /** Its ID. */
+  id: string;
+  /** Its name, such as "Activity and blocking". */
+  name: string;
+  /** What it reads, such as "Live sessions, blocking chains, deadlocks". */
+  description: string;
+  /** The interval a new server takes, in seconds. */
+  defaultIntervalSeconds: number;
+  /** The intervals it may be read at, in seconds, shortest first. */
+  choices: number[];
+  /** Whether it cannot be switched off, as Core. */
+  required: boolean;
+}
+
+/** An integration (ADR 0028): a monitored SQL Server with its template version and modules. */
+export interface IntegrationItem {
+  /** The server's ID. */
+  id: string;
+  /** Its kind; SQL Server only for now. */
+  kind: "sqlserver";
+  /** Its name in Veyra, such as `sql-prod-01`. */
+  name: string;
+  /** The environment its telemetry is filed under. */
+  environment: string;
+  /** The agent that reads it. */
+  agent: { id: string; name: string };
+  /** The template version it is read with. */
+  version: string;
+  /** The current template version Veyra ships. */
+  latestVersion: string;
+  /** How its monitoring stands, as on the Settings screen. */
+  state: SqlServerState;
+  /** Each module's switch and interval. */
+  modules: IntegrationModule[];
+  /** When it was added, in ISO 8601. */
+  createdAt: string;
+  /** When it was last changed, in ISO 8601. */
+  changedAt: string;
+}
+
+/** The integrations (`GET /api/v1/integrations`). */
+export interface IntegrationList {
+  /** Every integration, as the server orders them. */
+  items: IntegrationItem[];
+}
+
+/** The connection a probe tries, unsaved (ADR 0028), or a saved server's by its ID alone for Validate now. */
+export interface ProbeInput {
+  /** The agent that runs the probe. */
+  agentId?: string | null;
+  /** A saved server to probe with its stored connection; null for an unsaved one. */
+  serverId?: string | null;
+  /** The kind of SQL Server. */
+  platform?: SqlServerPlatform;
+  /** The host name or IP address. */
+  address?: string;
+  /** The TCP port, for a default instance. */
+  port?: number | null;
+  /** The named instance, or null for the port. */
+  instance?: string | null;
+  /** How the agent signs in. */
+  authentication?: SqlServerAuthentication;
+  /** The login, the domain login, or the service account. */
+  login?: string;
+  /** The password; null for integrated authentication. */
+  password?: string | null;
+  /** How the connection is encrypted. */
+  encryption?: SqlServerEncryption;
+  /** The database, for an Azure SQL Database. */
+  database?: string | null;
+}
+
+/** Where a probe stands. */
+export type ProbeState = "pending" | "succeeded" | "failed";
+
+/** Why a probe failed (ADR 0028). */
+export type ProbeFailure =
+  "no-agent" | "agent-offline" | "unreachable" | "login-failed" | "certificate" | "timed-out" | "other";
+
+/** What a probe read of the server. */
+export interface ProbeResult {
+  /** The version number, such as `16.0.4135.4`. */
+  version: string;
+  /** The cumulative update, such as `CU14`, or null. */
+  updateLevel: string | null;
+  /** The edition, such as `Enterprise Edition`. */
+  edition: string;
+  /** The platform it runs on, such as `Windows` or `Linux`. */
+  platform: string;
+  /** How many databases it has. */
+  databases: number;
+  /** Their names. */
+  databaseNames: string[];
+  /** The permissions the login lacks; empty when none. */
+  missingPermissions: string[];
+}
+
+/** A probe through the agent (`GET /api/v1/integrations/probes/{id}`, ADR 0028). */
+export interface Probe {
+  /** Its ID. */
+  id: string;
+  /** Where it stands. */
+  state: ProbeState;
+  /** When it started, in ISO 8601. */
+  startedAt: string;
+  /** When it ended, or null while pending. */
+  finishedAt: string | null;
+  /** Why it failed, or null. */
+  error: { reason: ProbeFailure; message: string } | null;
+  /** What it read, or null unless it succeeded. */
+  result: ProbeResult | null;
+}
+
+/** How the agent's remote configuration stands. */
+export type CollectorConfigState = "applied" | "applying" | "failed" | "unknown";
+
+/** One entry of an integration's monitoring history. */
+export interface IntegrationHistoryItem {
+  /** When, in ISO 8601. */
+  at: string;
+  /** Who, or null for Veyra itself. */
+  by: string | null;
+  /** What changed, such as `version`, `modules`, `created`. */
+  kind: string;
+  /** The value before, such as `0.1.0`, or null. */
+  from: string | null;
+  /** The value after, or null. */
+  to: string | null;
+}
+
+/** One integration's package page (`GET /api/v1/integrations/sqlserver/{id}`, ADR 0028). */
+export interface IntegrationDetails {
+  /** The integration. */
+  integration: IntegrationItem;
+  /** The template and the login. */
+  package: {
+    /** The package's name, such as `veyra-sqlserver-integration`. */
+    name: string;
+    /** The version the server is read with. */
+    version: string;
+    /** The current version. */
+    latestVersion: string;
+    /** The version before the current one, to roll back to; null when Veyra ships only one. */
+    previousVersion: string | null;
+    /** When the version was set, in ISO 8601. */
+    setAt: string;
+    /** Who set it, or null for Veyra itself. */
+    setBy: string | null;
+    /** The agent's Collector version, once it said. */
+    collectorVersion: string | null;
+    /** The Collector versions the template states it works with, such as `otelcol-contrib ≥ 0.140.0`. */
+    collectorCompatibility: string;
+    /** The least SQL Server version the template supports, such as `SQL Server 2016`. */
+    minimumSqlServer: string;
+    /** The login the agent signs in with. */
+    login: string;
+    /** How it signs in. */
+    authentication: SqlServerAuthentication;
+    /** The permissions the login lacks; empty when none. */
+    loginLacks: string[];
+  };
+  /** The agent's Collector, from OpAMP. */
+  collector: {
+    agentId: string;
+    agentName: string;
+    /** Whether OpAMP reports it healthy. */
+    healthy: boolean;
+    /** When the Collector started, or null. */
+    startedAt: string | null;
+    /** How long it has run, or null. */
+    uptimeSeconds: number | null;
+    /** When it last reported, or null. */
+    lastSeenAt: string | null;
+    /** The remote configuration's status. */
+    configState: CollectorConfigState;
+    /** Why the configuration failed, or null. */
+    configError: string | null;
+  };
+  /** The configuration validation: the last probe of the saved server. */
+  validation: { lastProbe: Probe | null };
+  /** Each module with what it collected over the window. */
+  modules: {
+    id: string;
+    name: string;
+    enabled: boolean;
+    intervalSeconds: number;
+    /** Metric series it wrote in the window. */
+    series: number;
+    /** Points it wrote in the window. */
+    points: number;
+    /** Points over the window, oldest first. */
+    line: (number | null)[];
+  }[];
+  /** The integration's reads with the time SQL Server spends per run, from the statement statistics. */
+  checks: { name: string; module: string; secondsPerRun: number | null; runs: number; ok: boolean }[];
+  /** What the installation still lacks. */
+  nextSteps: { id: string; text: string; done: boolean; link: string | null }[];
+  /** The monitoring history, newest first. */
+  history: IntegrationHistoryItem[];
 }
 
 /**
@@ -1890,6 +2581,12 @@ export interface SqlServerInput {
   platform: SqlServerPlatform;
   /** The database to read, for an Azure SQL Database; null for the other kinds. */
   database: string | null;
+  /** The named instance, or null to connect to the port (ADR 0028); the stored one when left out. */
+  instance?: string | null;
+  /** How the agent signs in (ADR 0028); the stored one, or SQL authentication, when left out. */
+  authentication?: SqlServerAuthentication;
+  /** Each module's switch and interval (ADR 0028); the stored ones, or the defaults, when left out. */
+  modules?: IntegrationModule[];
 }
 
 /** A wait type explained (ADR 0020): its category, words for the Simple view, and what it means and usually causes. */
@@ -2030,6 +2727,8 @@ export interface LiveTiles {
   oldestTransactionSeconds: number | null;
   /** The session that holds it. */
   oldestTransactionSession: number | null;
+  /** The session that runs the longest request, or null; the whole server's, so a filter can leave it out (VEY-66). */
+  longestRequestSession: number | null;
   /** Requests waiting for memory to run. */
   grantsWaiting: number;
   /** The share of tempdb still free, from 0 to 1, or null. */
@@ -2042,6 +2741,8 @@ export interface LiveTiles {
 export interface DatabaseLive {
   /** The engine. */
   engine: string;
+  /** The sessions with a request running now, the longest first, picked on the server (VEY-68). */
+  running: LiveSession[];
   /** The server's name. */
   server: string;
   /** Its environment. */
@@ -2062,6 +2763,46 @@ export interface DatabaseLive {
   sessions: LiveSession[];
   /** Every wait type the sessions wait on, explained. */
   waits: Record<string, WaitTerm>;
+  /**
+   * The sessions of the listed chains that do not meet the filters, so a chain still names who blocks whom (VEY-66);
+   * empty without filters.
+   */
+  chained: LiveSession[];
+}
+
+/** What a list left out because System is off (VEY-66): the server filters, and the screen only says so. */
+export interface HiddenRows {
+  /** How many rows were left out. */
+  count: number;
+  /** The names among them an alert can be about, such as `msdb` or a job's name, at most 20. */
+  names: string[];
+}
+
+/** What the server ranks a Queries tab's statements by before it keeps the top 100 (VEY-66). */
+export type QuerySort = "totalTime" | "cpu" | "reads" | "runs" | "timePerRun";
+
+/** The Live tab's filters, sent to the server, which lists only the sessions with every value given (VEY-66). */
+export interface LiveFilterValues {
+  /** The database a session uses. */
+  database?: string;
+  /** The program that opened it. */
+  program?: string;
+  /** The machine it comes from. */
+  host?: string;
+  /** Its login. */
+  login?: string;
+  /** The wait type its request waits on. */
+  wait?: string;
+}
+
+/** A SQL Server's Jobs tab from `GET .../jobs` (ADR 0020, area 10). */
+export interface AgentJobsView {
+  /** The jobs, those that need a look first. */
+  jobs: AgentJobView[];
+  /** The jobs SQL Server set up itself, left out unless System is on. */
+  hiddenJobs: HiddenRows;
+  /** How many enabled jobs are listed before the Simple view keeps those that need a look (VEY-67). */
+  enabled: number;
 }
 
 /** A problem a plan or a statement's history shows, with what to do (ADR 0020, area 4). */
@@ -2104,12 +2845,20 @@ export interface QueryRow {
   plans: number;
   /** What its plans and history show. */
   findings: PlanWarning[];
+  /** Whether it is the server's own housekeeping rather than an application's work (VEY-64). */
+  system: boolean;
 }
 
 /** A SQL Server's Queries tab. */
 export interface DatabaseQueries {
-  /** The range. */
+  /** The range: the preset asked for, or `custom`. */
   range: string;
+  /** The start of the window the answer covers, as an ISO instant (ADR 0022). */
+  from: string;
+  /** The end of the window the answer covers: now, or the `to` asked for (ADR 0022). */
+  to: string;
+  /** The databases that do not keep Query Store, picked on the server (VEY-68). */
+  queryStoreOff: QueryStoreState[];
   /** The statements by total time; Veyra's agent left out. */
   statements: QueryRow[];
   /** Statements of Veyra's agent. */
@@ -2118,6 +2867,10 @@ export interface DatabaseQueries {
   agentSeconds: number;
   /** Each user database and whether it keeps Query Store. */
   queryStore: QueryStoreState[];
+  /** The server's own statements, left out unless System is on (VEY-66). */
+  hiddenStatements: HiddenRows;
+  /** The busiest statement over the range, which the Simple view names when none shows a problem (VEY-67). */
+  busiest: QueryRow | null;
 }
 
 /** Whether a database keeps Query Store (ADR 0020). */
@@ -2234,14 +2987,20 @@ export interface SessionCaller {
 export interface DatabaseQuery {
   /** Its query hash. */
   queryHash: string;
+  /** How many reads saw any program run it, added up on the server (VEY-68). */
+  callerSamples: number;
   /** Its database, or null. */
   database: string | null;
   /** What it does, in words. */
   name: string;
   /** The statement. */
   text: string;
-  /** The range. */
+  /** The range: the preset asked for, or `custom`. */
   range: string;
+  /** The start of the window the answer covers, as an ISO instant (ADR 0022). */
+  from: string;
+  /** The end of the window the answer covers: now, or the `to` asked for (ADR 0022). */
+  to: string;
   /** Its totals. */
   totals: QueryRow;
   /** Each bucket. */
@@ -2338,8 +3097,12 @@ export interface Deadlock {
 
 /** A SQL Server's Blocking tab. */
 export interface DatabaseBlocking {
-  /** The range. */
+  /** The range: the preset asked for, or `custom`. */
   range: string;
+  /** The start of the window the answer covers, as an ISO instant (ADR 0022). */
+  from: string;
+  /** The end of the window the answer covers: now, or the `to` asked for (ADR 0022). */
+  to: string;
   /** The episodes, the newest first. */
   episodes: BlockingEpisode[];
   /** The deadlocks, the newest first. */
@@ -2410,6 +3173,8 @@ export interface DatabaseStorage {
   damagedPages: number;
   /** What Veyra makes of it. */
   findings: PlanWarning[];
+  /** Whether the engine keeps the database for itself, such as master or msdb (VEY-64). */
+  system: boolean;
 }
 
 /** A volume that holds database files. */
@@ -2426,6 +3191,18 @@ export interface DatabaseVolume {
   daysUntilFull: number | null;
 }
 
+/** The figures a database server's Overview tab tells beside its weather (VEY-68). */
+export interface DatabaseOverview {
+  /** The wait that took the most time over the range, with its share from 0 to 1; null when nothing waited. */
+  topWait: { label: string; share: number } | null;
+  /** The databases, tempdb aside, without a full backup within 26 hours. */
+  lateBackups: string[];
+  /** The jobs whose last run failed. */
+  failedJobs: AgentJob[];
+  /** The database oldest to transaction ID wraparound (PostgreSQL); null where the engine has none. */
+  oldestWraparound: DatabasePart | null;
+}
+
 /** A SQL Server's databases and volumes in full. */
 export interface StorageView {
   /** Its databases. */
@@ -2434,6 +3211,23 @@ export interface StorageView {
   volumes: DatabaseVolume[];
   /** Server-wide findings. */
   findings: PlanWarning[];
+  /** The server's own databases, left out unless System is on (VEY-66). */
+  hiddenDatabases: HiddenRows;
+  /** The findings on those databases, left out with them. */
+  hiddenFindings: HiddenRows;
+  /**
+   * The server's findings and the listed databases' in one list, the warnings first, each with its database, for the
+   * Needs doing panel (VEY-68).
+   */
+  needsDoing: StorageFinding[];
+}
+
+/** One finding of the Storage tab's Needs doing list (VEY-68). */
+export interface StorageFinding {
+  /** What Veyra found, with the statement to run. */
+  finding: PlanWarning;
+  /** The database it is about, or null for the server's own finding. */
+  database: string | null;
 }
 
 /** One index with its use since SQL Server started (ADR 0020, area 9). */
@@ -2458,6 +3252,8 @@ export interface IndexInfo {
   writes: number;
   /** Lock escalations. */
   escalations: number;
+  /** Whether it is in a database the engine keeps for itself (VEY-64). */
+  system: boolean;
 }
 
 /** A SQL Server's index and statistics advice. */
@@ -2466,6 +3262,8 @@ export interface IndexAdvice {
   findings: PlanWarning[];
   /** The largest indexes. */
   indexes: IndexInfo[];
+  /** The indexes of the server's own databases, left out with their findings unless System is on (VEY-66). */
+  hiddenIndexes: HiddenRows;
 }
 
 /** A wait type over the range, explained (ADR 0020, area 2). */
@@ -2474,6 +3272,8 @@ export interface WaitTypeTotal {
   term: WaitTerm;
   /** Seconds waited on it over the range. */
   seconds: number;
+  /** Whether it is a background task's idle waiting, which says nothing about the load (VEY-64). */
+  system: boolean;
 }
 
 /** A SQL Server as a whole (ADR 0020, areas 1, 2, and 14). */
@@ -2522,6 +3322,8 @@ export interface ServerView {
   waits: WaitTypeTotal[];
   /** What Veyra makes of it. */
   findings: PlanWarning[];
+  /** The idle waits of the server's background tasks, left out unless System is on (VEY-66). */
+  hiddenWaits: HiddenRows;
 }
 
 /** One step of a SQL Agent job run. */
@@ -2572,6 +3374,10 @@ export interface AgentJobView {
   usualSeconds: number | null;
   /** Its runs of the last week. */
   runs: AgentJobRun[];
+  /** Whether SQL Server set it up for a feature of its own, such as policy management (VEY-64). */
+  system: boolean;
+  /** Whether it needs a look: it failed, is late, or runs at least twice its usual time (VEY-67). */
+  needsLook: boolean;
 }
 
 /** A SQL Server event from system_health (ADR 0020, area 11). */
@@ -2596,6 +3402,8 @@ export interface ServerEvent {
 
 /** A server's availability (ADR 0020, area 12). */
 export interface AvailabilityView {
+  /** What is not well, in words, worked out on the server (VEY-68). */
+  trouble: string[];
   /** Its Availability Group replicas. */
   replicas: { group: string; replica: string; role: string; healthy: boolean }[];
   /** Its Availability Group databases with their queues. */
@@ -2661,4 +3469,963 @@ export interface AgentHostInput {
   docker: boolean;
   /** The environment the host belongs to: letters, digits, dots, dashes, underscores. */
   environment: string;
+}
+
+/** One thing a search found (ADR 0022). */
+export interface SearchItem {
+  /** What it is. */
+  kind: "service" | "host" | "container" | "server" | "database" | "operation";
+  /** Its name. */
+  name: string;
+  /** Its health from the alert rules, or null when it has none. */
+  health?: BlockHealth | null;
+  /** A short figure about it, worded by the server. */
+  detail: string;
+  /** For a database server or a database: its engine, as `db.system.name` spells it. */
+  engine?: string;
+  /** For a database: its server. For a server: the same as its name. */
+  server?: string;
+  /** For an operation: the service it belongs to. */
+  service?: string;
+  /** For an operation: how many traces it has in the window. */
+  count?: number;
+}
+
+/** One group of a search's answer. */
+export interface SearchGroup {
+  /** Up to five matches, best first, as the server ranks them. */
+  items: SearchItem[];
+  /** Whether the group ran out of time and holds only what it found by then. */
+  partial: boolean;
+}
+
+/** The answer of `GET /api/v1/search`: every signal searched at once, each group ranked by the server. */
+export interface SearchResults {
+  /** The words searched. */
+  query: string;
+  /** Services. */
+  services: SearchGroup;
+  /** Hosts and containers. */
+  hosts: SearchGroup;
+  /** Database servers and databases. */
+  databases: SearchGroup;
+  /** Trace operations. */
+  traces: SearchGroup;
+  /** How many log records hold the words in the window. */
+  logs: { count: number; partial: boolean };
+}
+
+/** A name with a share, such as the busiest host and its CPU. */
+export interface NamedRatio {
+  /** The name. */
+  name: string;
+  /** The share, from 0 to 1. */
+  ratio: number;
+}
+
+/** What every resource list asks for (ADR 0022): the shared window, the environment, the filters, and the page. */
+export interface ResourceQuery {
+  /** The window's start, as ISO. */
+  from: string;
+  /** The window's end, as ISO. */
+  to: string;
+  /** The chosen environment, or null for all. */
+  environment: string | null;
+  /** The filters, by their parameter name; empty values are left out. */
+  filters: Record<string, string>;
+  /** Where the next page starts, or null for the first. */
+  cursor: string | null;
+}
+
+/** One page of a resource list: the header for the whole filtered set, the items worst first, and where to go on. */
+export interface ResourcePage<THeader, TItem> {
+  /** Figures for the whole filtered set, not only this page. */
+  header: THeader;
+  /** This page's items, worst first unless the person sorted by name. */
+  items: TItem[];
+  /** How many items the filters keep. */
+  total: number;
+  /** Where the next page starts, or null on the last. */
+  next: string | null;
+}
+
+/** The figures of the Services screen's header. Every change is against the previous period of the same length. */
+export interface ServicesHeader {
+  /** Every service the filters keep. */
+  total: number;
+  /** Those without an open alert. */
+  healthy: number;
+  /** Those with an open warning. */
+  warning: number;
+  /** Those with an open caution and no warning. */
+  caution: number;
+  /** Those that sent nothing for the silence setting. */
+  silent: number;
+  /** Requests in the window, or null for services without HTTP metrics. */
+  requests: number | null;
+  /** The change of requests, as a ratio, or null without a previous period. */
+  requestsChange: number | null;
+  /** The share of requests answered with a server error in the window, or null without HTTP metrics. */
+  errorRatio: number | null;
+  /** The change of the error ratio, in percentage points as a ratio. */
+  errorRatioChange: number | null;
+  /** 95 of 100 requests were answered faster than this, or null without HTTP metrics. */
+  p95Seconds: number | null;
+  /** The change of the p95, as a ratio, or null without a previous period. */
+  p95Change: number | null;
+  /** Running copies of the services, from `service.instance.id`. */
+  instances: number;
+  /** The hosts they run on. */
+  hosts: number;
+}
+
+/** One service of the Services screen. */
+export interface ServiceRow {
+  /** The service, by `service.name`. */
+  name: string;
+  /** Its environment, or null when it sends none. */
+  environment: string | null;
+  /** Its health from the alert rules. */
+  health: BlockHealth;
+  /** Whether nothing arrived for the silence setting (2 hours by default). */
+  silent: boolean;
+  /** Requests per minute in the window, or null without HTTP metrics. */
+  requestsPerMinute: number | null;
+  /** Its p95 latency, or null without HTTP metrics. */
+  p95Seconds: number | null;
+  /** Its share of server errors, or null. */
+  errorRatio: number | null;
+  /** Its running copies. */
+  instances: number;
+  /** The hosts it runs on, by `host.name`. */
+  hosts: string[];
+  /** When it last sent anything, as ISO, or null. */
+  lastSeenAt: string | null;
+  /** Requests per minute in each 24th of the window, for the row's line; null where nothing is known. */
+  requests: (number | null)[];
+}
+
+/** The figures of the Hosts & containers screen's header. */
+export interface HostsHeader {
+  /** Every host and container seen while its metrics are kept. */
+  known: number;
+  /** Those that reported lately. */
+  online: number;
+  /** Containers among them. */
+  containers: number;
+  /** The average CPU use, from 0 to 1, or null. */
+  cpuAverage: number | null;
+  /** The busiest one, or null. */
+  cpuBusiest: NamedRatio | null;
+  /** The average memory use, from 0 to 1, or null. */
+  memoryAverage: number | null;
+  /** The fullest one, or null. */
+  memoryFullest: NamedRatio | null;
+  /** Disks that fill within 30 days. */
+  disksFilling: number;
+  /** The disk that fills first, or null. */
+  disksFillingFirst: { host: string; mount: string; hoursLeft: number } | null;
+}
+
+/** One host or container of the Hosts & containers screen. */
+export interface HostRow {
+  /** Its name, by `host.name` or the container name. */
+  name: string;
+  /** Whether it is a host or a container. */
+  kind: "host" | "container";
+  /** Its operating system, for a host, or null. */
+  os: string | null;
+  /** For a container: the host it runs on. */
+  parent: string | null;
+  /** Its health from the alert rules. */
+  health: BlockHealth;
+  /** Whether it reported nothing lately. */
+  silent: boolean;
+  /** Its CPU use, from 0 to 1, or null. */
+  cpuRatio: number | null;
+  /** Its memory use, from 0 to 1, or null. */
+  memoryRatio: number | null;
+  /** How full its fullest disk is, or null. */
+  fullestDiskRatio: number | null;
+  /** What runs on it: services, or database servers. */
+  runs: string[];
+  /** How many things run on it. */
+  runsCount: number;
+  /** When it last reported, as ISO, or null. */
+  lastSeenAt: string | null;
+}
+
+/** The figures of the Databases screen's header. */
+export interface DatabasesHeader {
+  /** Every database server Veyra watches. */
+  servers: number;
+  /** Those that sent nothing lately. */
+  silent: number;
+  /** Their databases, with or without the system ones as the filter says. */
+  databases: number;
+  /** The size of every database together, or null. */
+  dataBytes: number | null;
+  /** How much they grow per day together, or null. */
+  growthBytes: number | null;
+  /** Databases whose last full backup is late. */
+  lateBackups: number;
+  /** The first late one, or null. */
+  lateBackupFirst: { server: string; database: string } | null;
+  /** Blocking chains now, across the servers. */
+  blockingChains: number;
+  /** The server with the most, or null. */
+  blockingServer: string | null;
+}
+
+/** One database server of the Databases screen. */
+export interface DatabaseServerRow {
+  /** Its engine, as `db.system.name` spells it. */
+  engine: string;
+  /** Its name in Veyra. */
+  server: string;
+  /** Its version in words, or null. */
+  version: string | null;
+  /** Its health from the alert rules. */
+  health: BlockHealth;
+  /** Whether it sent nothing lately. */
+  silent: boolean;
+  /** Its databases. */
+  databases: number;
+  /** Their size together, or null. */
+  sizeBytes: number | null;
+  /** Their growth per day, or null. */
+  growthBytesPerDay: number | null;
+  /** The age of its oldest last full backup, or null. */
+  lastFullBackupAgeSeconds: number | null;
+  /** Its databases with a late backup. */
+  lateBackups: number | null;
+  /** Its blocking chains now. */
+  blockingChains: number | null;
+  /** Its CPU use, from 0 to 1, or null. */
+  cpuRatio: number | null;
+}
+
+/** A figure and its change against the period before (ADR 0022), as the server works it out. */
+export interface FigureChange {
+  /** The change: relative for a count, in ratio units for a ratio; null without a previous period. */
+  change: number | null;
+}
+
+/** The header figures of the Overview (ADR 0023). */
+export interface OverviewFigures {
+  /** Services by health; silent ones sent nothing lately. */
+  services: { healthy: number; total: number; warning: number; caution: number; silent: number };
+  /** Hosts that reported lately, of every host Veyra knows. */
+  hosts: { online: number; known: number };
+  /** Database servers Veyra watches and their databases, system ones left out. */
+  databases: { servers: number; databases: number };
+  /** HTTP requests in the window; null without HTTP metrics. */
+  requests: FigureChange & { count: number | null };
+  /** The share of requests answered with a server error; null without HTTP metrics. */
+  errorRatio: FigureChange & { value: number | null };
+  /** Open alerts by severity. */
+  openAlerts: { warning: number; caution: number };
+  /** SQL Server Agent job runs in the window: the share that succeeded, null without runs. */
+  jobs: { succeededRatio: number | null; runs: number; failed: number };
+  /** The share of the last days without an open warning on any service; null without services. */
+  availability: FigureChange & { ratio: number | null; days: number };
+}
+
+/** A series of the Overview: equal steps across the window. */
+export interface OverviewSeries<TPoint> {
+  /** The width of each step, in seconds. */
+  stepSeconds: number;
+  /** The steps, oldest first. */
+  points: TPoint[];
+}
+
+/** One step of the request activity. */
+export interface ActivityPoint {
+  /** The step's start, as ISO. */
+  at: string;
+  /** Requests in the step, or null where unknown. */
+  requests: number | null;
+  /** Server errors in the step, or null where unknown. */
+  errors: number | null;
+}
+
+/** One step of the telemetry that arrived. */
+export interface IngestionPoint {
+  /** The step's start, as ISO. */
+  at: string;
+  /** Log records. */
+  logs: number;
+  /** Spans. */
+  spans: number;
+  /** Metric points. */
+  points: number;
+}
+
+/** One step of the hosts' resources. */
+export interface HostTrendPoint {
+  /** The step's start, as ISO. */
+  at: string;
+  /** The average CPU use across hosts, from 0 to 1, or null. */
+  cpu: number | null;
+  /** The average memory use across hosts, or null. */
+  memory: number | null;
+  /** The fullest disk across hosts, or null. */
+  disk: number | null;
+}
+
+/** The latest run of a job, such as a SQL Server Agent job. */
+export interface PipelineRun {
+  /** The job's name. */
+  name: string;
+  /** The server it runs on. */
+  server: string;
+  /** The server's engine; null for a job recognised from traces, which runs in a service. */
+  engine: string | null;
+  /** When it last ran, as ISO, or null. */
+  lastRunAt: string | null;
+  /** How long the last run took, or null. */
+  durationSeconds: number | null;
+  /** How the last run ended, or that it runs now. */
+  status: "Succeeded" | "Failed" | "Running";
+  /** Its runs in the window. */
+  runs: number;
+  /** Those that failed. */
+  failedRuns: number;
+  /** The job's ID, for its own screen (ADR 0027); missing from servers older than job runs. */
+  jobId?: string;
+}
+
+/** An agent as the Overview shows it. */
+export interface CollectorHealth {
+  /** Its name. */
+  name: string;
+  /** Its state, as the Agents page says it. */
+  state: AgentState;
+  /** When it last reported, as ISO, or null. */
+  lastSeenAt: string | null;
+  /** The Collector version it runs, or null. */
+  version: string | null;
+  /** Its exporter queue, or null until agents report it (ADR 0023). */
+  queue: number | null;
+}
+
+/** One database among every server's databases. */
+export interface DatabaseAcross {
+  /** The database. */
+  name: string;
+  /** Its server. */
+  server: string;
+  /** The server's engine. */
+  engine: string;
+  /** Its state, such as Online, or null where the engine does not report it. */
+  state: string | null;
+  /** Its size, or null. */
+  sizeBytes: number | null;
+  /** Its growth per day, or null. */
+  growthBytesPerDay: number | null;
+  /** The age of its last full backup, or null. */
+  lastFullBackupAgeSeconds: number | null;
+  /** Whether that backup is late. */
+  late: boolean;
+  /** Its connections, where the engine reports them per database, or null. */
+  connections: number | null;
+}
+
+/** The answer of `GET /api/v1/overview` (ADR 0023): the whole environment on one screen. */
+export interface Overview {
+  /** The window's start. */
+  from: string;
+  /** The window's end. */
+  to: string;
+  /** The header figures. */
+  figures: OverviewFigures;
+  /** Requests and server errors across services. */
+  activity: OverviewSeries<ActivityPoint>;
+  /** Telemetry that arrived, by signal. */
+  ingestion: OverviewSeries<IngestionPoint>;
+  /** The hosts' resources. */
+  hostTrends: OverviewSeries<HostTrendPoint>;
+  /** The latest runs of the jobs, failed ones first. */
+  pipelines: PipelineRun[];
+  /** The agents; null for anyone but an Admin. */
+  collectors: CollectorHealth[] | null;
+  /** Every server's databases, worst first, as one page. */
+  databases: { items: DatabaseAcross[]; total: number };
+}
+
+/** One figure of a SQL Server's overview (ADR 0025): its value now, a line over the range, and its change. */
+export interface ServerFigure {
+  /** The value now; null when the server did not send it. */
+  value: number | null;
+  /** The value over the range, one point per step. */
+  line: (number | null)[];
+  /** The change against the period before: relative for an amount, in ratio units for a ratio; null without one. */
+  change: number | null;
+}
+
+/** The machine a SQL Server runs on, and the instance (ADR 0025). */
+export interface ServerMachine {
+  /** The SQL Server version, such as "16.0.4135.4". */
+  version: string | null;
+  /** The cumulative update, such as "CU14". */
+  updateLevel: string | null;
+  /** The edition, such as "Enterprise Edition". */
+  edition: string | null;
+  /** The operating system, such as "Windows Server 2022". */
+  osName: string | null;
+  /** Its release, such as "21H2". */
+  osRelease: string | null;
+  /** The logical CPUs SQL Server sees. */
+  cpus: number | null;
+  /** The machine's physical memory in bytes. */
+  memoryBytes: number | null;
+  /** When the instance started. */
+  startedAt: string | null;
+  /** How long it has run, in seconds. */
+  uptimeSeconds: number | null;
+  /** Its databases, system ones left out unless asked for. */
+  databases: number;
+  /** The platform, such as "box", "managed-instance", or "azure-sql-database". */
+  platform: string | null;
+}
+
+/** A blocking chain from the latest live read (ADR 0025). */
+export interface ServerBlockingChain {
+  /** The session at the head of the chain. */
+  headSessionId: number;
+  /** Its database. */
+  database: string | null;
+  /** Its login. */
+  login: string | null;
+  /** The machine it came from. */
+  host: string | null;
+  /** What it waits for, when it waits itself. */
+  waitType: string | null;
+  /** How long the longest blocked session has waited, in seconds. */
+  waitSeconds: number | null;
+  /** How many sessions wait behind it, directly or not. */
+  blockedCount: number;
+  /** The statement it runs. */
+  statement: string | null;
+  /** The sessions it blocks directly. */
+  blocked: { sessionId: number; waitType: string | null; waitSeconds: number | null }[];
+}
+
+/** A monitoring area of a SQL Server (ADR 0025). */
+export type ServerArea =
+  "activity" | "waits" | "queries" | "storage" | "backups" | "jobs" | "events" | "configuration" | "availability";
+
+/** A monitoring area of a SQL Server and whether its data arrives (ADR 0025). */
+export interface ServerCoverage {
+  /** The area. */
+  area: ServerArea;
+  /** Whether data arrived lately. */
+  delivering: boolean;
+  /** When data last arrived. */
+  lastSeen: string | null;
+  /** The permission the monitoring login lacks for it, when that is why it is silent. */
+  missingPermission: string | null;
+}
+
+/** A core counter of a SQL Server, averaged over the range (ADR 0025). */
+export interface ServerCounter {
+  /** Which counter. */
+  name: "batchRequests" | "compilations" | "pageLife" | "waits";
+  /** Its average over the range. */
+  value: number | null;
+  /** Its unit in words, such as "per second". */
+  unit: string;
+  /** The change against the period before. */
+  change: number | null;
+}
+
+/** A SQL Server's overview, in one read (`GET …/overview`, ADR 0025). */
+export interface ServerOverview {
+  /** The window, as ISO instants. */
+  from: string;
+  /** Its end. */
+  to: string;
+  /** The machine and the instance. */
+  machine: ServerMachine;
+  /** The header figures. */
+  figures: {
+    cpu: ServerFigure;
+    sqlMemory: ServerFigure;
+    sessions: ServerFigure;
+    blocked: ServerFigure;
+    size: ServerFigure;
+    lastFullBackupSeconds: ServerFigure;
+    batchRequests: ServerFigure;
+    volumeFree: ServerFigure & { volume: string | null };
+  };
+  /** CPU, memory, and waits over the range. */
+  performance: {
+    bucketSeconds: number;
+    starts: string[];
+    cpu: (number | null)[];
+    sqlMemoryRatio: (number | null)[];
+    waitMsPerSecond: (number | null)[];
+  };
+  /** The core counters, with their change. */
+  counters: ServerCounter[];
+  /** Reads and writes in bytes per second. */
+  io: {
+    readBytesPerSecond: number | null;
+    writeBytesPerSecond: number | null;
+    readLine: (number | null)[];
+    writeLine: (number | null)[];
+  };
+  /** The top wait types of the range, idle ones left out. */
+  waits: { totalSeconds: number; types: { type: string; category: string | null; seconds: number; share: number }[] };
+  /** Sizes, growth, the largest databases, and the volumes. */
+  storage: {
+    totalBytes: number | null;
+    growth24hBytes: number | null;
+    growth7dBytes: number | null;
+    growth30dBytes: number | null;
+    line: (number | null)[];
+    largest: { database: string; bytes: number; growth24hBytes: number | null; growth7dBytes: number | null }[];
+    volumes: { name: string; sizeBytes: number; freeBytes: number; freeRatio: number; daysUntilFull: number | null }[];
+  };
+  /** Each database. */
+  inventory: {
+    database: string;
+    dataBytes: number | null;
+    logBytes: number | null;
+    growthPerDayBytes: number | null;
+    state: string | null;
+    recoveryModel: string | null;
+  }[];
+  /** Blocking now and over the range. */
+  blocking: { chains: ServerBlockingChain[]; blockedLine: (number | null)[]; deadlocks: number };
+  /** Which monitoring areas deliver data. */
+  coverage: ServerCoverage[];
+}
+
+/** A backup type as SQL Server records it. */
+export type BackupType = "full" | "differential" | "log";
+
+/** How many backups of one type ran on a day, and how long they took together. */
+export interface BackupDayType {
+  /** How many ran. */
+  count: number;
+  /** Their seconds together. */
+  seconds: number;
+}
+
+/** A SQL Server's backups (`GET …/backups`, ADR 0025). */
+export interface ServerBackups {
+  /** The window. */
+  from: string;
+  /** Its end. */
+  to: string;
+  /** Whether the platform backs up by itself, as Azure SQL Database and Managed Instance do. */
+  selfManaged: boolean;
+  /** The backups of the window, newest first, at most 500. */
+  backups: {
+    database: string;
+    type: BackupType;
+    startedAt: string;
+    finishedAt: string;
+    seconds: number;
+    bytes: number | null;
+    compressedBytes: number | null;
+    copyOnly: boolean;
+    device: string | null;
+  }[];
+  /** Each day of the window, oldest first. */
+  days: { day: string; full: BackupDayType; differential: BackupDayType; log: BackupDayType }[];
+  /** The last 7 days per database. */
+  grid: {
+    days: string[];
+    databases: { database: string; cells: { full: boolean; differential: boolean; log: number }[] }[];
+  };
+  /** Each database's freshness against the backup rules, worst first. */
+  freshness: {
+    database: string;
+    fullAgeSeconds: number | null;
+    diffAgeSeconds: number | null;
+    logAgeSeconds: number | null;
+    recoveryModel: string | null;
+    state: "ok" | "caution" | "warning" | "ignored";
+    policy: string;
+  }[];
+}
+
+/** Where an incident stands (ADR 0026). */
+export type IncidentState = "open" | "acknowledged" | "resolved";
+
+/** An incident: related alerts grouped into one thing to work on (ADR 0026). */
+export interface IncidentItem {
+  /** The incident's ID. */
+  id: string;
+  /** Its number. */
+  number: number;
+  /** Its key, such as "INC-42". */
+  key: string;
+  /** Its title: the headline of its first or worst alert. */
+  title: string;
+  /** Its environment. */
+  environment: string | null;
+  /** The worst severity of its alerts. */
+  severity: AlertSeverity;
+  /** Where it stands. */
+  state: IncidentState;
+  /** When its first alert opened. */
+  openedAt: string;
+  /** When someone acknowledged it. */
+  acknowledgedAt: string | null;
+  /** Who acknowledged it. */
+  acknowledgedBy: string | null;
+  /** When its last alert resolved. */
+  resolvedAt: string | null;
+  /** How many alerts it holds. */
+  alertCount: number;
+  /** The blocks its alerts are about. */
+  blocks: AlertBlock[];
+}
+
+/** One page of incidents. */
+export interface IncidentPage {
+  /** The incidents, open first, then newest. */
+  items: IncidentItem[];
+  /** Pass it as `cursor` for the next page; null on the last one. */
+  next: string | null;
+}
+
+/** One moment of an incident's own timeline: its alerts' events, their notifications, and acknowledgements. */
+export interface IncidentMoment {
+  /** When it happened. */
+  at: string;
+  /** What happened. */
+  kind: "opened" | "escalated" | "eased" | "resolved" | "acknowledged" | "unacknowledged";
+  /** The alert it happened to. */
+  alertId: string | null;
+  /** That alert's rule. */
+  rule: AlertRule | null;
+  /** That alert's block. */
+  block: AlertBlock | null;
+  /** The severity after it. */
+  severity: AlertSeverity | null;
+  /** The measure then. */
+  value: number | null;
+  /** Who did it, for an acknowledgement. */
+  actor: string | null;
+  /** The notifications it sent. */
+  deliveries: AlertDelivery[];
+}
+
+/** An incident with its alerts, figures, and timeline (`GET /api/v1/incidents/{id}`). */
+export interface IncidentDetails {
+  /** The incident. */
+  incident: IncidentItem;
+  /** Its alerts, as the alert list shows them. */
+  alerts: AlertListItem[];
+  /** Its figures. */
+  figures: {
+    firstDetectedAt: string;
+    durationSeconds: number;
+    affectedBlocks: number;
+    leading: {
+      alertId: string;
+      rule: AlertRule;
+      value: number;
+      threshold: number;
+      peak: number;
+      peakAt: string | null;
+    };
+  };
+  /** Its own timeline, oldest first. */
+  timeline: IncidentMoment[];
+  /** The runbook links of its rules that have one. */
+  runbooks: { rule: AlertRule; url: string }[];
+}
+
+/** One step of an incident's execution path. */
+export interface IncidentStep {
+  /** The step's name: a span's or a job step's. */
+  name: string;
+  /** The service that ran it. */
+  service: string | null;
+  /** How long it took, in milliseconds. */
+  durationMs: number | null;
+  /** How it ended. */
+  status: "ok" | "error" | "unset";
+  /** Its status message. */
+  detail: string | null;
+}
+
+/** A moment from another signal, on an incident's timeline. */
+export interface IncidentSignal {
+  /** When it happened. */
+  at: string;
+  /** What kind of moment. */
+  kind: "job-failed" | "config-change" | "deadlock" | "first-error";
+  /** The block it happened on. */
+  block: AlertBlock;
+  /** What happened, in words. */
+  title: string;
+  /** More about it. */
+  detail: string | null;
+}
+
+/** A chart of an affected block. */
+export interface IncidentChart {
+  /** Its title. */
+  title: string;
+  /** The block it is about. */
+  block: AlertBlock;
+  /** The unit of its values. */
+  unit: "ratio" | "ms" | "count" | "bytes" | "percent";
+  /** Its lines. */
+  lines: ChartLine[];
+}
+
+/**
+ * What surrounds an alert (`GET /api/v1/alerts/{id}/context`, ADR 0029): the blocks it touches with their state now,
+ * and the warnings and worse they logged from an hour before it opened until it closed or now.
+ */
+export interface AlertContext {
+  /** The window looked at. */
+  from: string;
+  /** Its end. */
+  to: string;
+  /** Warnings and worse from those blocks, newest first, at most 50, with the total. */
+  logs: IncidentContext["logs"];
+  /** The alert's block and the blocks related to it, each with its state now. */
+  components: IncidentContext["components"];
+}
+
+/** What surrounds an incident (`GET /api/v1/incidents/{id}/context`, ADR 0026). */
+export interface IncidentContext {
+  /** The window looked at. */
+  from: string;
+  /** Its end. */
+  to: string;
+  /** The path that failed, from a trace or a job run. */
+  executionPath: {
+    source: "trace" | "job";
+    traceId: string | null;
+    jobName: string | null;
+    steps: IncidentStep[];
+  } | null;
+  /** The exception behind it. */
+  exception: {
+    type: string | null;
+    message: string;
+    stackTrace: string | null;
+    service: string | null;
+    traceId: string | null;
+    source: "trace" | "logs";
+  } | null;
+  /** Moments from other signals. */
+  timeline: IncidentSignal[];
+  /** Charts of the affected blocks, at most 4. */
+  charts: IncidentChart[];
+  /** Warnings and worse from the affected blocks. */
+  logs: { items: LogEntry[]; query: string; total: number | null };
+  /** The affected blocks and those related to them. */
+  components: {
+    block: AlertBlock;
+    health: "ok" | "caution" | "warning" | "silent";
+    inIncident: boolean;
+    relation: "affected" | "host" | "runs-on-host";
+  }[];
+}
+
+/** Where a job's runs come from (ADR 0027): root spans carrying a job name, or SQL Server Agent's history. */
+export type JobSource = "trace" | "sqlagent";
+
+/** How a job run ended, or that it runs now. */
+export type JobRunStatus = "succeeded" | "failed" | "running";
+
+/** Which jobs the list keeps: those whose latest run failed, those running now, or every job. */
+export type JobStatusFilter = "failing" | "running" | "all";
+
+/** The latest run of a job. */
+export interface JobLastRun {
+  /** When it started, as ISO. */
+  startedAt: string;
+  /** How long it took, or null while it runs or when unknown. */
+  durationSeconds: number | null;
+  /** How it ended, or that it runs now. */
+  status: JobRunStatus;
+}
+
+/** One job of `GET /api/v1/jobs` (ADR 0027): its source, block, environment, and name make it one job. */
+export interface JobListItem {
+  /** Its opaque, URL-safe ID, for `GET /api/v1/jobs/{id}`. */
+  id: string;
+  /** Its name, such as `CustomerSync` or `Nightly backup`. */
+  name: string;
+  /** Where its runs come from. */
+  source: JobSource;
+  /** The service or database server it runs on. */
+  block: AlertBlock;
+  /** Its environment, or null when the telemetry names none. */
+  environment: string | null;
+  /** Its latest run, or null when none is kept. */
+  lastRun: JobLastRun | null;
+  /** Its runs in the window. */
+  runs: number;
+  /** Those that failed. */
+  failed: number;
+  /** The share of the window's finished runs that succeeded, from 0 to 1; null without one. */
+  successRatio: number | null;
+  /** How long a run usually takes: the median of the window, or null. */
+  usualSeconds: number | null;
+  /** The statuses of the latest 20 runs, oldest first. */
+  recent: JobRunStatus[];
+  /** Whether a run is going on now. */
+  running: boolean;
+}
+
+/** The figures over the jobs the list keeps. */
+export interface JobListFigures {
+  /** The jobs. */
+  jobs: number;
+  /** Their runs in the window. */
+  runs: number;
+  /** Those that failed. */
+  failed: number;
+  /** The share of finished runs that succeeded, from 0 to 1; null without one. */
+  successRatio: number | null;
+  /** Runs going on now. */
+  running: number;
+}
+
+/** The answer of `GET /api/v1/jobs` (ADR 0027): failing jobs first, then by name. */
+export interface JobList {
+  /** The window's start. */
+  from: string;
+  /** Its end. */
+  to: string;
+  /** The figures over the jobs listed. */
+  figures: JobListFigures;
+  /** The jobs. */
+  items: JobListItem[];
+}
+
+/** What the jobs list is asked for; the server filters, counts, and orders (ADR 0027). */
+export interface JobQuery {
+  /** The window's start, as ISO. */
+  from: string;
+  /** Its end. */
+  to: string;
+  /** The environment of the top bar, or null for all. */
+  environment: string | null;
+  /** One source only, or null for both. */
+  source: JobSource | null;
+  /** Words the job's name or block must contain; empty for any. */
+  q: string;
+  /** Which jobs. */
+  status: JobStatusFilter;
+}
+
+/** One step of a job run: a direct child of the run's root span, or a SQL Server Agent job step. */
+export interface JobStep {
+  /** Its name. */
+  name: string;
+  /** How long it took, or null. */
+  durationSeconds: number | null;
+  /** How it ended; unknown when the telemetry did not say. */
+  status: JobRunStatus | "unknown";
+  /** What it reported, such as the error, or null. */
+  message: string | null;
+}
+
+/** One run of a job, as the job's screen lists it. */
+export interface JobRun {
+  /** The run's ID: the pipeline run ID, the trace ID, or SQL Server Agent's instance ID. */
+  runId: string;
+  /** When it started, as ISO. */
+  startedAt: string;
+  /** How long it took, or null while it runs. */
+  durationSeconds: number | null;
+  /** How it ended, or that it runs now. */
+  status: JobRunStatus;
+  /** What it reported, such as the error of a failed run, or null. */
+  message: string | null;
+  /** The trace of a traced run, or null. */
+  traceId: string | null;
+  /** Whether the trace's spans are still kept (7 days, ADR 0014); the run itself is kept 30 days. */
+  traceKept: boolean;
+  /** The records it processed, or null when the run did not say. */
+  recordsProcessed: number | null;
+  /** The records it expected to process, or null. */
+  recordsTotal: number | null;
+  /** How often it retried, or null. */
+  retries: number | null;
+  /** Its steps, in the order they ran. */
+  steps: JobStep[];
+}
+
+/** The figures of one job over the window. */
+export interface JobFigures {
+  /** Its runs. */
+  runs: number;
+  /** Those that failed. */
+  failed: number;
+  /** The share of finished runs that succeeded, from 0 to 1; null without one. */
+  successRatio: number | null;
+  /** The median duration, or null. */
+  medianSeconds: number | null;
+  /** The 95th percentile duration, or null. */
+  p95Seconds: number | null;
+  /** The records its runs processed, or null when none said. */
+  recordsProcessed: number | null;
+}
+
+/** One run's duration, for the chart. */
+export interface JobDuration {
+  /** When it started, as ISO. */
+  at: string;
+  /** How long it took, or null while it runs. */
+  seconds: number | null;
+  /** How it ended, or that it runs now. */
+  status: JobRunStatus;
+}
+
+/** The answer of `GET /api/v1/jobs/{id}` (ADR 0027): one job over the window. */
+export interface JobDetails {
+  /** The window's start. */
+  from: string;
+  /** Its end. */
+  to: string;
+  /** The job, as the list shows it. */
+  job: JobListItem;
+  /** Its figures. */
+  figures: JobFigures;
+  /** Each run's duration, oldest first. */
+  durations: JobDuration[];
+  /** Its runs, newest first. */
+  runs: JobRun[];
+}
+
+/** The Veyra that answers (VEY-82). */
+export interface About {
+  /** Its release, such as `0.4.1`. */
+  version: string;
+  /** Which build of the app it serves; an open page that loaded another one offers to reload. */
+  build: string;
+}
+
+/** One part of a release's notes, such as what was added. */
+export interface ReleaseSection {
+  /** Its heading: Added, Changed, Fixed, or Removed. */
+  title: string;
+  /** Each change in a sentence. */
+  items: string[];
+}
+
+/** The notes of one release, as CHANGELOG.md has them (VEY-82). */
+export interface Release {
+  /** The release, such as `0.4.1`. */
+  version: string;
+  /** The day it was released, as `YYYY-MM-DD`, or null. */
+  date: string | null;
+  /** A sentence on the release as a whole, or null. */
+  summary: string | null;
+  /** What changed, by kind. */
+  sections: ReleaseSection[];
 }

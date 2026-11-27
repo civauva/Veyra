@@ -54,6 +54,26 @@ public interface IMetricHealth
         DateTimeOffset now,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Lists the errors a database server's error rule counts over a period (VEY-61): its severe errors, memory
+    /// errors, or failed logins, newest first.
+    /// </summary>
+    /// <param name="server">The server's block, such as <c>microsoft.sql_server sql-prod-01</c>.</param>
+    /// <param name="measure">
+    /// The rule's measure: <c>severe-errors</c>, <c>memory-errors</c>, or <c>login-failures</c>; any other lists
+    /// nothing.
+    /// </param>
+    /// <param name="periodStart">The start of the period.</param>
+    /// <param name="periodEnd">The end of the period.</param>
+    /// <param name="cancellationToken">Cancels the reads.</param>
+    /// <returns>The errors; empty when there are none, or the server sends no events.</returns>
+    Task<IReadOnlyList<ServerError>> ListServerErrorsAsync(
+        string server,
+        string measure,
+        DateTimeOffset periodStart,
+        DateTimeOffset periodEnd,
+        CancellationToken cancellationToken);
+
     /// <summary>Reads the share of one disk in use over a period.</summary>
     /// <param name="host">The host.</param>
     /// <param name="mountpoint">The disk's mount point.</param>

@@ -11,6 +11,7 @@ namespace Veyra.Query.Logs;
 /// <param name="Body">The message.</param>
 /// <param name="ServiceName">The service that wrote the record.</param>
 /// <param name="Environment">The environment, for example <c>production</c>.</param>
+/// <param name="HostName">The <c>host.name</c> of the resource that wrote it, when it has one (ADR 0024).</param>
 /// <param name="TraceId">The trace the record belongs to, in lower-case hex.</param>
 /// <param name="SpanId">The span the record belongs to, in lower-case hex.</param>
 /// <param name="Attributes">The record's own attributes.</param>
@@ -24,6 +25,7 @@ public sealed record LogEntryResponse(
     string Body,
     string ServiceName,
     string? Environment,
+    string? HostName,
     string? TraceId,
     string? SpanId,
     IReadOnlyDictionary<string, string> Attributes,

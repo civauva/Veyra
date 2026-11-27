@@ -90,6 +90,35 @@ public sealed class AccountController : ControllerBase
                 statusCode: StatusCodes.Status400BadRequest);
     }
 
+    /// <summary>
+    /// Sets the look of the app the person sees (ADR 0021), or clears it so the default look is used. Refused while an
+    /// Admin has set one look for everyone.
+    /// </summary>
+    /// <param name="request">The look.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>No content.</returns>
+    /// <response code="204">The look is kept.</response>
+    /// <response code="400">The value is not one of the looks.</response>
+    /// <response code="403">An Admin has set one look for everyone.</response>
+    [HttpPut("look")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> SetLookAsync(LookRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return await _users.SetLookAsync(User.UserId(), request.Look, cancellationToken) switch
+        {
+            LookChange.Kept => NoContent(),
+            LookChange.UnknownLook => Problem(title: Looks.Unknown, statusCode: StatusCodes.Status400BadRequest),
+            LookChange.NotAllowed => Problem(
+                title: "An Admin has set one look for everyone.",
+                statusCode: StatusCodes.Status403Forbidden),
+            _ => Unauthorized(),
+        };
+    }
+
     /// <summary>Starts setting up a second factor. It is not asked for until a code confirms it.</summary>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The secret and its address, shown once.</returns>

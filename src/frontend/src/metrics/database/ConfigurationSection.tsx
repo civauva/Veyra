@@ -2,6 +2,7 @@ import { api } from "../../api/client";
 import { unreadText } from "./unread";
 import { formatClockTime } from "../metricFormat";
 import { useMetricData } from "../useMetricData";
+import { PanelHead } from "./helpNames";
 import { FindingItem } from "./StorageTab";
 
 /** Props for {@link ConfigurationSection}. */
@@ -32,10 +33,19 @@ export function ConfigurationSection({ engine, server, advanced, blind = false }
 
   return (
     <section className="metric-panel" aria-labelledby="configuration-head">
-      <div className="metric-panel-head">
-        <h2 id="configuration-head">Configuration and security</h2>
+      <PanelHead
+        id="configuration-head"
+        name="Configuration and security"
+        help={
+          "Server settings against their recommended values, such as max server memory, max " +
+          "degree of parallelism, and cost threshold for parallelism, and the security " +
+          "posture: sa enabled, sysadmin members, xp_cmdshell, TRUSTWORTHY databases. Read " +
+          "every hour from sys.configurations and the security catalog views; each finding " +
+          "has the statement that fixes it."
+        }
+      >
         <span>read every hour</span>
-      </div>
+      </PanelHead>
       {data.findings.length === 0 ? (
         <p className="metrics-empty">{blind ? unreadText : "The settings and security posture look right."}</p>
       ) : (

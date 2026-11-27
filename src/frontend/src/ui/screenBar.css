@@ -1,0 +1,136 @@
+/*
+ * The bar across the top of every screen (ScreenBar, VEY-62): the trail on the left, the screen's controls and the
+ * Simple and Advanced toggle on the right. It belongs to the app's frame, so it stays where it is while the screen
+ * scrolls and when the screen, its tab, or its view changes.
+ */
+
+.screen-bar {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 8px clamp(12px, 3vw, 28px);
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+/* A screen without a bar, such as the home, leaves the frame's slot empty. */
+.screen-bar:empty {
+  display: none;
+}
+
+.screen-trail {
+  min-width: 0;
+  flex: 1;
+}
+
+.screen-trail ol {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.screen-trail li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.screen-trail li + li::before {
+  content: "›";
+  color: var(--faint);
+}
+
+.screen-trail li:last-child {
+  overflow: hidden;
+}
+
+.screen-trail a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.screen-trail a:hover,
+.screen-trail a:focus-visible {
+  color: var(--fg);
+  text-decoration: underline;
+}
+
+.screen-trail [aria-current="page"] {
+  overflow: hidden;
+  color: var(--fg);
+  font-weight: 650;
+  text-overflow: ellipsis;
+}
+
+.screen-tools {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+/*
+ * Phones: the trail keeps its last two steps, the way back and the screen, on a row of its own; the controls take the
+ * row under it, the view toggle still at its right end. A small control that asks to (`beside-trail`, such as the
+ * System switch) stays on the trail's row instead, so the row under it keeps room for the range and the toggle.
+ */
+@media (max-width: 767px) {
+  .screen-bar {
+    flex-wrap: wrap;
+    gap: 6px 8px;
+    min-height: 48px;
+  }
+
+  .screen-trail {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  /* The controls join the bar's rows themselves; the break after the trail's row puts the rest under it. */
+  .screen-tools {
+    display: contents;
+  }
+
+  .screen-bar::after {
+    content: "";
+    flex: 1 1 100%;
+    order: 2;
+  }
+
+  .screen-bar:has(.screen-tools:empty)::after {
+    display: none;
+  }
+
+  .screen-tools > * {
+    order: 3;
+  }
+
+  .screen-tools > .beside-trail {
+    order: 1;
+  }
+
+  .screen-tools > .view-toggle {
+    margin-left: auto;
+  }
+
+  .screen-trail li:not(:nth-last-child(-n + 2)) {
+    display: none;
+  }
+
+  .screen-trail li:nth-last-child(2)::before {
+    display: none;
+  }
+}

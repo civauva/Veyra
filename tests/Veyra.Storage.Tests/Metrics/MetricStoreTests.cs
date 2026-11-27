@@ -70,6 +70,101 @@ public class MetricStoreTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task ListBlocksAsync_EveryKindAsked_OneEntryPerBlockWithItsHostsInstancesAndLastSeen()
+    {
+        await using var database = await CreateAsync();
+        var store = Store(database);
+        var container = new TelemetryBlock(AlertBlockKind.Container, "shop-api");
+        await store.WriteAsync(
+            [
+                Cpu("user", 1, _noon.AddHours(-3)),
+                Cpu("system", 1, _noon.AddMinutes(-1)),
+                Gauge("dotnet.gc.heap", 1, _noon) with
+                {
+                    ServiceName = "orders",
+                    ResourceAttributes = Service("orders", "orders-1", "web-01"),
+                    Block = new TelemetryBlock(AlertBlockKind.Service, "orders"),
+                },
+                Gauge("dotnet.gc.heap", 1, _noon.AddMinutes(-2)) with
+                {
+                    ServiceName = "orders",
+                    HostName = "web-02",
+                    ResourceAttributes = Service("orders", "orders-2", "web-02"),
+                    Block = new TelemetryBlock(AlertBlockKind.Service, "orders"),
+                },
+                Gauge("container.cpu.utilization", 5, _noon) with { Block = container },
+                Gauge("container.cpu.utilization", 5, _noon) with
+                {
+                    HostName = "web-02",
+                    ResourceAttributes = Host("web-02"),
+                    Block = container,
+                },
+            ],
+            CancellationToken.None);
+
+        var blocks = await store.ListBlocksAsync(
+            [AlertBlockKind.Host, AlertBlockKind.Service, AlertBlockKind.Container],
+            _noon.AddMinutes(1),
+            default);
+        var hostsOnly = await store.ListBlocksAsync([AlertBlockKind.Host], _noon.AddMinutes(1), default);
+        var notYet = await store.ListBlocksAsync([AlertBlockKind.Host], _noon.AddHours(-4), default);
+
+        var host = Assert.Single(hostsOnly);
+        Assert.Equal(("web-01", "production", _noon), (host.Block.Name, host.Environment, host.LastSeen));
+        Assert.Equal("web-01", host.ResourceAttributes["host.name"]);
+        var service = blocks.Single(block => block.Block.Kind == AlertBlockKind.Service);
+        Assert.Equal(["web-01", "web-02"], service.Hosts);
+        Assert.Equal(2, service.Instances);
+        Assert.Equal(_noon, service.LastSeen);
+        Assert.Equal(
+            ["web-01", "web-02"],
+            blocks.Where(block => block.Block == container).Select(block => block.Host!).Order().ToArray());
+        Assert.Empty(notYet);
+    }
+
+    [Fact]
+    public async Task FindSeriesAsync_BlockNameContains_MatchesPartOfTheNameInAnyCase()
+    {
+        await using var database = await CreateAsync();
+        var store = Store(database);
+        await store.WriteAsync(
+            [
+                Cpu("user", 1, _noon),
+                Cpu("user", 1, _noon) with { HostName = "DB-01", ResourceAttributes = Host("DB-01") },
+                Cpu("user", 1, _noon) with { HostName = "db_02", ResourceAttributes = Host("db_02") },
+            ],
+            CancellationToken.None);
+        var since = _noon.AddHours(-1);
+
+        var byPart = await store.FindSeriesAsync(new MetricSeriesQuery(since, BlockNameContains: "db-"), default);
+        var byUnderscore = await store.FindSeriesAsync(new MetricSeriesQuery(since, BlockNameContains: "_"), default);
+
+        Assert.Equal("DB-01", Assert.Single(byPart).HostName);
+        Assert.Equal("db_02", Assert.Single(byUnderscore).HostName);
+    }
+
+    [Fact]
+    public async Task FindSeriesAsync_OrNoEnvironment_KeepsSeriesThatNameNone()
+    {
+        await using var database = await CreateAsync();
+        var store = Store(database);
+        await store.WriteAsync(
+            [
+                Cpu("user", 1, _noon),
+                Cpu("user", 1, _noon) with { HostName = "db-01", ResourceAttributes = Host("db-01"), Environment = null },
+                Cpu("user", 1, _noon) with { HostName = "db-02", ResourceAttributes = Host("db-02"), Environment = "staging" },
+            ],
+            CancellationToken.None);
+        var since = _noon.AddHours(-1);
+
+        var found = await store.FindSeriesAsync(
+            new MetricSeriesQuery(since, Environment: "production", OrNoEnvironment: true),
+            default);
+
+        Assert.Equal(["db-01", "web-01"], found.Select(series => series.HostName!).Order().ToArray());
+    }
+
+    [Fact]
     public async Task FindSeriesAsync_Block_MatchesTheDatabaseServerAndKeepsHostsApart()
     {
         await using var database = await CreateAsync();
@@ -241,6 +336,9 @@ public class MetricStoreTests(PostgresFixture postgres)
 
     private static Dictionary<string, string> Host(string host = "web-01") =>
         new() { ["host.name"] = host, ["deployment.environment.name"] = "production" };
+
+    private static Dictionary<string, string> Service(string service, string instance, string host) =>
+        new() { ["service.name"] = service, ["service.instance.id"] = instance, ["host.name"] = host };
 
     private static MetricPoint Cpu(string state, double value, DateTimeOffset at) => new(
         Name: "system.cpu.time",

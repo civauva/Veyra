@@ -1,4 +1,4 @@
-import type { Setting, SettingsHistory, SettingsPage } from "../api/types";
+import type { Setting, SettingsHistory, SettingsListing, SettingsListingChoices, SettingsPage } from "../api/types";
 
 /** A setting with sensible fields; tests override what they need. */
 function setting(fields: Partial<Setting> & Pick<Setting, "key" | "section" | "group" | "label" | "kind">): Setting {
@@ -26,6 +26,9 @@ function setting(fields: Partial<Setting> & Pick<Setting, "key" | "section" | "g
 /** A Settings page shaped like the API's answer, with a setting of every kind. */
 export const settingsPage: SettingsPage = {
   version: 7,
+  // The server counts the rules (VEY-68).
+  rules: 1,
+  rulesOn: 1,
   settings: [
     setting({
       key: "Veyra:Storage:LogRetentionDays",
@@ -143,6 +146,25 @@ export const settingsPage: SettingsPage = {
       kind: "Secret",
       optional: true,
       isSet: true,
+    }),
+    setting({
+      key: "Veyra:Access:DefaultLook",
+      section: "Appearance",
+      group: "Look",
+      label: "Default look",
+      kind: "Choice",
+      choices: ["forecast", "console"],
+      value: "forecast",
+      default: "forecast",
+    }),
+    setting({
+      key: "Veyra:Access:PeopleChooseLook",
+      section: "Appearance",
+      group: "Look",
+      label: "Let people choose their look",
+      kind: "Switch",
+      value: "true",
+      default: "true",
     }),
     setting({
       key: "Veyra:Access:LockoutThreshold",
@@ -281,3 +303,36 @@ export const settingsHistory: SettingsHistory = {
   ],
   next: null,
 };
+
+/**
+ * What the server lists for these choices, by the server's own rule (VEY-67), so the screen tests answer as it does: a
+ * search looks through every setting in either view; a section shows its basics in the Simple view unless it has none.
+ *
+ * @param page - Every setting.
+ * @param choices - The search, the section, and the view asked for.
+ * @returns The listing.
+ */
+export function listingOf(page: SettingsPage, choices: SettingsListingChoices): SettingsListing {
+  const words = choices.search.toLowerCase().split(/\s+/).filter(Boolean);
+  const advanced = choices.view === "advanced";
+  const inSection = page.settings.filter((setting) => setting.section === choices.section);
+  const basics = inSection.filter((setting) => !setting.advanced);
+  const shown =
+    words.length > 0
+      ? page.settings.filter((setting) => {
+          const haystack = `${setting.label} ${setting.group} ${setting.help} ${setting.key}`.toLowerCase();
+
+          return words.every((word) => haystack.includes(word));
+        })
+      : advanced || basics.length === 0
+        ? inSection
+        : basics;
+  const withSettings = [
+    ...new Set(page.settings.filter((setting) => advanced || !setting.advanced).map((setting) => setting.section)),
+  ];
+
+  return {
+    keys: shown.map((setting) => setting.key),
+    sections: [...withSettings, "Databases", "Agents", ...(advanced ? ["System"] : [])],
+  };
+}

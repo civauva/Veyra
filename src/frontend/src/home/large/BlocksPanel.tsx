@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 
-import type { BlockHealth, HomeSnapshot } from "../../api/types";
+import type { BlockHealth, HealthCounts, HomeHostTile, HomeSnapshot } from "../../api/types";
+import { HelpTip } from "../../ui/HelpTip";
 import { databasePath, formatDays, formatDiskShare, serverName } from "../../alerts/ruleWords";
 import { defaultFilters, filtersToUrl } from "../../logs/logFilters";
 import { formatRatio } from "../homeFormat";
@@ -18,21 +19,6 @@ interface BlocksPanelProps {
   limit?: number;
 }
 
-/** One host tile: its name, its worst state, and the disk it shows, with a line about it. */
-interface HostTile {
-  /** The host name. */
-  name: string;
-  /** Its worst state from its open alerts. */
-  health: BlockHealth;
-  /** What its disk line says, such as `/data 58% full` or `/ full in 23 days`. */
-  note: string;
-  /** How full the disk it shows is, from 0 to 1, or null without disk metrics. */
-  diskRatio: number | null;
-}
-
-/** How many days ahead a filling disk is named on its host's tile, as in the outlook. */
-const outlookDays = 30;
-
 /**
  * The estate: every service seen in the last hour and every host, as tiles (VEY-24, VEY-26). A tile has its weather
  * from its open alerts only, its records and error share of the last five minutes, and a link to its logs or metrics.
@@ -42,17 +28,16 @@ const outlookDays = 30;
  * Hosts are those with an open alert and those reporting disks, so a host that is quiet is listed too.
  */
 export function BlocksPanel({ snapshot, limit }: BlocksPanelProps) {
-  const services = snapshot.blocks.filter((block) => block.kind === "service");
-  const shown =
-    limit === undefined || services.length <= limit
-      ? services
-      : [...services].sort((a, b) => rank(a.health) - rank(b.health)).slice(0, limit);
+  // The server sorts, groups, and counts (VEY-68); the panel only fits what it has room for.
+  const { estate } = snapshot;
+  const services = estate.services;
+  const shown = limit === undefined || services.length <= limit ? services : estate.servicesWorstFirst.slice(0, limit);
   const hidden = services.length - shown.length;
   // Beside the outlook the tiles are narrow, so the error share moves under the name, which keeps its room.
   const compact = limit !== undefined;
-  const hosts = hostTiles(snapshot);
+  const hosts = estate.hosts;
   // Database servers show once one has an open alert (ADR 0018); their card on Metrics lists them all.
-  const databases = snapshot.blocks.filter((block) => block.kind === "database");
+  const databases = estate.databases;
   const allEnvironments = snapshot.environment === null;
 
   return (
@@ -61,13 +46,15 @@ export function BlocksPanel({ snapshot, limit }: BlocksPanelProps) {
       aria-label={databases.length > 0 ? "Services, hosts, and databases" : "Services and hosts"}
     >
       <div className="lg-head">
-        <h2 className="cap">Services · last 5 minutes</h2>
-        <span className="lg-count">
-          {dryCount(
-            services.map((block) => block.health),
-            services.length,
-          )}
-        </span>
+        <div className="home-name">
+          <h2 className="cap">Services · last 5 minutes</h2>
+          <HelpTip label="Services">
+            Every service that sent logs in the last hour or has an open alert, with its log records and share of errors
+            of the last 5 minutes. Only an open alert changes its weather; dry counts the services without one. A tile
+            leads to the service&apos;s logs.
+          </HelpTip>
+        </div>
+        <span className="lg-count">{dryCount(estate.serviceCounts, services.length)}</span>
       </div>
       {services.length === 0 ? (
         <p className="fine">No service has sent logs in the last hour.</p>
@@ -102,13 +89,14 @@ export function BlocksPanel({ snapshot, limit }: BlocksPanelProps) {
       )}
 
       <div className="lg-head lg-subhead">
-        <h3 className="cap">Hosts</h3>
-        <span className="lg-count">
-          {dryCount(
-            hosts.map((host) => host.health),
-            hosts.length,
-          )}
-        </span>
+        <div className="home-name">
+          <h3 className="cap">Hosts</h3>
+          <HelpTip label="Hosts">
+            Every host that reports disks or has an open alert, with the disk that fills up soonest within 30 days, or
+            else its fullest. Only an open alert changes its weather. A tile leads to the host&apos;s metrics.
+          </HelpTip>
+        </div>
+        <span className="lg-count">{dryCount(estate.hostCounts, hosts.length)}</span>
       </div>
       {hosts.length === 0 ? (
         <p className="fine">Hosts appear with host metrics from the OpenTelemetry Collector.</p>
@@ -120,10 +108,10 @@ export function BlocksPanel({ snapshot, limit }: BlocksPanelProps) {
                 <WeatherIcon kind={weatherOf(host.health)} />
                 <span className="lg-tile-what">
                   <b>{host.name}</b>
-                  <small>{host.note}</small>
-                  {host.diskRatio !== null && (
+                  <small>{hostNote(host)}</small>
+                  {host.disk !== null && (
                     <span className="lg-disk-bar lg-tile-disk" data-testid="host-disk" aria-hidden="true">
-                      <i style={{ width: `${Math.min(Math.max(host.diskRatio, 0), 1) * 100}%` }} />
+                      <i style={{ width: `${Math.min(Math.max(host.disk.ratio, 0), 1) * 100}%` }} />
                     </span>
                   )}
                 </span>
@@ -137,13 +125,14 @@ export function BlocksPanel({ snapshot, limit }: BlocksPanelProps) {
       {databases.length > 0 && (
         <>
           <div className="lg-head lg-subhead">
-            <h3 className="cap">Databases</h3>
-            <span className="lg-count">
-              {dryCount(
-                databases.map((block) => block.health),
-                databases.length,
-              )}
-            </span>
+            <div className="home-name">
+              <h3 className="cap">Databases</h3>
+              <HelpTip label="Databases">
+                Database servers with an open alert, and how many alerts each has open. Every server is on the Metrics
+                screen; a tile leads to its page there.
+              </HelpTip>
+            </div>
+            <span className="lg-count">{dryCount(estate.databaseCounts, databases.length)}</span>
           </div>
           <ul className="lg-tiles" aria-label="Databases">
             {databases.map((block) => (
@@ -167,44 +156,25 @@ export function BlocksPanel({ snapshot, limit }: BlocksPanelProps) {
   );
 }
 
-/** The hosts of the snapshot by name: their worst state from host blocks, and the note of their fullest disk. */
-function hostTiles(snapshot: HomeSnapshot): HostTile[] {
-  const names = new Set([
-    ...snapshot.blocks.filter((block) => block.kind === "host").map((block) => block.name),
-    ...snapshot.disks.map((disk) => disk.host),
-  ]);
+/**
+ * What a host tile's disk line says, from the disk the server chose for it.
+ *
+ * @param host - The tile.
+ * @returns For example `/ full in 23 days` or `/data 58% full`.
+ */
+function hostNote(host: HomeHostTile): string {
+  if (host.disk === null) {
+    return "no disk metrics";
+  }
 
-  return [...names]
-    .sort((a, b) => a.localeCompare(b))
-    .map((name) => {
-      const healths = snapshot.blocks
-        .filter((block) => block.kind === "host" && block.name === name)
-        .map((block) => block.health);
-      const health = healths.includes("Warning") ? "Warning" : healths.includes("Caution") ? "Caution" : "Ok";
-      const disks = snapshot.disks.filter((disk) => disk.host === name);
-      const filling = disks
-        .filter((disk) => disk.daysUntilFull !== null && disk.daysUntilFull <= outlookDays)
-        .sort((a, b) => (a.daysUntilFull ?? 0) - (b.daysUntilFull ?? 0))[0];
-      const fullest = [...disks].sort((a, b) => b.ratio - a.ratio)[0];
-      const note = filling
-        ? `${filling.mountpoint} full in ${formatDays(filling.daysUntilFull ?? 0)}`
-        : fullest
-          ? `${fullest.mountpoint} ${formatDiskShare(fullest.ratio)} full`
-          : "no disk metrics";
-      const shown = filling ?? fullest;
-
-      return { name, health, note, diskRatio: shown ? shown.ratio : null };
-    });
+  return host.filling
+    ? `${host.disk.mountpoint} full in ${formatDays(host.disk.daysUntilFull ?? 0)}`
+    : `${host.disk.mountpoint} ${formatDiskShare(host.disk.ratio)} full`;
 }
 
-/** For example `6 of 8 dry`: the tiles without an open alert. */
-function dryCount(healths: BlockHealth[], total: number): string {
-  return `${healths.filter((health) => health === "Ok" || health === "Unknown").length} of ${total} dry`;
-}
-
-/** Warnings first, then cautions, then the rest; the sort keeps their order within each. */
-function rank(health: BlockHealth): number {
-  return health === "Warning" ? 0 : health === "Caution" ? 1 : 2;
+/** For example `6 of 8 dry`: the tiles without an open alert, from the server's counts. */
+function dryCount(counts: HealthCounts, total: number): string {
+  return `${counts.ok + counts.unknown} of ${total} dry`;
 }
 
 function tone(health: BlockHealth): string {

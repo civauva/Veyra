@@ -7,11 +7,13 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: min(16px, var(--gap-panel));
   width: 100%;
-  max-width: 1360px;
-  margin: 0 auto;
-  padding: 22px clamp(12px, 3vw, 28px) 36px;
+  /*
+   * The screen scrolls across the whole width beside the sidebar, so its scrollbar is at the window's edge; its content
+   * keeps to 1360 px in the middle through the padding.
+   */
+  padding: 22px max(clamp(12px, 3vw, 28px), calc((100% - 1360px) / 2)) 36px;
   overflow-y: auto;
 }
 
@@ -31,7 +33,7 @@
 
 .metrics h1 {
   margin: 0;
-  font-size: 30px;
+  font-size: var(--size-heading);
   font-weight: 600;
   letter-spacing: -0.02em;
   overflow-wrap: anywhere;
@@ -40,7 +42,7 @@
 .metrics-head p {
   margin: 4px 0 0;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--size-body);
 }
 
 .metrics-back {
@@ -58,11 +60,11 @@
 
 .metrics-search input,
 .metric-list-search input {
-  min-height: 36px;
+  min-height: min(36px, var(--height-control));
   min-width: 240px;
   padding: 0 12px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: var(--input);
   color: var(--fg);
   font: inherit;
@@ -77,7 +79,7 @@
 .range-picker {
   display: flex;
   padding: 3px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--chip);
 }
 
@@ -85,7 +87,7 @@
   min-height: 30px;
   padding: 0 13px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--muted);
   font: inherit;
@@ -132,7 +134,7 @@
 .metrics-error {
   margin: 0;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: var(--error-bg);
   color: var(--error-fg);
 }
@@ -145,7 +147,7 @@
 div.metrics-empty {
   padding: 28px;
   border: 1px dashed var(--line);
-  border-radius: 18px;
+  border-radius: var(--radius-panel);
   text-align: center;
 }
 
@@ -153,7 +155,7 @@ div.metrics-empty b {
   display: block;
   margin-bottom: 6px;
   color: var(--fg);
-  font-size: 17px;
+  font-size: min(17px, var(--size-panel-title));
 }
 
 .metrics-empty code,
@@ -178,7 +180,7 @@ div.metrics-empty b {
   min-width: 0;
   padding: 12px 14px;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: min(14px, var(--radius-panel));
   background: var(--panel);
 }
 
@@ -192,7 +194,7 @@ div.metrics-empty b {
 
 .metrics-strip dd {
   margin: 4px 0 0;
-  font-size: 26px;
+  font-size: min(26px, var(--size-figure));
   font-weight: 300;
   letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
@@ -238,15 +240,15 @@ div.metrics-empty b {
 .metric-cards {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
+  gap: min(14px, var(--gap-panel));
 }
 
 .metric-card {
   min-width: 0;
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: var(--radius-panel);
   background: var(--panel);
-  box-shadow: 0 10px 30px rgba(14, 36, 64, 0.05);
+  box-shadow: var(--shadow-panel);
 }
 
 .metric-card.hot {
@@ -259,7 +261,7 @@ div.metrics-empty b {
   flex-direction: column;
   gap: 12px;
   height: 100%;
-  padding: 16px 16px 14px;
+  padding: min(16px, var(--pad-panel)) min(16px, var(--pad-panel)) 14px;
   border-radius: inherit;
   color: inherit;
   text-decoration: none;
@@ -282,7 +284,7 @@ div.metrics-empty b {
 
 .metric-card-head h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: min(16px, var(--size-panel-title));
   font-weight: 600;
   overflow-wrap: anywhere;
 }
@@ -412,7 +414,7 @@ div.metrics-empty b {
 
 .metric-numbers dd {
   margin: 0;
-  font-size: 22px;
+  font-size: min(22px, var(--size-figure));
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
 }
@@ -460,7 +462,7 @@ div.metrics-empty b {
 
 .metric-tags li {
   padding: 3px 9px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--chip);
   color: var(--muted);
   font-size: 12px;
@@ -475,7 +477,7 @@ div.metrics-empty b {
 .metric-panels {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: min(14px, var(--gap-panel));
 }
 
 .metric-panel {
@@ -485,7 +487,7 @@ div.metrics-empty b {
   min-width: 0;
   padding: 14px 16px 12px;
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: var(--radius-panel);
   background: var(--panel);
 }
 
@@ -510,6 +512,18 @@ div.metrics-empty b {
   overflow-wrap: anywhere;
 }
 
+/* A tile's name with the question mark that explains it (VEY-60), in a strip, a section, or a panel's head. */
+.metric-name {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 18px;
+}
+
+.metric-name h2 {
+  min-width: 0;
+}
+
 .metric-panel-head > span {
   margin-left: auto;
   color: var(--muted);
@@ -517,7 +531,7 @@ div.metrics-empty b {
 }
 
 .metric-big {
-  font-size: 22px;
+  font-size: min(22px, var(--size-figure));
   color: var(--fg);
   font-variant-numeric: tabular-nums;
 }
@@ -534,15 +548,39 @@ div.metrics-empty b {
   font-size: 12.5px;
 }
 
+/* The chart grows into a tile taller than it needs, as a tile beside a taller one in the same row is. Its parent decides
+   that by laying it out as a column; elsewhere the plot keeps its least height. */
 .line-chart {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
   width: 100%;
   min-width: 0;
 }
 
-.line-chart svg {
+/* The drawing sits on top of the plot's box, so the box's size comes from the tile and never from the drawing. */
+.line-chart-plot {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.line-chart-plot svg {
+  position: absolute;
+  top: 0;
+  left: 0;
   display: block;
-  overflow: visible;
   font-family: var(--font);
+}
+
+.chart-empty {
+  position: absolute;
+  inset: 0 0 20px 48px;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .chart-grid {
@@ -686,7 +724,7 @@ div.metrics-empty b {
 .metric-browser {
   display: grid;
   grid-template-columns: 360px minmax(0, 1fr);
-  gap: 14px;
+  gap: min(14px, var(--gap-panel));
   align-items: start;
 }
 
@@ -697,7 +735,7 @@ div.metrics-empty b {
   min-width: 0;
   padding: 10px;
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: var(--radius-panel);
   background: var(--panel);
 }
 
@@ -718,7 +756,7 @@ div.metrics-empty b {
   width: 100%;
   padding: 9px 10px;
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: inherit;
   font: inherit;
@@ -754,7 +792,7 @@ div.metrics-empty b {
 
 .metric-kind {
   padding: 1px 7px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--chip);
   color: var(--muted);
   font-size: 11px;
@@ -764,7 +802,7 @@ div.metrics-empty b {
 .metric-chart-panel h2 {
   margin: 0;
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: min(14px, var(--size-panel-title));
   overflow-wrap: anywhere;
 }
 
@@ -785,7 +823,7 @@ div.metrics-empty b {
   min-height: 28px;
   padding: 0 10px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--muted);
   font: inherit;
@@ -824,7 +862,7 @@ div.metrics-empty b {
 
 @media (max-width: 767px) {
   .metrics h1 {
-    font-size: 26px;
+    font-size: min(26px, var(--size-heading));
   }
 
   .metrics-search,
@@ -910,7 +948,7 @@ div.metrics-empty b {
   margin: 0;
   padding: 12px 16px;
   border: 1px solid color-mix(in srgb, var(--ok-fg) 35%, transparent);
-  border-radius: 16px;
+  border-radius: min(16px, var(--radius-panel));
   background: color-mix(in srgb, var(--ok-fg) 10%, transparent);
 }
 
@@ -960,7 +998,7 @@ div.metrics-empty b {
   margin: 0;
   padding: 12px;
   border: 1px dashed var(--line);
-  border-radius: 14px;
+  border-radius: min(14px, var(--radius-panel));
   color: var(--muted);
   text-align: center;
 }
@@ -986,7 +1024,7 @@ div.metrics-empty b {
   min-width: 0;
   padding: 12px 14px 8px;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: min(14px, var(--radius-panel));
   background: var(--panel);
 }
 
@@ -1003,7 +1041,7 @@ div.metrics-empty b {
 }
 
 .database-tile b {
-  font-size: 24px;
+  font-size: min(24px, var(--size-figure));
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -1021,7 +1059,7 @@ div.metrics-empty b {
 .database-badge {
   display: inline-block;
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
@@ -1220,7 +1258,7 @@ div.metrics-empty b {
   width: fit-content;
   margin-top: 2px;
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 12px;
   font-weight: 600;
   text-decoration: none;
@@ -1288,7 +1326,7 @@ div.metrics-empty b {
   min-height: 30px;
   padding: 0 12px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--accent);
   font-size: 12.5px;
   font-weight: 600;
@@ -1361,6 +1399,6 @@ div.metrics-empty b {
 
   .container-table tbody tr.picked {
     padding-inline: 10px;
-    border-radius: 12px;
+    border-radius: min(12px, var(--radius-tile));
   }
 }

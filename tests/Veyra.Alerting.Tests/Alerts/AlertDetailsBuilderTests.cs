@@ -56,6 +56,7 @@ public class AlertDetailsBuilderTests(PostgresFixture postgres)
         var delivery = Assert.Single(details.Events[0].Deliveries);
         Assert.Equal(("#ops-alerts", DeliveryState.Pending), (delivery.ChannelName, delivery.State));
         Assert.Equal(_opened, delivery.NextAttemptAt);
+        Assert.Equal("#ops-alerts", Assert.Single(details.Told).Name);
         Assert.Equal("timeout", Assert.Single(details.TopErrors).Message);
 
         var errors = _logs.Grouped.Single();
@@ -117,6 +118,33 @@ public class AlertDetailsBuilderTests(PostgresFixture postgres)
 
         Assert.Equal(180, series.BucketSeconds);
         Assert.True(series.Points.Count <= 240);
+    }
+
+    [Fact]
+    public async Task BuildAsync_SevereErrorAlert_ListsTheErrorsItCounted()
+    {
+        await using var database = await AlertingDatabase.CreateAsync(postgres);
+        var alert = await OpenAsync(database) with { Id = Guid.CreateVersion7() };
+        alert = alert with
+        {
+            Rule = "db-severe-error",
+            Subject = AlertSubject.Database("microsoft.sql_server PC-01"),
+            Value = 1,
+            Peak = 1,
+            Threshold = 1,
+            Window = TimeSpan.Zero,
+        };
+        await new AlertStore(database).InsertAsync(alert, CancellationToken.None);
+        _metrics.ServerErrors = [new ServerError(_opened.AddMinutes(-1), 824, 24, "SQL Server detected an I/O error")];
+
+        var details = (await Builder(database).BuildAsync(alert.Id, CancellationToken.None))!;
+
+        var error = Assert.Single(details.ServerErrors!);
+        Assert.Equal((824, 24, "SQL Server detected an I/O error"), (error.Error, error.Severity, error.Message));
+        // From 15 minutes before it opened, the window the rule counts over, to now.
+        Assert.Equal(
+            ("microsoft.sql_server PC-01", "severe-errors", _opened.AddMinutes(-15), _clock.GetUtcNow()),
+            _metrics.ErrorReads.Single());
     }
 
     [Fact]

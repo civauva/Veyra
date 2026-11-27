@@ -5,8 +5,8 @@
  */
 
 :root {
-  --font: "Inter Tight", "Segoe UI", system-ui, sans-serif;
-  --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --font: "Inter Tight Variable", "Inter Tight", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
 
   --bg: #f3f6fb;
   --panel: #ffffff;
@@ -44,6 +44,40 @@
   --nav-metrics: 23, 133, 84;
   --nav-alerts: 124, 79, 214;
   --nav-settings: 74, 88, 120;
+
+  /*
+   * Shapes. The feature screens draw their panels, controls, headings, and figures from these, so a look can make
+   * them denser or rounder by setting the tokens alone (ADR 0021). The values here are the Forecast look's; both
+   * themes share them. Where a screen draws one a little smaller than the token, it writes min(<its size>,
+   * var(--token)): the same size here, and never larger than the token in a look that sets it smaller.
+   */
+
+  /* Large panels and sheets that slide in, such as the Account panels and a person's panel. */
+  --radius-sheet: 22px;
+  /* Cards and panels: the boxes a screen is built from. */
+  --radius-panel: 18px;
+  /* Tiles, rows, and small cards that sit inside a panel or a list. */
+  --radius-tile: 14px;
+  /* Buttons, inputs, selects, and the small notices between them. */
+  --radius-control: 10px;
+  /* Chips, tags, and segmented toggles. */
+  --radius-pill: 999px;
+  /* The height of an input, a select, or a button. */
+  --height-control: 40px;
+  /* The space inside a card or a panel. */
+  --pad-panel: 18px;
+  /* The space between the panels of a screen. */
+  --gap-panel: 18px;
+  /* The shadow that lifts a card off the page. */
+  --shadow-panel: 0 10px 30px rgba(14, 36, 64, 0.05);
+  /* A screen's heading. */
+  --size-heading: 30px;
+  /* A panel's heading. */
+  --size-panel-title: 19px;
+  /* Running text. */
+  --size-body: 14px;
+  /* The big number of a figure tile. */
+  --size-figure: 30px;
 
   color-scheme: light;
 }
@@ -146,7 +180,7 @@ body {
   background: var(--bg);
   color: var(--fg);
   font-family: var(--font);
-  font-size: 14px;
+  font-size: var(--size-body);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -169,17 +203,17 @@ button {
 
 input,
 select {
-  height: 40px;
+  height: var(--height-control);
   padding: 0 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   border: 1px solid var(--line);
   background: var(--input);
 }
 
 .button {
-  min-height: 40px;
+  min-height: var(--height-control);
   padding: 0 16px;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   border: 1px solid var(--line);
   background: var(--panel);
   font-weight: 600;
@@ -224,7 +258,7 @@ select {
   display: flex;
   gap: 2px;
   padding: 4px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--chip);
 }
 
@@ -232,7 +266,7 @@ select {
   min-height: 32px;
   padding: 0 14px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--muted);
   font: inherit;
@@ -244,6 +278,79 @@ select {
   background: var(--panel);
   color: var(--fg);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+/* The same choice as one switch (Console's top bar): the word Advanced after a small track, on when it is chosen. */
+.view-switch {
+  height: 32px;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.screen-tools > .view-switch {
+  margin-left: auto;
+}
+
+.view-switch:hover {
+  border-color: var(--accent);
+}
+
+.view-switch[aria-checked="true"] {
+  color: var(--fg);
+}
+
+.view-switch-track {
+  position: relative;
+  width: 26px;
+  height: 15px;
+  flex: none;
+  border-radius: 8px;
+  background: var(--line);
+  transition: background 0.15s;
+}
+
+.view-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--fg);
+  transition: transform 0.15s;
+}
+
+.view-switch[aria-checked="true"] .view-switch-track {
+  background: var(--accent);
+}
+
+.view-switch[aria-checked="true"] .view-switch-track::after {
+  background: #fff;
+  transform: translateX(11px);
+}
+
+.view-switch:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view-switch-track,
+  .view-switch-track::after {
+    transition: none;
+  }
 }
 
 /* A button that reads as a link, for small actions inside text such as Undo or Revert. */
@@ -267,7 +374,7 @@ select {
   min-height: 30px;
   padding: 0 12px;
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--chip);
   color: var(--muted);
   font: inherit;

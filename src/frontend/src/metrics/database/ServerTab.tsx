@@ -6,7 +6,9 @@ import { formatAmount, formatRate, formatSeconds, formatSpan } from "../metricFo
 import { useMetricData } from "../useMetricData";
 import { AvailabilitySection } from "./AvailabilitySection";
 import { ConfigurationSection } from "./ConfigurationSection";
+import { PanelHead } from "./helpNames";
 import { FindingItem } from "./StorageTab";
+import { SystemHidden, SystemTag, useSystemShown } from "./SystemFilter";
 
 /** Props for {@link ServerTab} and {@link WaitTypes}. */
 export interface ServerTabProps {
@@ -22,10 +24,14 @@ export interface ServerTabProps {
   blind?: boolean;
 }
 
-/** Reads the server as a whole once for the Server and Waits tabs. */
+/** Reads the server as a whole once for the Server and Waits tabs; its idle waits only when System is on (VEY-66). */
 function useServer(engine: string, server: string, range: MetricRange) {
-  return useMetricData(`server-${engine}-${server}-${range}`, (signal) =>
-    api.databaseServer(engine, server, range, signal),
+  const [systemShown] = useSystemShown();
+
+  return useMetricData(
+    `server-${engine}-${server}-${range}`,
+    (signal) => api.databaseServer(engine, server, range, systemShown, signal),
+    { choices: String(systemShown) },
   );
 }
 
@@ -56,13 +62,21 @@ export function ServerTab({ engine, server, range, advanced, blind = false }: Se
   return (
     <div className="metric-panels">
       <section className="metric-panel" aria-labelledby="server-findings">
-        <div className="metric-panel-head">
-          <h2 id="server-findings">The server</h2>
+        <PanelHead
+          id="server-findings"
+          name="The server"
+          help={
+            "Veyra's findings about the instance as a whole, read every minute: CPU, memory, " +
+            "worker threads, memory grants, SQL Server Agent, restarts, memory dumps, and " +
+            "whether its version is still supported. Each says what to do; nothing listed " +
+            "means nothing stands out."
+          }
+        >
           <span>
             SQL Server {data.version} {data.updateLevel} · {data.edition}
             {data.uptimeSeconds !== null ? ` · up ${formatSpan(data.uptimeSeconds)}` : ""}
           </span>
-        </div>
+        </PanelHead>
         {data.findings.length === 0 ? (
           <p className="metrics-empty">
             {blind
@@ -90,9 +104,17 @@ function Figures({ data }: { data: ServerView }) {
 
   return (
     <section className="metric-panel" aria-labelledby="server-figures">
-      <div className="metric-panel-head">
-        <h2 id="server-figures">CPU, memory, and workload</h2>
-      </div>
+      <PanelHead
+        id="server-figures"
+        name="CPU, memory, and workload"
+        help={
+          "Read every minute: SQL Server's share of the CPU and everything else's, from the " +
+          "scheduler monitor ring buffer, with tasks waiting for a CPU " +
+          "(sys.dm_os_schedulers); worker threads in use; memory against its target; grants " +
+          "waiting; and requests against the usual for this hour of the week. Others taking " +
+          "CPU, workers near 100%, or grants waiting mean the server runs short."
+        }
+      />
       <dl className="live-facts">
         <dt>CPU</dt>
         <dd>
@@ -134,16 +156,24 @@ function Figures({ data }: { data: ServerView }) {
 export function WaitTypes({ engine, server, range }: ServerTabProps) {
   const { data } = useServer(engine, server, range);
 
-  if (!data || data.waits.length === 0) {
+  if (!data || (data.waits.length === 0 && data.hiddenWaits.count === 0)) {
     return null;
   }
 
   return (
     <section className="metric-panel" aria-labelledby="wait-types">
-      <div className="metric-panel-head">
-        <h2 id="wait-types">Wait types</h2>
+      <PanelHead
+        id="wait-types"
+        name="Wait types"
+        help={
+          "The 15 wait types with the most waiting time over the range, from " +
+          "sys.dm_os_wait_stats, read every 15 seconds, each with what it means and what " +
+          "usually causes it. The top one is where the server's time goes; fix its cause " +
+          "first."
+        }
+      >
         <span>the most time over the range, explained</span>
-      </div>
+      </PanelHead>
       <ul className="live-findings">
         {data.waits.map((wait) => (
           <li key={wait.term.type} className="live-finding ok">
@@ -151,6 +181,7 @@ export function WaitTypes({ engine, server, range }: ServerTabProps) {
             <div>
               <b>
                 {wait.term.type} · {wait.term.category} · {formatSeconds(wait.seconds)}
+                {wait.system && <SystemTag />}
               </b>
               <p>
                 {wait.term.meaning} Usually: {wait.term.causes}
@@ -159,6 +190,7 @@ export function WaitTypes({ engine, server, range }: ServerTabProps) {
           </li>
         ))}
       </ul>
+      <SystemHidden hidden={data.hiddenWaits} noun="wait type" />
     </section>
   );
 }

@@ -94,7 +94,7 @@ public class MetricsEndpointTests(PostgresFixture postgres)
         using var unknownHost = await admin.GetAsync(new Uri("/api/v1/metrics/hosts/nowhere", UriKind.Relative));
 
         Assert.Equal(HttpStatusCode.Unauthorized, refused.StatusCode);
-        Assert.Equal(("24h", 1800), (overview!.Range, overview.BucketSeconds));
+        Assert.Equal(("24h", 3600), (overview!.Range, overview.BucketSeconds));
         Assert.Empty(overview.Hosts);
         Assert.Empty(overview.Services);
         Assert.Equal(HttpStatusCode.NotFound, unknownHost.StatusCode);

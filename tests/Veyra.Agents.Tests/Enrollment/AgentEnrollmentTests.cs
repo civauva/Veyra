@@ -161,8 +161,10 @@ public class AgentEnrollmentTests(PostgresFixture postgres)
         await using (var command = database.CreateCommand(
             """
             INSERT INTO agents.sql_server
-                (id, name, address, port, environment, agent_id, login, password, encryption, created_at, changed_at)
-            VALUES (gen_random_uuid(), 'sql-prod-01', '10.0.0.5', 1433, 'production', $1, 'x', 'x', 1, now(), now())
+                (id, name, address, port, environment, agent_id, login, password, encryption, created_at, changed_at,
+                 template_version, template_set_at)
+            VALUES (gen_random_uuid(), 'sql-prod-01', '10.0.0.5', 1433, 'production', $1, 'x', 'x', 1, now(), now(),
+                    '0.2.0', now())
             """))
         {
             command.Parameters.AddWithValue(added.Agent.Id);

@@ -47,9 +47,14 @@ flowchart LR
 - **How.** The same SDK. Supported first: Hangfire, Quartz.NET, and `BackgroundService`. Hangfire and Quartz.NET have
   OpenTelemetry instrumentation packages. `BackgroundService` needs a small documented pattern that starts one span
   per run. More libraries can follow.
-- **What you see.** Every run with its duration and outcome, the last successful run, failures, and missed runs.
-- **Open.** Missed-run detection needs the expected schedule and a shared attribute for the job name. Both are
-  settled in a separate ADR before jobs are built.
+- **The job name (ADR 0027).** A root span that carries `cicd.pipeline.name` or `job.name` is a run of that job; the
+  list is the setting `Veyra:Storage:Jobs:NameAttributes`. Records and retries are read from `records.processed`,
+  `records.total`, and `retry.count` (or the same with a `job.` prefix) when the root span carries them. How to
+  instrument each library: [Jobs and pipelines](../integrations/jobs.md).
+- **What you see.** Every run with its duration, outcome, steps, records, and retries, the success share, the usual
+  duration, and failures, next to SQL Server Agent jobs on the same screens.
+- **Open.** Missed runs of traced jobs need the expected schedule, which is not in the telemetry; that stays for a
+  later decision. A late SQL Agent job is already known.
 
 ### SQL Server and PostgreSQL
 
@@ -125,6 +130,8 @@ host only while Veyra is unreachable, in a bounded queue that each integration c
 
 - **Per signal.** Retention is configured per signal. Logs keep 14 days by default (`Veyra:Storage:LogRetentionDays`),
   metrics 30 days (`Veyra:Storage:MetricRetentionDays`, ADR 0010). The proposed default for traces is 7 days.
+- **Job runs.** Runs of jobs, traced or from SQL Server Agent, keep 30 days (`Veyra:Storage:JobRunRetentionDays`,
+  ADR 0027), so a month's success share outlives the traces they were read from.
 - **Sign-in history.** Sign-in attempts and ended sessions, with addresses, keep 90 days
   (`Veyra:Access:SignInHistoryDays`, ADR 0011).
 - **Series limit.** Metrics are also bounded by `Veyra:Storage:MaxMetricSeries` (50,000), so one attribute with

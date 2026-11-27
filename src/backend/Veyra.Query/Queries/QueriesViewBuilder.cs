@@ -5,6 +5,7 @@ using Veyra.Core.Telemetry;
 using Veyra.Query.Live;
 using Veyra.Query.Metrics;
 using Veyra.Query.Queries.Api;
+using Veyra.Query.Systems;
 
 namespace Veyra.Query.Queries;
 
@@ -36,25 +37,34 @@ internal sealed class QueriesViewBuilder(IMetricSearch search, IDatabaseActivity
     /// <summary>Builds the Queries tab.</summary>
     /// <param name="engine">The engine.</param>
     /// <param name="server">The server's name.</param>
-    /// <param name="range">The range, such as <c>6h</c>.</param>
+    /// <param name="span">The window: a named range ending now, or a from–to period (ADR 0022).</param>
+    /// <param name="listing">Whether the server's own statements are listed, and what they are ranked by.</param>
     /// <param name="cancellationToken">Cancels the reads.</param>
     /// <returns>The tab.</returns>
     public async Task<QueriesResponse> ListAsync(
         string engine,
         string server,
-        string? range,
+        MetricSpan span,
+        QueryListing listing,
         CancellationToken cancellationToken)
     {
-        var window = MetricWindow.Of(range, clock.GetUtcNow());
+        var window = MetricWindow.Of(span, clock.GetUtcNow());
         var block = TelemetryBlock.Database(engine, server);
         var (series, totals) = await TotalsAsync(block, window, cancellationToken);
+        ArgumentNullException.ThrowIfNull(listing);
+
         var statements = Statements(series, totals);
-        var mine = statements.Where(statement => !statement.Agent).Take(_maxStatements).ToList();
-        var plans = await PlansAsync(
-            block,
-            window,
-            mine.SelectMany(statement => statement.Plans.Select(plan => plan.Hash)).ToList(),
-            cancellationToken);
+        var measure = Measure(listing.Sort);
+        // The server's own statements are left out unless asked for, and listed apart when they are, so its
+        // housekeeping never crowds out the applications' work. Both happen before the cut to 100 (VEY-66).
+        var (listed, hidden) = SystemRows.Keep(
+            statements.Where(statement => !statement.Agent),
+            listing.System,
+            statement => SystemObjects.IsSystemStatement(statement.Database, statement.Text),
+            statement => SystemRows.SystemDatabase(SqlServerNames.Engine, statement.Database));
+        var (rows, busiest) = listing.Simple
+            ? await WorthALookAsync(block, window, listed, measure, cancellationToken)
+            : await RankedAsync(block, window, listed, measure, cancellationToken);
         var agent = statements.Where(statement => statement.Agent).ToList();
         var now = clock.GetUtcNow();
         var states = (await activity.ListRecordsAsync(
@@ -77,27 +87,92 @@ internal sealed class QueriesViewBuilder(IMetricSearch search, IDatabaseActivity
 
         return new QueriesResponse(
             window.Range,
-            mine.Select(statement => Row(statement, plans)).ToList(),
+            rows,
             agent.Count,
             agent.Sum(statement => statement.Seconds),
-            states);
+            states)
+        {
+            From = window.From,
+            To = window.End,
+            HiddenStatements = hidden,
+            Busiest = busiest,
+        };
     }
+
+    // The Advanced view: the top 100 by the measure asked for, the server's own apart, so its housekeeping never
+    // crowds out the applications' work.
+    private async Task<(List<QueryRowResponse> Rows, QueryRowResponse? Busiest)> RankedAsync(
+        TelemetryBlock block,
+        MetricWindow window,
+        IReadOnlyList<Statement> listed,
+        Func<Statement, double> measure,
+        CancellationToken cancellationToken)
+    {
+        var mine = listed
+            .GroupBy(statement => SystemObjects.IsSystemStatement(statement.Database, statement.Text))
+            .SelectMany(group => group.OrderByDescending(measure).Take(_maxStatements))
+            .OrderByDescending(measure)
+            .ThenByDescending(statement => statement.Seconds)
+            .ToList();
+        var plans = await PlansAsync(
+            block,
+            window,
+            mine.SelectMany(statement => statement.Plans.Select(plan => plan.Hash)).ToList(),
+            cancellationToken);
+        var rows = mine.Select(statement => Row(statement, plans)).ToList();
+        var busiest = listed.MaxBy(statement => statement.Seconds);
+
+        return (rows, busiest is null ? null : rows.Find(row => row.QueryHash == busiest.Hash) ?? Row(busiest, plans));
+    }
+
+    // The Simple view: the statements with a finding, by the measure, at most 100. Each statement's newest plan is
+    // read before the cut, since a finding can be on a statement outside the busiest (VEY-67).
+    private async Task<(List<QueryRowResponse> Rows, QueryRowResponse? Busiest)> WorthALookAsync(
+        TelemetryBlock block,
+        MetricWindow window,
+        IReadOnlyList<Statement> listed,
+        Func<Statement, double> measure,
+        CancellationToken cancellationToken)
+    {
+        var ranked = listed.OrderByDescending(measure).ThenByDescending(statement => statement.Seconds).ToList();
+        var plans = await PlansAsync(
+            block,
+            window,
+            [.. ranked.Select(statement => statement.Plans.MaxBy(plan => plan.LastSeen)?.Hash).OfType<string>()],
+            cancellationToken);
+        var rows = ranked.Select(statement => Row(statement, plans)).ToList();
+        var busiest = listed.MaxBy(statement => statement.Seconds);
+
+        return (
+            [.. rows.Where(row => row.Findings.Count > 0).Take(_maxStatements)],
+            busiest is null ? null : rows.Find(row => row.QueryHash == busiest.Hash));
+    }
+
+    // The figure a statement is ranked by.
+    private static Func<Statement, double> Measure(QuerySort sort) => sort switch
+    {
+        QuerySort.Cpu => statement => statement.Cpu,
+        QuerySort.Reads => statement => statement.Reads,
+        QuerySort.Runs => statement => statement.Runs,
+        QuerySort.TimePerRun => statement => statement.Runs > 0 ? statement.Seconds / statement.Runs : 0,
+        _ => statement => statement.Seconds,
+    };
 
     /// <summary>Builds a statement's page.</summary>
     /// <param name="engine">The engine.</param>
     /// <param name="server">The server's name.</param>
     /// <param name="queryHash">The statement's query hash.</param>
-    /// <param name="range">The range.</param>
+    /// <param name="span">The window: a named range ending now, or a from–to period (ADR 0022).</param>
     /// <param name="cancellationToken">Cancels the reads.</param>
     /// <returns>The page, or <see langword="null"/> when the statement did not run in the range.</returns>
     public async Task<QueryResponse?> QueryAsync(
         string engine,
         string server,
         string queryHash,
-        string? range,
+        MetricSpan span,
         CancellationToken cancellationToken)
     {
-        var window = MetricWindow.Of(range, clock.GetUtcNow());
+        var window = MetricWindow.Of(span, clock.GetUtcNow());
         var block = TelemetryBlock.Database(engine, server);
         var (all, totals) = await TotalsAsync(block, window, cancellationToken);
         var statement = Statements(all, totals).FirstOrDefault(one => one.Hash == queryHash);
@@ -201,7 +276,11 @@ internal sealed class QueriesViewBuilder(IMetricSearch search, IDatabaseActivity
                 .GroupBy(interval => interval.TopWait)
                 .Select(group => new QueryWaitResponse(group.Key, group.Sum(interval => interval.WaitSeconds)))
                 .OrderByDescending(wait => wait.Seconds)
-                .ToList());
+                .ToList())
+        {
+            From = window.From,
+            To = window.End,
+        };
     }
 
     /// <summary>Reads a captured plan's XML, for the <c>.sqlplan</c> download.</summary>
@@ -345,7 +424,8 @@ internal sealed class QueriesViewBuilder(IMetricSearch search, IDatabaseActivity
             statement.Reads,
             statement.Runs > 0 ? statement.Seconds / statement.Runs : 0,
             statement.Plans.Count,
-            findings.OrderBy(finding => finding.Severity == "warning" ? 0 : 1).ToList());
+            findings.OrderBy(finding => finding.Severity == "warning" ? 0 : 1).ToList(),
+            SystemObjects.IsSystemStatement(statement.Database, statement.Text));
     }
 
     private async Task<(IReadOnlyList<MetricSeries> Series, Dictionary<long, double> Totals)> TotalsAsync(

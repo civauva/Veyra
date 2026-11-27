@@ -19,7 +19,7 @@ public class SpanStoreTests(PostgresFixture postgres)
     public async Task WriteAsync_ThenGetTraceAsync_ReturnsEverySpanAsWritten()
     {
         await using var database = await CreateAsync();
-        var store = new SpanStore(database);
+        var store = TestStores.Spans(database);
         var root = Span(Trace(1), Id(1), null, "POST /api/checkout", _day.AddHours(10), 1840, SpanStatus.Error) with
         {
             StatusMessage = "502 from payments",
@@ -43,7 +43,7 @@ public class SpanStoreTests(PostgresFixture postgres)
     public async Task GetTraceAsync_KnownTime_FindsTheTraceOnItsDayAndAnUnknownTraceIsEmpty()
     {
         await using var database = await CreateAsync();
-        var store = new SpanStore(database);
+        var store = TestStores.Spans(database);
         await store.WriteAsync([Span(Trace(1), Id(1), null, "GET /", _day.AddDays(-1).AddHours(23), 5)], default);
 
         Assert.Single(await store.GetTraceAsync(Trace(1), around: _day.AddHours(1), default));
@@ -55,7 +55,7 @@ public class SpanStoreTests(PostgresFixture postgres)
     public async Task ListAsync_ManyTraces_PagesNewestFirstByKeyset()
     {
         await using var database = await CreateAsync();
-        var store = new SpanStore(database);
+        var store = TestStores.Spans(database);
         var roots = Enumerable.Range(1, 7)
             .Select(i => Span(Trace(i), Id(i), null, $"GET /{i}", _day.AddHours(8).AddMinutes(i % 3), 10))
             .ToList();
@@ -84,7 +84,7 @@ public class SpanStoreTests(PostgresFixture postgres)
     public async Task ListAsync_Filters_KeepOnlyTheMatchingRoots()
     {
         await using var database = await CreateAsync();
-        var store = new SpanStore(database);
+        var store = TestStores.Spans(database);
         var at = _day.AddHours(9);
         await store.WriteAsync(
             [
@@ -124,7 +124,7 @@ public class SpanStoreTests(PostgresFixture postgres)
     public async Task ListAsync_TraceWithChildren_CountsSpansFailuresServicesAndFindsTheCause()
     {
         await using var database = await CreateAsync();
-        var store = new SpanStore(database);
+        var store = TestStores.Spans(database);
         var at = _day.AddHours(10);
         await store.WriteAsync(
             [
@@ -161,7 +161,7 @@ public class SpanStoreTests(PostgresFixture postgres)
     public async Task ListAsync_DeepestFailureHasNoException_TakesTheCauseFromTheSpanWithTheException()
     {
         await using var database = await CreateAsync();
-        var store = new SpanStore(database);
+        var store = TestStores.Spans(database);
         var at = _day.AddHours(11);
         await store.WriteAsync(
             [
@@ -189,7 +189,7 @@ public class SpanStoreTests(PostgresFixture postgres)
     public async Task DurationsAsync_BusyWindow_KeepsEveryFailedAndSlowTraceAndAnEvenSample()
     {
         await using var database = await CreateAsync();
-        var store = new SpanStore(database);
+        var store = TestStores.Spans(database);
         var roots = Enumerable.Range(1, 400).Select(i => Span(
                 Trace(i),
                 Id(i),
@@ -208,6 +208,146 @@ public class SpanStoreTests(PostgresFixture postgres)
         Assert.Equal(4, durations.Points.Count(point => point.Failed));
         Assert.Equal(26, durations.Points.Count(point => point.Duration >= TimeSpan.FromMilliseconds(2000)));
         Assert.Equal(TimeSpan.FromMilliseconds(2000), durations.P95);
+    }
+
+    [Fact]
+    public async Task DurationsAsync_MoreFailedAndSlowThanPoints_CountsEveryOneRead()
+    {
+        await using var database = await CreateAsync();
+        var store = TestStores.Spans(database);
+        var roots = Enumerable.Range(1, 400).Select(i => Span(
+                Trace(i),
+                Id(i),
+                null,
+                "GET /",
+                _day.AddHours(8).AddSeconds(i),
+                i % 15 == 0 ? 2000 : 100 + (i % 10),
+                i % 97 == 0 ? SpanStatus.Error : SpanStatus.Unset))
+            .ToList();
+        await store.WriteAsync(roots, default);
+
+        var durations = await store.DurationsAsync(new TraceQuery(_day, _day.AddDays(1)), maxPoints: 10, default);
+
+        Assert.Equal(10, durations.Points.Count);
+        Assert.Equal((4, 26), (durations.Failed, durations.Slow));
+    }
+
+    [Fact]
+    public async Task ListAsync_WorstOrder_PagesFailedThenSlowestByKeyset()
+    {
+        await using var database = await CreateAsync();
+        var store = TestStores.Spans(database);
+        // Durations repeat, so the trace ID decides between equally slow traces, also across a page break.
+        var roots = Enumerable.Range(1, 11)
+            .Select(i => Span(
+                Trace(i),
+                Id(i),
+                null,
+                $"GET /{i}",
+                _day.AddHours(8).AddMinutes(i),
+                (i % 4) * 100,
+                i % 3 == 0 ? SpanStatus.Error : SpanStatus.Ok))
+            .ToList();
+        await store.WriteAsync(roots, default);
+        var query = new TraceQuery(_day, _day.AddDays(1), Limit: 3, Order: TraceOrder.Worst);
+
+        var seen = new List<string>();
+        TraceWorstCursor? cursor = null;
+
+        do
+        {
+            var page = await store.ListAsync(query with { AfterWorst = cursor }, default);
+            Assert.Null(page.Next);
+            seen.AddRange(page.Items.Select(item => item.TraceId));
+            cursor = page.NextWorst;
+        }
+        while (cursor is not null);
+
+        var expected = roots
+            .OrderByDescending(root => root.Status == SpanStatus.Error)
+            .ThenByDescending(root => root.Duration)
+            .ThenByDescending(root => root.TraceId, StringComparer.Ordinal)
+            .Select(root => root.TraceId);
+        Assert.Equal(expected, seen);
+    }
+
+    [Fact]
+    public async Task ServicesAsync_TwoServices_CountsFailuresAndThe95thPercentileOfEach()
+    {
+        await using var database = await CreateAsync();
+        var store = TestStores.Spans(database);
+        var roots = Enumerable.Range(1, 20)
+            .Select(i => Span(Trace(i), Id(i), null, "GET /", _day.AddHours(8).AddSeconds(i), i * 10))
+            .Concat(
+            [
+                Span(Trace(21), Id(21), null, "POST /", _day.AddHours(8), 900, SpanStatus.Error) with
+                {
+                    ServiceName = "orders",
+                },
+                Span(Trace(22), Id(22), null, "POST /", _day.AddHours(9), 100) with { ServiceName = "orders" },
+            ])
+            .ToList();
+        await store.WriteAsync(roots, default);
+
+        var services = await store.ServicesAsync(new TraceQuery(_day, _day.AddDays(1)), default);
+
+        Assert.Equal(
+            [
+                new TraceServiceCount("payments", 20, 0, TimeSpan.FromMilliseconds(190)),
+                new TraceServiceCount("orders", 2, 1, TimeSpan.FromMilliseconds(900)),
+            ],
+            services);
+    }
+
+    [Fact]
+    public async Task FiguresAsync_Window_CountsTracesFailuresSlowServicesAndThePeriodBefore()
+    {
+        await using var database = await CreateAsync();
+        var store = TestStores.Spans(database);
+        var start = _day.AddHours(8);
+        var roots = Enumerable.Range(1, 20)
+            .Select(i => Span(
+                Trace(i),
+                Id(i),
+                null,
+                "GET /",
+                start.AddMinutes(i),
+                i * 10,
+                i % 5 == 0 ? SpanStatus.Error : SpanStatus.Unset))
+            .Append(Span(Trace(21), Id(21), null, "GET /", start.AddMinutes(30), 50) with { ServiceName = "orders" })
+            .Append(Span(Trace(22), Id(22), Id(21), "SELECT", start.AddMinutes(30), 5))
+            .Append(Span(Trace(23), Id(23), null, "GET /", start.AddMinutes(-10), 50))
+            .Append(Span(Trace(24), Id(24), null, "GET /", start.AddMinutes(-50), 50))
+            .Append(Span(Trace(25), Id(25), null, "GET /", start.AddMinutes(-70), 50))
+            .ToList();
+        await store.WriteAsync(roots, default);
+
+        var figures = await store.FiguresAsync(new TraceQuery(start, start.AddHours(1)), default);
+
+        // 21 roots, nearest rank: the 11th and the 20th durations of 10 to 200 ms with one 50 ms among them.
+        Assert.Equal(
+            new TraceFigures(
+                21,
+                4,
+                2,
+                TimeSpan.FromMilliseconds(100),
+                TimeSpan.FromMilliseconds(190),
+                2,
+                2),
+            figures);
+    }
+
+    [Fact]
+    public async Task FiguresAsync_EmptyWindow_HasNoPercentiles()
+    {
+        await using var database = await CreateAsync();
+        var store = TestStores.Spans(database);
+
+        var figures = await store.FiguresAsync(
+            new TraceQuery(_day, _day.AddHours(1), FailedOnly: true),
+            default);
+
+        Assert.Equal(new TraceFigures(0, 0, 0, null, null, 0, 0), figures);
     }
 
     internal static string Trace(int number) =>

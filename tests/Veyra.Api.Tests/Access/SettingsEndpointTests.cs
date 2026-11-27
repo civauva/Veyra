@@ -32,6 +32,15 @@ public class SettingsEndpointTests(PostgresFixture postgres)
         var interval = settings.Settings.Single(setting => setting.Key == "Veyra:Alerting:EvaluationInterval");
         Assert.Equal(("01:00:00", "configuration"), (interval.Default, interval.DefaultSource.Kind));
         Assert.Contains(settings.System, item => item.Label == "Database");
+
+        // The server counts the rules and those switched on (VEY-68).
+        var switches = settings.Settings
+            .Where(setting => setting.Section == "Rules" && setting.Label == "On")
+            .ToList();
+        Assert.True(settings.Rules > 0);
+        Assert.Equal(
+            (switches.Count, switches.Count(setting => setting.Value == "true")),
+            (settings.Rules, settings.RulesOn));
         Assert.DoesNotContain(
             settings.System,
             item => item.Value.Contains("Password", StringComparison.OrdinalIgnoreCase));
@@ -47,6 +56,34 @@ public class SettingsEndpointTests(PostgresFixture postgres)
         using var response = await viewer.GetAsync(new Uri("/api/v1/settings", UriKind.Relative));
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Listing_SimpleSectionAndSearch_ListWhatTheServerKeeps()
+    {
+        await using var factory = await VeyraApiFactory.CreateAsync(postgres);
+        using var admin = await factory.CreateAdminClientAsync();
+
+        var simple = await admin.GetFromJsonAsync<Listing>("/api/v1/settings/listing?section=Advanced");
+        var advanced = await admin.GetFromJsonAsync<Listing>("/api/v1/settings/listing?section=Advanced&view=advanced");
+        var found = await admin.GetFromJsonAsync<Listing>("/api/v1/settings/listing?search=maxpagesize&section=Data");
+
+        Assert.Contains("Veyra:Query:MaxPageSize", advanced!.Keys);
+        Assert.Equal(advanced.Keys, simple!.Keys);
+        Assert.Equal(["Veyra:Query:MaxPageSize"], found!.Keys);
+        Assert.DoesNotContain("System", simple.Sections);
+        Assert.Contains("System", advanced.Sections);
+    }
+
+    [Fact]
+    public async Task Listing_UnknownView_IsBadRequest()
+    {
+        await using var factory = await VeyraApiFactory.CreateAsync(postgres);
+        using var admin = await factory.CreateAdminClientAsync();
+
+        using var response = await admin.GetAsync(new Uri("/api/v1/settings/listing?view=fancy", UriKind.Relative));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
@@ -281,11 +318,17 @@ public class SettingsEndpointTests(PostgresFixture postgres)
         return await factory.CreateSignedInClientAsync("viewer@example.com", password);
     }
 
-    private sealed record SettingsPage(long Version, List<Setting> Settings, List<SystemItem> System);
+    private sealed record SettingsPage(
+        long Version,
+        List<Setting> Settings,
+        List<SystemItem> System,
+        int Rules = 0,
+        int RulesOn = 0);
 
     private sealed record Setting(
         string Key,
         string Section,
+        string Label,
         bool Advanced,
         string? Value,
         bool IsSet,
@@ -297,6 +340,8 @@ public class SettingsEndpointTests(PostgresFixture postgres)
     private sealed record Source(string Kind, string? Name);
 
     private sealed record SystemItem(string Label, string Value, string Source);
+
+    private sealed record Listing(List<string> Keys, List<string> Sections);
 
     private sealed record Review(
         List<Problem> Problems,

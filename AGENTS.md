@@ -34,6 +34,16 @@ Do not re-open these without a new ADR (see section 7).
 | Infrastructure | Containers and database servers as blocks; Collector configs set identity; built-in rules per target | `docs/adr/0018` |
 | Agents | Upstream Collector and OpAMP supervisor, managed by Veyra; monitored systems set up on Settings | `docs/adr/0019` |
 | SQL Server | Fourteen areas read by DMV queries in the agent; activity store; findings; Simple and Advanced | `docs/adr/0020` |
+| Looks | Looks arrange shared features; one route registry; import boundaries checked | `docs/adr/0021` |
+| Time and live | One shared range, SSE live streams, search across signals, resource lists | `docs/adr/0022` |
+| Overview | One read for the Overview; ingest counts per minute; availability from open warnings | `docs/adr/0023` |
+| Log queries | Query language parsed on the server; saved views per person; host and levels; server export | `docs/adr/0024` |
+| SQL Server overview | One read per server; backup history per backup; OS and RAM; coverage per area | `docs/adr/0025` |
+| Incidents | Alerts grouped by related blocks; acknowledge by Editors; runbook links; context read in Query | `docs/adr/0026` |
+| Job runs | Root spans with a job name attribute and SQL Agent runs, kept 30 days in one table | `docs/adr/0027` |
+| Integrations | Modules and intervals per server; probes through the agent; versioned templates | `docs/adr/0028` |
+| Console screens | Worst-first traces, line figures, alert context; Console is the default look | `docs/adr/0029` |
+| Versions | One version in Directory.Build.props; CHANGELOG.md served in the app; notice of a newer build | `docs/adr/0030` |
 | Monitoring scope | Targets, supported versions, and retention | `docs/architecture/monitoring-scope.md` |
 | Tech stack | Libraries and tools beyond the ADRs | `docs/architecture/tech-stack.md` |
 
@@ -42,6 +52,7 @@ Do not re-open these without a new ADR (see section 7).
 ```
 AGENTS.md          this file
 README.md          project vision and roadmap
+CHANGELOG.md       release notes, shown in the app (ADR 0030)
 LICENSE            Apache 2.0
 .github/           CI workflows, issue and PR templates
 docs/              documentation (adr/, architecture/, guides/, integrations/, api/)
@@ -92,6 +103,9 @@ folders without updating this map.
 - TSDoc comments on every exported component, hook, function, and type, with props documented field by field.
 - Every screen must be responsive on desktop, tablet, and phone, work in light and dark themes, and be keyboard
   accessible.
+- Every tile explains itself with a question mark (`HelpTip` in `src/ui`), and every alert rule says what its alert
+  means and how to fix it.
+- Every tile, figure, chart, and row that has more behind it opens it when clicked, keeping the time range.
 
 ### General
 

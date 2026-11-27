@@ -1,0 +1,58 @@
+/* The plain incident screens every look shows by default (ADR 0026). The Console look draws its own. */
+
+.incidents {
+  display: grid;
+  gap: 12px;
+  padding: 16px clamp(12px, 3vw, 28px) 32px;
+}
+
+.incidents h1 {
+  margin: 0;
+}
+
+.incidents h2 {
+  margin: 12px 0 0;
+  font-size: 16px;
+}
+
+.incidents-lead {
+  margin: 0;
+  color: var(--muted);
+}
+
+.incidents-error {
+  margin: 0;
+  color: var(--error-fg);
+}
+
+.incidents-list,
+.incidents-timeline {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.incidents-list li {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--warning-fg);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.incidents-list li.warning {
+  border-left-color: var(--error-fg);
+}
+
+.incidents-list a {
+  color: var(--fg);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.incidents-list small {
+  color: var(--muted);
+}

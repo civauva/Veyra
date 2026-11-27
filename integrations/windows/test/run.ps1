@@ -52,26 +52,35 @@ $configs = @(
 )
 
 if (-not $WithIis) {
-    # A day's log of the Default Web Site, as IIS writes it: UTF-8 with a byte order mark before its first header,
-    # then one request per line, in UTC.
-    $site = Join-Path $out "iis\W3SVC1"
-    New-Item -ItemType Directory -Path $site | Out-Null
+    # A day's log of two sites, as IIS writes them: headers, then one request per line, in UTC. The first site logs
+    # the bytes sent and received too, as IIS on GitHub's Windows runners does; the second only the other fields.
     $now = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss")
     $fields = "date time s-ip cs-method cs-uri-stem cs-uri-query s-port cs-username c-ip cs(User-Agent) " +
-        "cs(Referer) sc-status sc-substatus sc-win32-status time-taken"
-    $lines = @(
-        "#Software: Microsoft Internet Information Services 10.0",
-        "#Version: 1.0",
-        "#Date: $now",
-        "#Fields: $fields",
-        "$now 10.0.0.5 GET /orders - 443 - 10.0.0.9 Mozilla/5.0 - 200 0 0 42",
-        "$now 10.0.0.5 GET /missing - 443 - 10.0.0.9 Mozilla/5.0 - 404 0 2 3",
-        "$now 10.0.0.5 POST /checkout id=7 443 - 10.0.0.9 Mozilla/5.0 - 500 0 0 1290"
-    )
-    [System.IO.File]::WriteAllText(
-        (Join-Path $site "u_ex.log"),
-        ($lines -join "`r`n") + "`r`n",
-        (New-Object System.Text.UTF8Encoding $true))
+        "cs(Referer) sc-status sc-substatus sc-win32-status"
+    $sites = @{
+        "W3SVC1" = @(
+            "#Fields: $fields sc-bytes cs-bytes time-taken",
+            "$now 10.0.0.5 GET /orders - 443 - 10.0.0.9 Mozilla/5.0 - 200 0 0 951 169 42",
+            "$now 10.0.0.5 GET /missing - 443 - 10.0.0.9 Mozilla/5.0 - 404 0 2 5044 181 3",
+            "$now 10.0.0.5 POST /checkout id=7 443 - 10.0.0.9 Mozilla/5.0 - 500 0 0 1208 412 1290"
+        )
+        "W3SVC2" = @(
+            "#Fields: $fields time-taken",
+            "$now 10.0.0.6 GET /health - 80 - 10.0.0.9 curl/8.9.1 - 200 0 0 2"
+        )
+    }
+
+    foreach ($name in $sites.Keys) {
+        $site = Join-Path $out "iis\$name"
+        New-Item -ItemType Directory -Path $site | Out-Null
+        $lines = @(
+            "#Software: Microsoft Internet Information Services 10.0",
+            "#Version: 1.0",
+            "#Date: $now"
+        ) + $sites[$name]
+        Set-Content -Path (Join-Path $site "u_ex.log") -Value $lines -Encoding ASCII
+    }
+
     $env:IIS_LOG_DIR = Join-Path $out "iis"
     $configs += @("--config", (Join-Path $here "no-iis.yaml"))
 }

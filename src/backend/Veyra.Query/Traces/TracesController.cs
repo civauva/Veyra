@@ -9,12 +9,13 @@ using Veyra.Query.Traces.Api;
 namespace Veyra.Query.Traces;
 
 /// <summary>
-/// The trace list, its duration chart, the services in a window, and single traces (ADR 0014).
+/// The trace list, its duration chart, the services and figures of a window, and single traces (ADR 0014, ADR 0029).
 /// </summary>
 /// <remarks>
-/// Every request is bounded in time, so it reads only the days of its window. The list pages by keyset; the chart and
-/// the services read at most the newest 20,000 traces; a trace opened from a log record or the list carries the time it
-/// is known from, so it is looked up in that day and its neighbours first.
+/// Every request is bounded in time, so it reads only the days of its window. The list pages by keyset in either
+/// order; the chart, the services, and the percentiles read at most the newest 20,000 traces; the figures count the
+/// window's root spans from their indexes alone; a trace opened from a log record or the list carries the time it is
+/// known from, so it is looked up in that day and its neighbours first.
 /// </remarks>
 [ApiController]
 [Route("api/v1/traces")]
@@ -48,11 +49,15 @@ public sealed class TracesController : ControllerBase
         _clock = clock;
     }
 
-    /// <summary>Lists traces by their root spans, newest first.</summary>
+    /// <summary>Lists traces by their root spans, newest or worst first.</summary>
     /// <param name="filters">The window and the filters.</param>
     /// <param name="slow">Only traces at least as slow as the 95th percentile of the window.</param>
+    /// <param name="order">
+    /// <c>newest</c> (the default) for newest first, or <c>worst</c> for failed traces first, then the slowest
+    /// (ADR 0029).
+    /// </param>
     /// <param name="limit">The page size; 50 when omitted.</param>
-    /// <param name="cursor">The token from the previous page, or none for the newest traces.</param>
+    /// <param name="cursor">The token from the previous page in the same order, or none for the first page.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The page, or 400 when a filter is invalid.</returns>
     [HttpGet]
@@ -61,6 +66,7 @@ public sealed class TracesController : ControllerBase
     public async Task<IActionResult> ListAsync(
         [FromQuery] TraceFilters filters,
         [FromQuery] bool? slow,
+        [FromQuery] string? order,
         [FromQuery] int? limit,
         [FromQuery] string? cursor,
         CancellationToken cancellationToken)
@@ -76,9 +82,27 @@ public sealed class TracesController : ControllerBase
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        TraceCursor? after = null;
+        TraceOrder? listOrder = order switch
+        {
+            null or "newest" => TraceOrder.Newest,
+            "worst" => TraceOrder.Worst,
+            _ => null,
+        };
 
-        if (cursor is not null && !TraceCursor.TryDecode(cursor, out after))
+        if (listOrder is null)
+        {
+            return Problem(title: "The order must be newest or worst.", statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        // A token holds the position in its own order, so one order's token never continues the other.
+        TraceCursor? after = null;
+        TraceWorstCursor? afterWorst = null;
+        var validCursor = cursor is null
+            || (listOrder == TraceOrder.Worst
+                ? TraceWorstCursor.TryDecode(cursor, out afterWorst)
+                : TraceCursor.TryDecode(cursor, out after));
+
+        if (!validCursor)
         {
             return Problem(title: "The cursor is not valid.", statusCode: StatusCodes.Status400BadRequest);
         }
@@ -88,7 +112,7 @@ public sealed class TracesController : ControllerBase
             return error;
         }
 
-        query = query! with { Limit = pageSize, After = after };
+        query = query! with { Limit = pageSize, After = after, Order = listOrder.Value, AfterWorst = afterWorst };
 
         if (slow == true)
         {
@@ -105,7 +129,42 @@ public sealed class TracesController : ControllerBase
 
         var page = await _search.ListAsync(query, cancellationToken);
 
-        return Ok(new TraceListResponse(page.Items.Select(ToItem).ToList(), page.Next?.Encode()));
+        return Ok(new TraceListResponse(
+            page.Items.Select(ToItem).ToList(),
+            page.NextWorst?.Encode() ?? page.Next?.Encode()));
+    }
+
+    /// <summary>
+    /// The figures of the window under the list's filters (ADR 0029): traces, failed, slow, the median and 95th
+    /// percentile, services, and the traces of the period before, all counted on the server.
+    /// </summary>
+    /// <param name="filters">The window and the filters.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The figures, or 400 when a filter is invalid.</returns>
+    [HttpGet("summary")]
+    [ProducesResponseType<TraceFiguresResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> SummaryAsync(
+        [FromQuery] TraceFilters filters,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(filters);
+
+        if (TryBuildQuery(filters, out var query) is { } error)
+        {
+            return error;
+        }
+
+        var figures = await _search.FiguresAsync(query!, cancellationToken);
+
+        return Ok(new TraceFiguresResponse(
+            figures.Traces,
+            figures.Failed,
+            figures.Slow,
+            figures.P50?.TotalMilliseconds,
+            figures.P95?.TotalMilliseconds,
+            figures.Services,
+            figures.PreviousTraces));
     }
 
     /// <summary>The durations of the newest traces of the window, for the list's chart.</summary>
@@ -138,11 +197,20 @@ public sealed class TracesController : ControllerBase
                 .ToList(),
             durations.Read,
             20_000,
-            durations.P95?.TotalMilliseconds));
+            durations.P95?.TotalMilliseconds,
+            durations.Failed,
+            durations.Slow));
     }
 
-    /// <summary>The services that received requests in the window, most traces first, for the filter panel.</summary>
+    /// <summary>
+    /// The services that received requests in the window, with their traces, 95th percentile, and failed traces, for
+    /// the filter panel and the services table.
+    /// </summary>
     /// <param name="filters">The window and the filters; a service filter is ignored.</param>
+    /// <param name="order">
+    /// <c>traces</c> (the default) for most traces first, or <c>slowest</c> for the highest 95th percentile first
+    /// (ADR 0029); equal ones by name.
+    /// </param>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The services, or 400 when a filter is invalid.</returns>
     [HttpGet("services")]
@@ -150,24 +218,49 @@ public sealed class TracesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ServicesAsync(
         [FromQuery] TraceFilters filters,
+        [FromQuery] string? order,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(filters);
+
+        if (order is not (null or "traces" or "slowest"))
+        {
+            return Problem(
+                title: "The order must be traces or slowest.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
 
         if (TryBuildQuery(filters, out var query) is { } error)
         {
             return error;
         }
 
-        var services = await _search.ServicesAsync(query!, cancellationToken);
+        IEnumerable<TraceServiceCount> services = await _search.ServicesAsync(query!, cancellationToken);
 
-        return Ok(services.Select(service => new TraceServiceResponse(service.Service, service.Traces)).ToList());
+        // At most one row per service, so ordering them here costs nothing and keeps the store's single statement.
+        if (order == "slowest")
+        {
+            services = services
+                .OrderByDescending(service => service.P95)
+                .ThenBy(service => service.Service, StringComparer.Ordinal);
+        }
+
+        return Ok(services
+            .Select(service => new TraceServiceResponse(
+                service.Service,
+                service.Traces,
+                service.P95.TotalMilliseconds,
+                service.Failed))
+            .ToList());
     }
 
-    /// <summary>Opens a trace with every span that has arrived.</summary>
+    /// <summary>Opens a trace with the spans that have arrived and the figures of all of them.</summary>
     /// <param name="traceId">The trace ID, 32 hex characters.</param>
     /// <param name="at">
     /// When the trace is known to have happened; its day and the days next to it are read first.
+    /// </param>
+    /// <param name="errorsOnly">
+    /// Whether to list only the failed spans and every span above them (VEY-67); the figures stay those of every span.
     /// </param>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The trace, 400 for a malformed ID, or 404 when no span of it is stored.</returns>
@@ -178,6 +271,7 @@ public sealed class TracesController : ControllerBase
     public async Task<IActionResult> GetAsync(
         string traceId,
         [FromQuery] DateTimeOffset? at,
+        [FromQuery] bool errorsOnly,
         CancellationToken cancellationToken)
     {
         if (traceId is not { Length: 32 } || !traceId.All(char.IsAsciiHexDigit))
@@ -197,7 +291,7 @@ public sealed class TracesController : ControllerBase
                 statusCode: StatusCodes.Status404NotFound);
         }
 
-        return Ok(new TraceResponse(id, spans.Select(ToSpan).ToList()));
+        return Ok(TraceView.Build(id, spans, errorsOnly));
     }
 
     private ObjectResult? TryBuildQuery(TraceFilters filters, out TraceQuery? query)
@@ -280,22 +374,4 @@ public sealed class TracesController : ControllerBase
         trace.FailedSpans,
         trace.Cause is { } cause ? new TraceCauseResponse(cause.Service, cause.SpanName, cause.Message) : null,
         trace.Services.Select(share => new TraceShareResponse(share.Service, share.Spans)).ToList());
-
-    private static SpanResponse ToSpan(Span span) => new(
-        span.SpanId,
-        span.ParentSpanId,
-        span.Name,
-        span.Kind,
-        span.Start,
-        span.Duration.TotalMilliseconds,
-        span.Status,
-        span.StatusMessage,
-        span.ServiceName,
-        span.Environment,
-        span.HostName,
-        span.Attributes,
-        span.ResourceAttributes,
-        span.Events,
-        span.Links,
-        span.Dropped);
 }

@@ -1,5 +1,6 @@
 using Veyra.Alerting.Catalog;
 using Veyra.Alerting.ErrorRates;
+using Veyra.Alerting.Incidents;
 using Veyra.Alerting.MetricRules;
 using Veyra.Alerting.Notifications;
 
@@ -72,6 +73,24 @@ public sealed class AlertingOptions
 
     /// <summary>Alert notifications, bound from <c>Veyra:Alerting:Notifications</c>.</summary>
     public NotificationOptions Notifications { get; set; } = new();
+
+    /// <summary>How alerts are grouped into incidents (ADR 0026), bound from <c>Veyra:Alerting:Incidents</c>.</summary>
+    public IncidentOptions Incidents { get; set; } = new();
+
+    /// <summary>
+    /// The installation's own runbook per rule, by the rule's name, such as <c>error-rate</c> (ADR 0026). An
+    /// incident's View runbook opens it; a rule without one shows Veyra's built-in guidance instead.
+    /// </summary>
+    public Dictionary<string, string> Runbooks { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The runbook link of a rule, when one is set.</summary>
+    /// <param name="rule">The rule's name.</param>
+    /// <returns>The link, or <see langword="null"/> when the rule has none.</returns>
+    public Uri? RunbookOf(string rule) =>
+        Runbooks.TryGetValue(rule, out var link) && !string.IsNullOrWhiteSpace(link)
+            && Uri.TryCreate(link.Trim(), UriKind.Absolute, out var url)
+            ? url
+            : null;
 
     /// <summary>
     /// <see cref="PublicUrl"/> as an address that relative links resolve under, ending in a slash.

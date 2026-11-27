@@ -10,12 +10,14 @@
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint . --max-warnings 0 && node scripts/check-css-owners.mjs",
+    "lint": "eslint . --max-warnings 0 && node scripts/check-css-owners.mjs && node scripts/check-boundaries.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@fontsource-variable/inter-tight": "5.3.0",
+    "@fontsource-variable/jetbrains-mono": "5.3.0",
     "@scure/bip39": "2.4.0",
     "@tanstack/react-virtual": "3.14.26",
     "react": "19.3.1",

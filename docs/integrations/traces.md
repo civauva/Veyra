@@ -68,3 +68,5 @@ exporter in front, routing by trace ID.
   log records. A span whose parent has not arrived is marked, because a trace is never sure to be complete.
 - A log record with a trace ID opens its trace from the Log Explorer, and the trace view links back to its records.
 - A service's error-rate alert links to its failed traces of the alert's window, and a latency alert to its slow ones.
+- A root span that names a job, such as `job.name`, is also a run of that job on the Jobs screens, kept 30 days; see
+  [`jobs.md`](jobs.md).

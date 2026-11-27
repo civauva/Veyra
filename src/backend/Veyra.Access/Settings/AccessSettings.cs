@@ -1,14 +1,15 @@
 using System.Globalization;
 using Microsoft.Extensions.Options;
+using Veyra.Access.Users;
 using Veyra.Core;
 using Veyra.Core.Settings;
 
 namespace Veyra.Access.Settings;
 
 /// <summary>
-/// The Access module's settings on the Settings screen: sign-in, passwords, lockout, sessions, and how long sign-in
-/// history is kept (ADR 0017). The recovery switch for a lost second factor is not one of them; it stays in the
-/// environment so it works when nobody can sign in.
+/// The Access module's settings on the Settings screen: sign-in, passwords, lockout, sessions, how long sign-in
+/// history is kept (ADR 0017), and the look of the app (ADR 0021). The recovery switch for a lost second factor is
+/// not one of them; it stays in the environment so it works when nobody can sign in.
 /// </summary>
 /// <param name="rules">The rules <see cref="AccessOptions"/> must meet.</param>
 internal sealed class AccessSettings(IEnumerable<IValidateOptions<AccessOptions>> rules)
@@ -80,6 +81,25 @@ internal sealed class AccessSettings(IEnumerable<IValidateOptions<AccessOptions>
             Effect = SettingEffect.DeletesData,
             EnvironmentVariable = "VEYRA_SIGN_IN_HISTORY_DAYS",
         },
+        new SettingDefinition(
+            _prefix + nameof(AccessOptions.DefaultLook),
+            SettingSection.Appearance,
+            "Look",
+            "Default look",
+            "Used by people who have not picked a look, and by everyone when people may not choose.",
+            SettingKind.Choice,
+            _defaults.DefaultLook)
+        {
+            Choices = Looks.All,
+        },
+        new SettingDefinition(
+            _prefix + nameof(AccessOptions.PeopleChooseLook),
+            SettingSection.Appearance,
+            "Look",
+            "Let people choose their look",
+            "When off, everyone sees the default look.",
+            SettingKind.Switch,
+            _defaults.PeopleChooseLook ? "true" : "false"),
         new SettingDefinition(
             _prefix + nameof(AccessOptions.KeyCacheDuration),
             SettingSection.Advanced,

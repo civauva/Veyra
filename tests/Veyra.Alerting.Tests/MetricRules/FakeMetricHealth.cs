@@ -85,4 +85,20 @@ internal sealed class FakeMetricHealth : IMetricHealth
 
         return Task.FromResult(LatencyHistory);
     }
+
+    public IReadOnlyList<ServerError> ServerErrors { get; set; } = [];
+
+    public List<(string Server, string Measure, DateTimeOffset Start, DateTimeOffset End)> ErrorReads { get; } = [];
+
+    public Task<IReadOnlyList<ServerError>> ListServerErrorsAsync(
+        string server,
+        string measure,
+        DateTimeOffset periodStart,
+        DateTimeOffset periodEnd,
+        CancellationToken cancellationToken)
+    {
+        ErrorReads.Add((server, measure, periodStart, periodEnd));
+
+        return Task.FromResult(ServerErrors);
+    }
 }

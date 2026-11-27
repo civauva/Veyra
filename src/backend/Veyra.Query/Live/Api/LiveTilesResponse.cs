@@ -23,4 +23,11 @@ public sealed record LiveTilesResponse(
     int? OldestTransactionSession,
     int GrantsWaiting,
     double? TempdbFreeRatio,
-    long TempdbSizeBytes);
+    long TempdbSizeBytes)
+{
+    /// <summary>
+    /// The session that runs the longest request, or null when nothing runs. The tiles are the whole server's, so
+    /// it can be one a filter leaves out of the list (VEY-66).
+    /// </summary>
+    public int? LongestRequestSession { get; init; }
+}

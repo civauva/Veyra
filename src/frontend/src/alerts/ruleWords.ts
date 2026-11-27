@@ -1,4 +1,4 @@
-import type { AlertRule, AlertSeverity, BlockKind } from "../api/types";
+import type { AlertListItem, AlertRule, AlertSeverity, BlockKind } from "../api/types";
 import { formatRatio, severityWord } from "../home/homeFormat";
 import { formatSeconds, formatSpan } from "../metrics/metricFormat";
 import {
@@ -301,6 +301,19 @@ export function alertTitle(rule: AlertRule, subject: Subject, value: number, res
     case "db-wraparound":
       return `${server}: ${subject.part ?? "a database"} ${resolved ? "was" : "is"} at ${formatDiskShare(value)} of transaction ID wraparound`;
   }
+}
+
+/**
+ * The title of an open alert on its own server's screen, without the server's name, which the screen already says.
+ *
+ * @param alert - The open alert.
+ * @returns For example `shop has no full backup for 1 d 7 h` on the screen of sql-prod-01.
+ */
+export function titleOnScreen(alert: Pick<AlertListItem, "rule" | "block" | "value">): string {
+  const title = alertTitle(alert.rule, alert.block, alert.value, false);
+  const server = `${serverName(alert.block.name)}: `;
+
+  return title.startsWith(server) ? title.slice(server.length) : title;
 }
 
 /**

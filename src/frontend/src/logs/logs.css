@@ -20,6 +20,22 @@
   color: var(--muted);
 }
 
+/* A section's title with the question mark that explains it (VEY-60), in the title's colour. */
+.filter-head,
+.detail-fields-head,
+.histogram-title {
+  display: flex;
+  align-items: center;
+  margin: 0 0 8px;
+  color: var(--muted);
+}
+
+.filter-head .section-title,
+.detail-fields-head .section-title,
+.histogram-title .section-title {
+  margin: 0;
+}
+
 /* ---- Filters ---- */
 
 .filters {
@@ -106,7 +122,7 @@
   gap: 6px;
   margin-bottom: 6px;
   padding: 4px 6px 4px 10px;
-  border-radius: 8px;
+  border-radius: min(8px, var(--radius-pill));
   background: var(--chip);
   font-size: 12px;
   word-break: break-all;
@@ -150,10 +166,10 @@
 
 .attribute-form input,
 .search input {
-  min-height: 34px;
+  min-height: min(34px, var(--height-control));
   padding: 0 10px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: min(8px, var(--radius-control));
   background: var(--input);
   color: var(--fg);
   font: inherit;
@@ -190,9 +206,9 @@
 
 .search input {
   width: 100%;
-  min-height: 40px;
+  min-height: var(--height-control);
   padding: 0 130px 0 32px;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
 }
 
 .search-icon {
@@ -210,7 +226,7 @@
 }
 
 .toolbar .button {
-  min-height: 40px;
+  min-height: var(--height-control);
   white-space: nowrap;
 }
 
@@ -286,7 +302,7 @@
 .explorer-error {
   margin: 12px 16px 0;
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: min(8px, var(--radius-control));
   background: var(--error-bg);
   color: var(--error-fg);
 }
@@ -461,7 +477,7 @@
 
 .detail-message {
   margin: 14px 0 6px;
-  font-size: 17px;
+  font-size: min(17px, var(--size-panel-title));
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
@@ -478,7 +494,7 @@
   margin: 0 0 18px;
   padding: 12px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: min(10px, var(--radius-tile));
   background: var(--panel-2);
   color: var(--error-fg);
   font-size: 12px;
@@ -576,7 +592,7 @@
 
   .filters-sheet-bar h2 {
     margin: 0;
-    font-size: 18px;
+    font-size: min(18px, var(--size-panel-title));
   }
 
   .explorer-main {
@@ -649,7 +665,7 @@
     border: 1px solid var(--line);
     border-left-width: 3px;
     border-left-color: var(--line);
-    border-radius: 12px;
+    border-radius: min(12px, var(--radius-tile));
     background: var(--panel);
   }
 

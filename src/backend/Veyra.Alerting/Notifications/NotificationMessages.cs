@@ -22,8 +22,15 @@ internal static class NotificationMessages
     /// <param name="publicUrl">
     /// Veyra's public address, for the link to the alert; <see langword="null"/> for none.
     /// </param>
+    /// <param name="incident">
+    /// The incident the alert belongs to, by its ID and number, so the message links it (ADR 0026); null for none.
+    /// </param>
     /// <returns>The message.</returns>
-    public static NotificationMessage For(AlertEvent alertEvent, AlertState alert, Uri? publicUrl)
+    public static NotificationMessage For(
+        AlertEvent alertEvent,
+        AlertState alert,
+        Uri? publicUrl,
+        (Guid Id, long Number)? incident = null)
     {
         ArgumentNullException.ThrowIfNull(alertEvent);
         ArgumentNullException.ThrowIfNull(alert);
@@ -60,7 +67,15 @@ internal static class NotificationMessages
             ResolvedAt: alert.ResolvedAt,
             Url: publicUrl is null ? null : new Uri(publicUrl, $"alerts/{alert.Id}"));
 
-        return new NotificationMessage(name, text, notice);
+        // The alert keeps its own link, so receivers written before incidents keep working.
+        var grouped = incident is { } member
+            ? new IncidentNotice(
+                member.Id,
+                IncidentState.KeyOf(member.Number),
+                publicUrl is null ? null : new Uri(publicUrl, $"incidents/{member.Id}"))
+            : null;
+
+        return new NotificationMessage(name, text, notice, grouped);
     }
 
     /// <summary>Builds the message an administrator sends to check a channel.</summary>
@@ -113,6 +128,11 @@ internal static class NotificationMessages
             if (alert.ResolvedAt is { } resolvedAt)
             {
                 Line(body, "Resolved:", Time(resolvedAt));
+            }
+
+            if (message.Incident is { } incident)
+            {
+                Line(body, "Incident:", incident.Url is { } link ? $"{incident.Key} {link}" : incident.Key);
             }
 
             if (alert.Url is { } url)
@@ -171,6 +191,19 @@ internal static class NotificationMessages
         };
 
         return parts.Length == 2 ? $"{engine} {parts[1]}" : engine;
+    }
+
+    /// <summary>
+    /// What is wrong, in a few words, at the alert's latest measurement: "orders logs 6.2% errors". An incident is
+    /// titled with it (ADR 0026), so its title reads as its notifications do.
+    /// </summary>
+    /// <param name="alert">The alert.</param>
+    /// <returns>The headline, without the environment.</returns>
+    public static string Headline(AlertState alert)
+    {
+        ArgumentNullException.ThrowIfNull(alert);
+
+        return Headline(alert, alert.Value);
     }
 
     // What is wrong, in a few words.

@@ -1,4 +1,4 @@
-import type { AlertDetails, AlertPoint } from "../api/types";
+import type { AlertContext, AlertDetails, AlertPoint, CatalogRule } from "../api/types";
 
 /*
  * Alerts for tests and the e2e run, matching the VEY-18 mockups: an open warning on payments-gateway with a
@@ -57,6 +57,12 @@ export const openWarning: AlertDetails = {
   openedAt: "2026-11-10T06:58:00Z",
   updatedAt: "2026-11-10T07:34:00Z",
   resolvedAt: null,
+  // The server lists each channel told once (VEY-68).
+  told: [
+    { id: "c1", name: "#ops-alerts" },
+    { id: "c2", name: "On-call" },
+    { id: "c3", name: "Incident bot" },
+  ],
   events: [
     {
       kind: "Opened",
@@ -181,6 +187,8 @@ export const resolvedCaution: AlertDetails = {
   openedAt: "2026-11-10T03:10:00Z",
   updatedAt: "2026-11-10T03:24:00Z",
   resolvedAt: "2026-11-10T03:24:00Z",
+  // The server lists each channel told once (VEY-68).
+  told: [],
   events: [
     { kind: "Opened", severity: "Caution", value: 0.011, at: "2026-11-10T03:10:00Z", deliveries: [] },
     { kind: "Resolved", severity: "Caution", value: 0.004, at: "2026-11-10T03:24:00Z", deliveries: [] },
@@ -216,6 +224,8 @@ export const openDiskFilling: AlertDetails = {
   minimumRecords: null,
   openedAt: "2026-11-10T03:20:00Z",
   updatedAt: "2026-11-10T07:34:00Z",
+  // The server lists each channel told once (VEY-68).
+  told: [{ id: "c1", name: "#ops-alerts" }],
   events: [
     {
       kind: "Opened",
@@ -279,6 +289,8 @@ export const resolvedLatency: AlertDetails = {
   openedAt: "2026-11-09T21:40:00Z",
   updatedAt: "2026-11-09T22:05:00Z",
   resolvedAt: "2026-11-09T22:05:00Z",
+  // The server lists each channel told once (VEY-68).
+  told: [],
   events: [
     { kind: "Opened", severity: "Caution", value: 1.3, at: "2026-11-09T21:40:00Z", deliveries: [] },
     { kind: "Escalated", severity: "Warning", value: 3.1, at: "2026-11-09T21:47:00Z", deliveries: [] },
@@ -299,4 +311,155 @@ export const resolvedLatency: AlertDetails = {
       { method: null, route: "/products/{id}", requestsPerSecond: 210, p95Seconds: 0.38, serverErrorRatio: 0 },
     ],
   },
+};
+
+/** The catalog's integrity check rule (ADR 0020), with its guidance (VEY-60), as the API sends it. */
+export const integrityRule: CatalogRule = {
+  id: "db-checkdb-age",
+  name: "Integrity check age",
+  description: "Time since a database's last good DBCC CHECKDB, or since its creation when it never had one.",
+  unit: "seconds",
+  noun: null,
+  headline: "{server}: {part} has had no good integrity check for {value}",
+  recovery: "{server}: {part} passed an integrity check",
+  partLabel: "Database",
+  lowerIsWorse: false,
+  enabled: true,
+  caution: 8 * 86_400,
+  warning: 15 * 86_400,
+  meaning: "DBCC CHECKDB has not passed on {part} for a while; corruption would go unnoticed.",
+  steps: [
+    { text: "Run the check now, outside busy hours.", script: "DBCC CHECKDB (N'{part}') WITH NO_INFOMSGS;" },
+    { text: "Schedule it weekly in a SQL Server Agent job.", script: null },
+  ],
+};
+
+/**
+ * An open integrity check warning on a database of a developer's PC, as it was first reported in VEY-60: a caution
+ * eight days ago, a warning a day ago, measured today. Its rule has no window.
+ */
+export const openIntegrity: AlertDetails = {
+  ...openWarning,
+  id: "0193a2b4-0000-7000-8000-000000000060",
+  rule: "db-checkdb-age",
+  environment: "local",
+  block: {
+    kind: "database",
+    name: "microsoft.sql_server PC-DRAZAN-2023",
+    part: "VPower_2.P",
+    id: "database:local/microsoft.sql_server PC-DRAZAN-2023",
+  },
+  service: null,
+  severity: "Warning",
+  worst: "Warning",
+  value: 16 * 86_400 + 9 * 3_600,
+  peak: 16 * 86_400 + 9 * 3_600,
+  peakAt: "2026-11-25T11:01:00Z",
+  threshold: 15 * 86_400,
+  cautionThreshold: 8 * 86_400,
+  warningThreshold: 15 * 86_400,
+  clearThreshold: 8 * 86_400,
+  windowSeconds: 0,
+  minimumRecords: null,
+  openedAt: "2026-11-17T02:05:00Z",
+  updatedAt: "2026-11-25T11:01:00Z",
+  resolvedAt: null,
+  // The server lists each channel told once (VEY-68).
+  told: [],
+  events: [
+    { kind: "Opened", severity: "Caution", value: 8 * 86_400, at: "2026-11-17T02:05:00Z", deliveries: [] },
+    { kind: "Escalated", severity: "Warning", value: 15 * 86_400, at: "2026-11-24T02:01:00Z", deliveries: [] },
+  ],
+  series: null,
+  topErrors: [],
+  disk: null,
+  latency: null,
+};
+
+/** An open severe error warning on a developer's PC, with the damaged page it counted (VEY-61). */
+export const openSevereError: AlertDetails = {
+  ...openIntegrity,
+  id: "0193a2b4-0000-7000-8000-000000000061",
+  rule: "db-severe-error",
+  block: { ...openIntegrity.block, part: null },
+  value: 1,
+  peak: 1,
+  peakAt: "2026-11-25T13:12:00Z",
+  threshold: 1,
+  cautionThreshold: 1,
+  warningThreshold: 1,
+  clearThreshold: 1,
+  openedAt: "2026-11-25T13:12:00Z",
+  updatedAt: "2026-11-25T13:16:00Z",
+  // The server lists each channel told once (VEY-68).
+  told: [],
+  events: [{ kind: "Opened", severity: "Warning", value: 1, at: "2026-11-25T13:12:00Z", deliveries: [] }],
+  serverErrors: [
+    {
+      at: "2026-11-25T13:11:38Z",
+      error: 824,
+      severity: 24,
+      message: "SQL Server detected a logical consistency-based I/O error: incorrect checksum.",
+    },
+  ],
+};
+
+/**
+ * What surrounds the payments-gateway warning (ADR 0029): its service failing, the database it calls in caution, the
+ * host it runs on, and the warnings and errors they logged from an hour before it opened.
+ */
+export const openWarningContext: AlertContext = {
+  from: "2026-11-10T05:58:00Z",
+  to: "2026-11-10T07:34:00Z",
+  logs: {
+    items: [
+      {
+        id: 41,
+        timestamp: "2026-11-10T07:04:51Z",
+        observedTimestamp: "2026-11-10T07:04:51Z",
+        severity: "Error",
+        severityText: null,
+        body: "Payment declined by PSP: upstream timeout after 1800 ms",
+        serviceName: "payments-gateway",
+        environment: "production",
+        traceId: "5b8efff798038103d269b633813fc60c",
+        spanId: null,
+        attributes: {},
+        resourceAttributes: {},
+        hostName: "web-02",
+      },
+      {
+        id: 40,
+        timestamp: "2026-11-10T06:58:10Z",
+        observedTimestamp: "2026-11-10T06:58:10Z",
+        severity: "Warning",
+        severityText: null,
+        body: "Retrying the PSP call, attempt 2 of 3",
+        serviceName: "payments-gateway",
+        environment: "production",
+        traceId: null,
+        spanId: null,
+        attributes: {},
+        resourceAttributes: {},
+        hostName: "web-02",
+      },
+    ],
+    query: "service:payments-gateway AND level>=warning",
+    total: 31,
+  },
+  components: [
+    { block: openWarning.block, health: "warning", inIncident: true, relation: "affected" },
+    {
+      block: { kind: "database", name: "postgresql orders-db", part: null, id: "database:production/orders-db" },
+      health: "caution",
+      inIncident: false,
+      relation: "affected",
+    },
+    {
+      block: { kind: "host", name: "web-02", part: null, id: "host:production/web-02" },
+      health: "ok",
+      inIncident: false,
+      relation: "host",
+    },
+  ],
 };

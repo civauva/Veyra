@@ -57,8 +57,10 @@ The key is a secret: only administrators can read the service's registry key.
 - **IIS sites** (`iis.yaml`): every request in a site's W3C log becomes a log of that site's service, named after its
   log folder, such as `W3SVC1` for the Default Web Site (IIS Manager lists each site's ID). Status 5xx is an error and
   4xx a warning, so the error-rate rule watches each site. Each carries `http.request.method`, `url.path`,
-  `http.response.status_code`, `client.address`, and `iis.time_taken_ms`. IIS must log in the W3C format with its
-  default fields, as it does unless changed; it writes its log about once a minute, so requests arrive that late. The
+  `http.response.status_code`, `client.address`, and `iis.time_taken_ms`, and, where the site logs the bytes sent and
+  received (`sc-bytes`, `cs-bytes`), `http.response.body.size` and `http.request.body.size`. IIS must log in the W3C
+  format with its default fields, with or without the bytes, as it does unless changed; it writes its log about once
+  a minute, so requests arrive that late. The
   `iis` receiver adds IIS's own figures to the host: requests, connections, queues, and application pool state per
   site.
 

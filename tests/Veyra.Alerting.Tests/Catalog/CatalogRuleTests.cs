@@ -88,6 +88,34 @@ public class CatalogRuleTests
             CatalogWords.Fill(rule.Headline, "SQL Server sql-prod-01", null, CatalogWords.Value(rule, 180)));
     }
 
+    [Fact]
+    public void Guidance_EveryCatalogRule_SaysWhatItMeansAndHowToFixIt()
+    {
+        foreach (var rule in RuleCatalog.All)
+        {
+            var guidance = RuleGuidance.For(rule.Id);
+
+            Assert.False(string.IsNullOrWhiteSpace(guidance.Meaning), $"{rule.Id} says nothing of what it means");
+            Assert.NotEmpty(guidance.Steps);
+            Assert.All(guidance.Steps, step => Assert.False(string.IsNullOrWhiteSpace(step.Text), rule.Id));
+
+            // Screens fill in only the server and the part; any other brace would be shown as it is.
+            var words = string.Join(" ", guidance.Steps.SelectMany(step => new[] { step.Text, step.Script ?? "" }));
+            var left = words
+                .Replace("{server}", "", StringComparison.Ordinal)
+                .Replace("{part}", "", StringComparison.Ordinal);
+            Assert.DoesNotContain('{', left);
+        }
+    }
+
+    [Fact]
+    public void Guidance_IntegrityCheckAge_GivesTheCheckToRunOnTheDatabase()
+    {
+        var steps = RuleGuidance.For("db-checkdb-age").Steps;
+
+        Assert.Contains(steps, step => step.Script?.Contains("DBCC CHECKDB (N'{part}')", StringComparison.Ordinal) == true);
+    }
+
     private static DatabaseMeasure Measure(double value) =>
         new(_server, "production", "head-blocker-seconds", null, value);
 }

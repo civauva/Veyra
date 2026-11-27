@@ -1,4 +1,5 @@
 import type { HomeSnapshot } from "../../api/types";
+import { HelpTip } from "../../ui/HelpTip";
 import { useAlertHistory } from "../../alerts/useAlertHistory";
 import { WeatherDays } from "../../alerts/WeatherDays";
 import { ForecastHero, KeyMetrics, Outlook } from "../forecast/ForecastVisual";
@@ -42,9 +43,15 @@ export function HomeWall({ snapshot }: HomeWallProps) {
         <BlocksPanel snapshot={snapshot} />
         <section className="glass lg-panel lg-month" aria-labelledby="wall-month">
           <div className="lg-head">
-            <h2 id="wall-month" className="cap">
-              Last 30 days
-            </h2>
+            <div className="home-name">
+              <h2 id="wall-month" className="cap">
+                Last 30 days
+              </h2>
+              <HelpTip label="Last 30 days">
+                One cell per day with the worst alert that opened that day and how many opened, as on the Alerts screen.
+                Days start at midnight in your time zone.
+              </HelpTip>
+            </div>
             {summary && (
               <span className="lg-count">
                 {summary.total} {summary.total === 1 ? "alert" : "alerts"} · {summary.warnings}{" "}

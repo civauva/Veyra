@@ -1,4 +1,5 @@
 import type { AlertLatency } from "../api/types";
+import { HelpTip } from "../ui/HelpTip";
 import { formatRatio } from "../home/homeFormat";
 import { formatRate, formatSeconds } from "../metrics/metricFormat";
 
@@ -15,9 +16,15 @@ const slow = 1;
 export function SlowRoutes({ latency }: SlowRoutesProps) {
   return (
     <section className="glass alert-panel" aria-labelledby="alert-routes">
-      <h2 id="alert-routes" className="cap">
-        Slowest routes during the alert
-      </h2>
+      <div className="alert-name">
+        <h2 id="alert-routes" className="cap">
+          Slowest routes during the alert
+        </h2>
+        <HelpTip label="Slowest routes">
+          The service&apos;s routes while the alert was open, slowest first by their 95th percentile, with their
+          requests per second and their share of 5xx answers. A p95 of 1 s or more is drawn red.
+        </HelpTip>
+      </div>
       {latency.routes.length === 0 ? (
         <p className="fine">The service sent no request durations with routes in this period.</p>
       ) : (

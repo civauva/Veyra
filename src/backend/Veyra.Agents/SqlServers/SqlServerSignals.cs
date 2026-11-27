@@ -59,7 +59,8 @@ internal sealed class SqlServerSignals(ILogSearch logs, IMetricSearch metrics)
             .Select(entry => new ReaderError(
                 entry.Server!.Value,
                 entry.Record.Attributes.GetValueOrDefault("error") ?? entry.Record.Body,
-                entry.Record.Timestamp))
+                entry.Record.Timestamp,
+                entry.Record.Attributes.GetValueOrDefault("otelcol.component.id")))
             .ToList();
     }
 

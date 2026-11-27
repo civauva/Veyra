@@ -19,6 +19,20 @@
   border-right: 1px solid var(--line);
 }
 
+/* A ring with the question mark that explains it (VEY-60), in the ring's corner, clear of its label. */
+.pg-ring {
+  position: relative;
+  min-width: 0;
+}
+
+.pg-ring-help {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  color: var(--muted);
+}
+
 .pg-tiles {
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   margin-bottom: 0;

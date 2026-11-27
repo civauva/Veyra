@@ -1,5 +1,6 @@
 using Veyra.Query.Metrics.Api;
 using Veyra.Query.Queries.Api;
+using Veyra.Query.Systems.Api;
 
 namespace Veyra.Query.Server.Api;
 
@@ -50,4 +51,8 @@ public sealed record ServerResponse(
     ChartLineResponse SqlCpuLine,
     ChartLineResponse OtherCpuLine,
     IReadOnlyList<WaitTypeResponse> Waits,
-    IReadOnlyList<PlanWarningResponse> Findings);
+    IReadOnlyList<PlanWarningResponse> Findings)
+{
+    /// <summary>The idle waits of the server's background tasks, left out of <see cref="Waits"/> (VEY-66).</summary>
+    public HiddenRowsResponse HiddenWaits { get; init; } = HiddenRowsResponse.None;
+}

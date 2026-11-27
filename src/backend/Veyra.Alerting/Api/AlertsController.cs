@@ -56,6 +56,9 @@ public sealed class AlertsController : ControllerBase
     /// <param name="environment">Only alerts of this environment.</param>
     /// <param name="kind">Only alerts about a <c>service</c>, or a <c>host</c>.</param>
     /// <param name="q">Only alerts whose service, host, or disk holds this text.</param>
+    /// <param name="block">Only alerts about the block of exactly this name, as on a block's own screen.</param>
+    /// <param name="part">Only alerts about exactly this part: a disk, a database, or a container's host.</param>
+    /// <param name="order"><c>newest</c> first, the default, or <c>worst</c>: warnings first, each the oldest first.</param>
     /// <param name="limit">The most alerts on the page, 1 to 200. Defaults to 50.</param>
     /// <param name="cursor">The <c>next</c> cursor of the previous page.</param>
     /// <param name="cancellationToken">Cancels the query when the client goes away.</param>
@@ -74,6 +77,9 @@ public sealed class AlertsController : ControllerBase
         [FromQuery] string? environment,
         [FromQuery] string? kind,
         [FromQuery] string? q,
+        [FromQuery] string? block,
+        [FromQuery] string? part,
+        [FromQuery] string? order,
         [FromQuery] int? limit,
         [FromQuery] string? cursor,
         CancellationToken cancellationToken)
@@ -128,6 +134,22 @@ public sealed class AlertsController : ControllerBase
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
+        bool worstFirst;
+
+        switch (order?.ToLowerInvariant())
+        {
+            case null or "" or "newest":
+                worstFirst = false;
+                break;
+            case "worst":
+                worstFirst = true;
+                break;
+            default:
+                return Problem(
+                    title: "The order must be newest or worst.",
+                    statusCode: StatusCodes.Status400BadRequest);
+        }
+
         var pageSize = limit ?? _defaultLimit;
 
         if (pageSize is < 1 or > _maxLimit)
@@ -155,10 +177,71 @@ public sealed class AlertsController : ControllerBase
                 Environment: string.IsNullOrEmpty(environment) ? null : environment,
                 Kind: blockKind,
                 Block: q,
-                After: after),
+                After: after,
+                Name: string.IsNullOrEmpty(block) ? null : block,
+                Part: string.IsNullOrEmpty(part) ? null : part,
+                WorstFirst: worstFirst),
             cancellationToken);
 
         return Ok(new AlertListResponse(page.Items.Select(AlertListItemResponse.Of).ToList(), page.Next?.Encode()));
+    }
+
+    /// <summary>
+    /// Tells how each area of a database server is from its open alerts, the worst first, for its Overview tab
+    /// (VEY-62, VEY-68). Areas alike keep the order asked for, the order of the tabs.
+    /// </summary>
+    /// <param name="block">The server's block name, such as <c>microsoft.sql_server sql-prod-01</c>.</param>
+    /// <param name="area">
+    /// The areas the screen shows, in the order of its tabs. Repeat for several; all of them when left out.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the query when the client goes away.</param>
+    /// <returns>Each area with its weather and its open alerts.</returns>
+    /// <response code="200">The areas.</response>
+    /// <response code="400">The block is missing, or an area is not one of the server's.</response>
+    [HttpGet("areas")]
+    [ProducesResponseType<IReadOnlyList<AreaStateResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> AreasAsync(
+        [FromQuery] string? block,
+        [FromQuery] string[]? area,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(block))
+        {
+            return Problem(title: "The block is required.", statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        if (area?.FirstOrDefault(one => !RuleAreas.All.Contains(one)) is { } unknown)
+        {
+            return Problem(
+                title: $"There is no area named {unknown}. The areas are {string.Join(", ", RuleAreas.All)}.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var now = _clock.GetUtcNow();
+        var open = new List<AlertListItemResponse>();
+        AlertCursor? after = null;
+
+        // Every open alert of the server, page by page, so none past a page's limit is left out of its area.
+        do
+        {
+            var page = await _store.ListPageAsync(
+                new AlertListQuery(
+                    From: now,
+                    To: now,
+                    Limit: _maxLimit,
+                    Open: true,
+                    Kind: AlertBlockKind.Database,
+                    Name: block,
+                    WorstFirst: true,
+                    After: after),
+                cancellationToken);
+            open.AddRange(page.Items.Select(AlertListItemResponse.Of));
+            after = page.Next;
+        }
+        while (after is not null);
+
+        return Ok(RuleAreas.Rank(area is { Length: > 0 } ? area : RuleAreas.All, open));
     }
 
     /// <summary>
@@ -216,6 +299,7 @@ public sealed class AlertsController : ControllerBase
             .Select(rule =>
             {
                 var (caution, warning) = RuleCatalog.Levels(rule, settings);
+                var guidance = RuleGuidance.For(rule.Id);
 
                 return new CatalogRuleResponse(
                     rule.Id,
@@ -229,7 +313,9 @@ public sealed class AlertsController : ControllerBase
                     rule.LowerIsWorse,
                     RuleCatalog.Enabled(rule, settings),
                     caution,
-                    warning);
+                    warning,
+                    guidance.Meaning,
+                    guidance.Steps.Select(step => new FixStepResponse(step.Text, step.Script)).ToList());
             })
             .ToList();
     }

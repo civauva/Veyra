@@ -74,7 +74,10 @@ internal static class LogCounts
     {
         var countable = string.IsNullOrWhiteSpace(query.Text)
             && string.IsNullOrWhiteSpace(query.TraceId)
-            && query.Attributes is not { Count: > 0 };
+            && string.IsNullOrWhiteSpace(query.SpanId)
+            && query.Attributes is not { Count: > 0 }
+            && query.Hosts is not { Count: > 0 }
+            && query.Phrases is not { Count: > 0 };
         var uncounted = countable ? await UncountedDaysAsync(dataSource, query, cancellationToken) : [];
         IReadOnlyList<string>? words = null;
         IReadOnlyCollection<DateOnly> unindexed = [];
@@ -112,7 +115,8 @@ internal static class LogCounts
                 reader.GetString(2),
                 reader.GetInt64(4),
                 reader.GetInt64(5),
-                (AlertBlockKind)reader.GetInt16(3)));
+                (AlertBlockKind)reader.GetInt16(3),
+                (LogSeverity)reader.GetInt16(6)));
         }
 
         return rows;
@@ -224,7 +228,7 @@ internal static class LogCounts
         sql.Append(
             CultureInfo.InvariantCulture,
             $"""
-            (SELECT {bucket} AS bucket, environment, service_name, block_kind, {total}, {errors}
+            (SELECT {bucket} AS bucket, environment, service_name, block_kind, {total}, {errors}, severity
             FROM {table}
             WHERE {time} >= ${to - 1} AND {time} < ${to}
             """);
@@ -241,7 +245,8 @@ internal static class LogCounts
         }
         else
         {
-            // The counts hold severity and environment, the only other filters a countable query has.
+            // The counts hold severity and environment, the only other filters a countable query has: a minimum
+            // severity, exact levels (ADR 0024), and environments.
             if (query.MinimumSeverity is { } severity)
             {
                 command.Parameters.AddWithValue((short)severity);
@@ -253,9 +258,16 @@ internal static class LogCounts
                 command.Parameters.AddWithValue(environments.ToArray());
                 sql.Append(CultureInfo.InvariantCulture, $" AND environment = ANY(${command.Parameters.Count})");
             }
+
+            if (query.Levels is { } levels)
+            {
+                command.Parameters.AddWithValue(levels.Select(level => (short)level).ToArray());
+                sql.Append(CultureInfo.InvariantCulture, $" AND severity = ANY(${command.Parameters.Count})");
+            }
         }
 
-        sql.Append(" GROUP BY 1, 2, 3, 4)");
+        // By severity too, so the chart can stack each level (ADR 0024); a day has at most seven of them.
+        sql.Append(" GROUP BY 1, 2, 3, 4, 7)");
     }
 
     /// <summary>The days of the window the backfill has not counted yet; usually none.</summary>

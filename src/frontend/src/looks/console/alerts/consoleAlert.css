@@ -1,0 +1,54 @@
+/*
+ * Console's alert (VEY-79, ADR 0029): the head's icon by state, the guidance side by side, the legends under the
+ * charts, and long messages. The rest is the shared Console panels. Colours come from the tokens.
+ */
+
+.al-icon.warn {
+  border-color: color-mix(in srgb, var(--warning-fg) 40%, transparent);
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+}
+
+.al-icon.off {
+  border-color: var(--line);
+  background: var(--chip);
+  color: var(--muted);
+}
+
+.al-guide {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.al-meaning {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.al-steps {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 32px;
+  line-height: 1.45;
+}
+
+.al-legend {
+  margin: 6px 0 0;
+}
+
+.al-message {
+  overflow-wrap: anywhere;
+}
+
+.al-note {
+  border: 1px dashed var(--line);
+  border-radius: 11px;
+}
+
+@media (max-width: 719px) {
+  .al-guide {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

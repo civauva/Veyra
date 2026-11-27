@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 
 import type { AlertDetails } from "../api/types";
+import { HelpTip } from "../ui/HelpTip";
 import { formatClock, formatCount } from "../logs/format";
 import { defaultFilters, filtersToUrl } from "../logs/logFilters";
 
@@ -20,9 +21,15 @@ export function TopErrors({ alert }: TopErrorsProps) {
 
   return (
     <section className="glass alert-panel" aria-labelledby="alert-top-errors">
-      <h2 id="alert-top-errors" className="cap">
-        Most frequent errors since {formatClock(opened)}
-      </h2>
+      <div className="alert-name">
+        <h2 id="alert-top-errors" className="cap">
+          Most frequent errors since {formatClock(opened)}
+        </h2>
+        <HelpTip label="Most frequent errors">
+          The error messages the service logged most, from the window that opened the alert until it resolved, counted
+          by exact message. A message with a changing value in it, such as an order number, counts once per value.
+        </HelpTip>
+      </div>
       {alert.topErrors.length === 0 ? (
         <p className="fine">No error records in this period.</p>
       ) : (

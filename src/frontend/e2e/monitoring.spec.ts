@@ -9,7 +9,7 @@ async function scrollsSideways(page: Page): Promise<boolean> {
 
 test.describe("Database monitoring and agents", () => {
   test("shows each SQL Server with its state in words at every size", async ({ page }) => {
-    await answerApi(page, { view: "simple" });
+    await answerApi(page, { look: "forecast", view: "simple" });
     await page.goto("/settings?section=Databases");
 
     await expect(page.getByRole("heading", { name: "Database monitoring" })).toBeVisible();
@@ -23,7 +23,7 @@ test.describe("Database monitoring and agents", () => {
   });
 
   test("adds a SQL Server from the panel, keyboard and all, and follows the check", async ({ page }) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/settings?section=Databases");
 
     await page.getByRole("button", { name: "+ Add SQL Server" }).click();
@@ -44,7 +44,7 @@ test.describe("Database monitoring and agents", () => {
   });
 
   test("shows a PostgreSQL server and adds another, keyboard and all (VEY-33)", async ({ page }) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/settings?section=Databases");
 
     const main = page.getByRole("article", { name: "pg-main" });
@@ -73,7 +73,7 @@ test.describe("Database monitoring and agents", () => {
   });
 
   test("shows the built-in agent online", async ({ page }) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/settings?section=Agents");
 
     const agent = page.getByRole("article", { name: "Built-in agent" });
@@ -88,7 +88,7 @@ test.describe("Database monitoring and agents", () => {
   });
 
   test("adds an agent for another network and shows the line that installs it", async ({ page }) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/settings?section=Agents");
 
     await page.getByRole("button", { name: "Add an agent" }).click();

@@ -1,0 +1,1042 @@
+/*
+ * Console's integrations (VEY-78, reference screenshots 2 and 4, ADR 0028): the list, the wizard that adds a SQL
+ * Server, and the package page. Colours come from the tokens, so light and dark both apply.
+ */
+
+/* ---- The head ---- */
+
+.ig-icon {
+  width: 46px;
+  height: 46px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+
+.ig-head-text {
+  min-width: 0;
+  flex: 1 1 320px;
+}
+
+.ig-head-text h1 {
+  overflow-wrap: anywhere;
+}
+
+.ig-version {
+  font-size: 12px;
+}
+
+.ig-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 9px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ig-chips li {
+  padding: 3px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  color: var(--fg);
+  font-size: 12px;
+}
+
+.ig-status {
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.ig-status i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.ig .cn-head-actions .cn-button {
+  height: 34px;
+}
+
+/* ---- Cards ---- */
+
+.ig .cn-card > header .cn-icon,
+.ig .cn-card > header > svg {
+  flex: none;
+  color: var(--accent);
+}
+
+.ig .cn-card > footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 9px 14px;
+  border-top: 1px solid var(--line);
+  color: var(--faint);
+  font-size: 11.5px;
+}
+
+.ig-body {
+  display: grid;
+  gap: 12px;
+  padding: 12px 14px 14px;
+}
+
+.ig-text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.ig-subhead {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.ig-card-note {
+  margin: 0;
+  padding: 0 14px 12px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.ig-link,
+.ig-meta-link {
+  color: var(--accent);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.ig-link:hover,
+.ig-meta-link:hover {
+  text-decoration: underline;
+}
+
+.ig-ok {
+  color: var(--ok-fg);
+}
+
+.ig-empty {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+  padding-bottom: 14px;
+}
+
+.ig-empty .cn-button {
+  margin-left: 14px;
+}
+
+/* ---- The list ---- */
+
+.ig-table td {
+  vertical-align: middle;
+}
+
+.ig-failing td:first-child {
+  box-shadow: inset 2px 0 0 var(--error-fg);
+}
+
+.ig-behind {
+  color: var(--warning-fg);
+}
+
+/* ---- The wizard's steps ---- */
+
+.ig-steps ol {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin: 0;
+  padding: 12px 8px;
+  list-style: none;
+}
+
+.ig-steps button {
+  width: 100%;
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  padding: 4px 2px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ig-steps button:disabled {
+  cursor: default;
+}
+
+.ig-steps button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.ig-steps b {
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ig-step-number {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--cn-line-2);
+  border-radius: 50%;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ig-steps .on button {
+  color: var(--fg);
+}
+
+.ig-steps .on .ig-step-number {
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.ig-steps .done .ig-step-number {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+
+/* ---- The wizard's columns ---- */
+
+.ig-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  gap: 14px;
+  align-items: start;
+}
+
+.ig-main,
+.ig-side {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.ig-kv {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 14px;
+  font-size: 12.5px;
+}
+
+.ig-kv div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ig-kv dt {
+  color: var(--muted);
+}
+
+.ig-kv dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.ig-next {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 14px 14px 14px 34px;
+  font-size: 12.5px;
+}
+
+.ig-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.ig-buttons .cn-button,
+.ig-validate,
+.ig .cn-head-actions .cn-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.ig-buttons .cn-button {
+  height: 34px;
+}
+
+.ig-buttons a.cn-button {
+  line-height: 32px;
+}
+
+.ig-problems {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 10px 14px 10px 30px;
+  border: 1px solid color-mix(in srgb, var(--error-fg) 45%, transparent);
+  border-radius: 9px;
+  background: var(--error-bg);
+  color: var(--error-fg);
+  font-size: 12.5px;
+}
+
+/* ---- The connection's form ---- */
+
+.ig-form {
+  display: grid;
+  gap: 12px;
+  padding: 12px 14px 14px;
+}
+
+.ig-seg {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ig-seg button {
+  min-width: 0;
+  height: 36px;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--cn-line-2);
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ig-seg button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.ig-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.55fr);
+  gap: 10px;
+}
+
+.ig-field {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+}
+
+.ig-field > span:first-child {
+  color: var(--muted);
+}
+
+.ig-field small {
+  color: var(--faint);
+  font-size: 11.5px;
+}
+
+.ig-input,
+.ig-select {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 11px;
+  border: 1px solid var(--cn-line-2);
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+}
+
+/* A thin chevron drawn in the muted colour, as the mockups draw their selects, in both themes. */
+.ig-select {
+  appearance: none;
+  padding-right: 30px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 16px) 52%,
+    calc(100% - 11px) 52%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+.ig-input:focus-visible,
+.ig-select:focus-visible,
+.ig-seg button:focus-visible,
+.ig-check:focus-visible,
+.ig-icon-button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.ig-input:disabled,
+.ig-select:disabled {
+  opacity: 0.55;
+}
+
+.ig-password {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.ig-password .ig-input {
+  padding-right: 66px;
+  font-family: var(--mono);
+}
+
+.ig-password .ig-icon-button:first-of-type {
+  right: 34px;
+}
+
+.ig-password .ig-icon-button:last-of-type {
+  right: 6px;
+}
+
+.ig-password .ig-icon-button:only-of-type {
+  right: 6px;
+}
+
+.ig-icon-button {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.ig-icon-button:hover,
+.ig-icon-button[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+.ig-hint {
+  color: var(--accent);
+  font-size: 11.5px;
+  line-height: 1.5;
+  opacity: 0.85;
+}
+
+/* ---- A probe's answer ---- */
+
+.ig-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border: 1px solid var(--cn-line-2);
+  border-radius: 9px;
+  background: var(--panel-2);
+}
+
+.ig-banner > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.ig-banner b {
+  font-size: 13px;
+}
+
+.ig-banner small {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.ig-banner.ok {
+  border-color: color-mix(in srgb, var(--ok-fg) 55%, transparent);
+  background: color-mix(in srgb, var(--ok-fg) 9%, var(--panel));
+}
+
+.ig-banner.ok b,
+.ig-banner.ok .ig-banner-icon {
+  color: var(--ok-fg);
+}
+
+.ig-banner.bad {
+  border-color: color-mix(in srgb, var(--error-fg) 50%, transparent);
+  background: var(--error-bg);
+}
+
+.ig-banner.bad b,
+.ig-banner.bad .ig-banner-icon {
+  color: var(--error-fg);
+}
+
+.ig-banner-icon {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+}
+
+.ig-spinner {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: ig-spin 0.9s linear infinite;
+}
+
+@keyframes ig-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ig-spinner {
+    animation-duration: 3s;
+  }
+}
+
+/* ---- Modules ---- */
+
+.ig-modules {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ig-module {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+
+.ig-module-text {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.ig-module-text b {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ig-module-text small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ig-required {
+  display: block;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 400;
+}
+
+.ig-interval {
+  width: auto;
+  min-width: 112px;
+}
+
+.ig-check {
+  appearance: none;
+  position: relative;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  border: 1.5px solid var(--cn-line-2);
+  border-radius: 4px;
+  background: var(--panel-2);
+  cursor: pointer;
+}
+
+.ig-check:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.ig-check:checked::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 5px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--accent-fg, #04221c);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.ig-check:disabled {
+  cursor: default;
+}
+
+/* ---- Scripts, permissions, and validation lines ---- */
+
+.ig-script {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel-2);
+}
+
+.ig-script-tools {
+  display: flex;
+  justify-content: flex-end;
+  gap: 14px;
+  padding: 7px 12px 0;
+  font-size: 12px;
+}
+
+.ig-script pre {
+  max-height: 320px;
+  margin: 0;
+  padding: 8px 12px 12px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.ig-found {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+}
+
+p.ig-found {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ig-found.ok {
+  color: var(--ok-fg);
+}
+
+.ig-found.bad li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--error-fg);
+}
+
+.ig-lines {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.ig-lines li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+.ig-lines li > span:first-child {
+  font-weight: 700;
+  text-align: center;
+}
+
+.ig-lines .yes > span:first-child {
+  color: var(--ok-fg);
+}
+
+.ig-lines .no > span:first-child,
+.ig-lines .no {
+  color: var(--error-fg);
+}
+
+.ig-lines .open {
+  color: var(--muted);
+}
+
+/* ---- The package page ---- */
+
+.ig-row-three {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.ig-row-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  gap: 14px;
+}
+
+.ig-big-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+}
+
+.ig-big {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ig-big > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.ig-big b {
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.ig-big small {
+  color: var(--muted);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+.ig-big-mark {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+}
+
+.ig-big.ok b,
+.ig-big.ok .ig-big-mark {
+  color: var(--ok-fg);
+}
+
+.ig-big.bad b,
+.ig-big.bad .ig-big-mark {
+  color: var(--error-fg);
+}
+
+.ig-big.wait b,
+.ig-big.wait .ig-big-mark {
+  color: var(--info-fg);
+}
+
+.ig-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px 14px 14px;
+}
+
+.ig-tile {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+
+.ig-tile > svg {
+  color: var(--accent);
+}
+
+.ig-tile > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.ig-tile b {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ig-tile small {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.ig-tile-line {
+  width: 72px;
+  height: 22px;
+}
+
+.ig-checks {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 14px;
+  font-size: 12.5px;
+}
+
+.ig-checks div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ig-checks dt {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.ig-checks dt small {
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.ig-checks dt i {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  align-self: center;
+  border-radius: 50%;
+}
+
+.ig-checks dt i.ok {
+  background: var(--ok-fg);
+}
+
+.ig-checks dt i.bad {
+  background: var(--error-fg);
+}
+
+.ig-checks dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.ig-health {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  padding: 10px 12px 12px;
+}
+
+.ig-health > div {
+  min-width: 0;
+}
+
+.ig-actions {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+}
+
+.ig-actions .cn-button {
+  justify-self: stretch;
+  height: 34px;
+}
+
+.ig-actions .ig-rollback {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ig .ig-remove {
+  border-color: color-mix(in srgb, var(--error-fg) 55%, transparent);
+  color: var(--error-fg);
+}
+
+.ig .ig-remove:hover {
+  border-color: var(--error-fg);
+}
+
+.ig-todo {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 14px;
+  list-style: none;
+  font-size: 12.5px;
+}
+
+.ig-todo li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ig-todo a {
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.ig-todo a:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.ig-todo .done > span:last-child {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.ig-tick {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid var(--cn-line-2);
+  border-radius: 4px;
+  color: var(--accent-fg, #04221c);
+}
+
+.ig-todo .done .ig-tick {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.ig-foot-buttons {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.ig-phone-only {
+  display: none;
+}
+
+.ig-dialog {
+  width: min(440px, 100%);
+}
+
+.ig-dialog p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.ig-dialog-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ---- Narrower windows ---- */
+
+@media (max-width: 1279px) {
+  .ig-table .roomy {
+    display: none;
+  }
+}
+
+@media (max-width: 1179px) {
+  .ig-columns,
+  .ig-row-main {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 899px) {
+  .ig-row-three,
+  .ig-health {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 719px) {
+  .ig-row,
+  .ig-tiles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ig-steps ol {
+    padding: 10px 2px;
+  }
+
+  .ig-steps b {
+    font-size: 10.5px;
+  }
+
+  .ig-step-number {
+    width: 26px;
+    height: 26px;
+  }
+
+  .ig-interval {
+    min-width: 0;
+    max-width: 118px;
+  }
+
+  .ig-phone-only {
+    display: block;
+  }
+
+  .ig .cn-head-actions {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 420px) {
+  .ig-steps b {
+    font-size: 9.5px;
+    letter-spacing: -0.2px;
+  }
+}

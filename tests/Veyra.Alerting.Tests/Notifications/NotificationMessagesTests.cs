@@ -78,6 +78,41 @@ public class NotificationMessagesTests
     }
 
     [Fact]
+    public void ToJson_AlertInAnIncident_KeepsTheAlertLinkAndAddsTheIncident()
+    {
+        var incident = Guid.CreateVersion7();
+        var message = NotificationMessages.For(Event(AlertEventKind.Opened, 0.0624), Alert(), _site, (incident, 42));
+
+        using var json = JsonDocument.Parse(NotificationMessages.ToJson(message));
+        var root = json.RootElement;
+
+        Assert.Equal($"https://veyra.example.com/alerts/{Alert().Id}", root.GetProperty("alert").GetProperty("url").GetString());
+        var grouped = root.GetProperty("incident");
+        Assert.Equal(incident, grouped.GetProperty("id").GetGuid());
+        Assert.Equal("INC-42", grouped.GetProperty("key").GetString());
+        Assert.Equal($"https://veyra.example.com/incidents/{incident}", grouped.GetProperty("url").GetString());
+    }
+
+    [Fact]
+    public void ToEmailBody_AlertInAnIncident_LinksTheIncident()
+    {
+        var incident = Guid.CreateVersion7();
+        var message = NotificationMessages.For(Event(AlertEventKind.Opened, 0.0624), Alert(), _site, (incident, 42));
+
+        var body = NotificationMessages.ToEmailBody(message, "ops");
+
+        Assert.Contains($"Incident:     INC-42 https://veyra.example.com/incidents/{incident}\n", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ToJson_AlertInNoIncident_HasANullIncident()
+    {
+        var message = NotificationMessages.For(Event(AlertEventKind.Opened, 0.0624), Alert(), _site);
+
+        Assert.Contains("\"incident\":null", NotificationMessages.ToJson(message), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Test_HasNoAlertAndNamesTheChannel()
     {
         var message = NotificationMessages.Test("#ops-alerts");

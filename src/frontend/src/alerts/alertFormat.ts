@@ -2,6 +2,7 @@ import type { AlertDelivery, AlertDetails, AlertEvent, AlertSeverity } from "../
 import type { ShellScene } from "../app/shellContext";
 import { severityWord, formatRatio } from "../home/homeFormat";
 import { formatClock } from "../logs/format";
+import { localDay, shortDate } from "../time/zone";
 import {
   alertTitle,
   containerName,
@@ -111,7 +112,7 @@ export function headline(alert: AlertDetails): string {
  *
  * @param alert - The alert.
  * @param now - The current time, for the age of an open alert.
- * @returns For example `Open · warning · 36 min`.
+ * @returns For example `Open for 36 min · warning`: how long it has been open, so that it is not read as the measure.
  */
 export function stateLine(alert: AlertDetails, now: Date): string {
   const opened = new Date(alert.openedAt).getTime();
@@ -122,7 +123,20 @@ export function stateLine(alert: AlertDetails, now: Date): string {
     return `Resolved · was ${severityWord(alert.worst)} · lasted ${lasted}`;
   }
 
-  return `Open · ${severityWord(alert.severity)} · ${formatDuration(now.getTime() - opened)}`;
+  return `Open for ${formatDuration(now.getTime() - opened)} · ${severityWord(alert.severity)}`;
+}
+
+/**
+ * When something happened, for a sentence, with its day when that is not the day of the reference (VEY-60).
+ *
+ * @param instant - When it happened.
+ * @param reference - The day the reader thinks of, such as the alert's last check.
+ * @returns For example `at 07:12` on the same day, or `on Nov 17 at 03:05`.
+ */
+export function atMoment(instant: string, reference: string): string {
+  const clock = formatClock(instant);
+
+  return localDay(instant) === localDay(reference) ? `at ${clock}` : `on ${shortDate(instant)} at ${clock}`;
 }
 
 /**
@@ -132,17 +146,20 @@ export function stateLine(alert: AlertDetails, now: Date): string {
  * @returns One or two sentences.
  */
 export function alertStory(alert: AlertDetails): string {
-  const where = alert.environment ? ` in ${alert.environment}` : "";
+  const reference = alert.resolvedAt ?? alert.updatedAt;
+  const where = alert.environment ? ` in the ${alert.environment} environment` : "";
   const crossings = alert.events
     .filter((event) => event.kind === "Opened" || event.kind === "Escalated")
-    .map((event) => `${formatMeasure(alert.rule, thresholdOf(alert, event.severity))} at ${formatClock(event.at)}`);
+    .map(
+      (event) => `${formatMeasure(alert.rule, thresholdOf(alert, event.severity))} ${atMoment(event.at, reference)}`,
+    );
   const minutes = Math.round(alert.windowSeconds / 60);
-  const cleared = alert.resolvedAt ? formatClock(alert.resolvedAt) : null;
+  const cleared = alert.resolvedAt ? atMoment(alert.resolvedAt, alert.openedAt) : null;
 
   if (isCatalogRule(alert.rule)) {
-    const crossed = `It crossed ${crossings.join(" and ")}${where}.`;
+    const crossed = `It crossed ${crossings.join(" and ")}${where ? `,${where}` : ""}.`;
 
-    return cleared ? `${crossed} It cleared at ${cleared}.` : crossed;
+    return cleared ? `${crossed} It cleared ${cleared}.` : crossed;
   }
 
   switch (alert.rule) {
@@ -153,7 +170,7 @@ export function alertStory(alert: AlertDetails): string {
             ? "when the disk stopped filling"
             : "when the forecast moved past " + formatDays(alert.clearThreshold);
 
-        return `The disk came within ${crossings.join(" and within ")} of full at the pace of its last day. It cleared at ${cleared}, ${how}.`;
+        return `The disk came within ${crossings.join(" and within ")} of full at the pace of its last day. It cleared ${cleared}, ${how}.`;
       }
 
       const ratio = alert.disk?.ratio ?? null;
@@ -173,7 +190,7 @@ export function alertStory(alert: AlertDetails): string {
       const below = formatDiskShare(clearsBelow(alert));
 
       if (cleared) {
-        return `${rose} It cleared at ${cleared}, below ${below}.`;
+        return `${rose} It cleared ${cleared}, below ${below}.`;
       }
 
       return alert.severity === "Warning"
@@ -185,7 +202,7 @@ export function alertStory(alert: AlertDetails): string {
       const below = formatMeasure(alert.rule, clearsBelow(alert));
 
       return cleared
-        ? `${rose} It cleared at ${cleared}, below ${below}.`
+        ? `${rose} It cleared ${cleared}, below ${below}.`
         : `${rose} ${staysBelow(alert, (value) => formatMeasure(alert.rule, value), minutes)}`;
     }
     case "error-rate": {
@@ -193,14 +210,14 @@ export function alertStory(alert: AlertDetails): string {
       const below = formatRatio(clearsBelow(alert));
 
       return cleared
-        ? `${rose} It cleared at ${cleared}, below ${below}.`
+        ? `${rose} It cleared ${cleared}, below ${below}.`
         : `${rose} ${staysBelow(alert, formatRatio, minutes)}`;
     }
     case "container-restarts": {
       const rose = `The container${where} restarted ${crossings.join(", then ")} in ${minutes} minutes.`;
 
       return cleared
-        ? `${rose} It cleared at ${cleared}.`
+        ? `${rose} It cleared ${cleared}.`
         : `${rose} It clears after ${minutes} minutes without a restart.`;
     }
     case "container-memory": {
@@ -208,7 +225,7 @@ export function alertStory(alert: AlertDetails): string {
       const below = formatDiskShare(clearsBelow(alert));
 
       if (cleared) {
-        return `${rose} It cleared at ${cleared}, below ${below}.`;
+        return `${rose} It cleared ${cleared}, below ${below}.`;
       }
 
       return alert.severity === "Warning"
@@ -218,33 +235,29 @@ export function alertStory(alert: AlertDetails): string {
     case "db-blocking": {
       const rose = `Sessions${where} stayed blocked for ${minutes} minutes: ${crossings.join(", then ")}.`;
 
-      return cleared
-        ? `${rose} It cleared at ${cleared}.`
-        : `${rose} It clears after 5 minutes with no blocked session.`;
+      return cleared ? `${rose} It cleared ${cleared}.` : `${rose} It clears after 5 minutes with no blocked session.`;
     }
     case "db-deadlocks": {
       const rose = `The server${where} reached ${crossings.join(" and ")} in ${minutes} minutes.`;
 
-      return cleared ? `${rose} It cleared at ${cleared}.` : `${rose} It clears after 30 minutes without a deadlock.`;
+      return cleared ? `${rose} It cleared ${cleared}.` : `${rose} It clears after 30 minutes without a deadlock.`;
     }
     case "db-long-query": {
       const rose = `A query in ${alert.block.part ?? "the database"}${where} ran past ${crossings.join(" and past ")}.`;
 
       return cleared
-        ? `${rose} It cleared at ${cleared}.`
+        ? `${rose} It cleared ${cleared}.`
         : `${rose} It clears once no query has run that long for 5 minutes.`;
     }
     case "db-backup-age": {
       const rose = `${alert.block.part ?? "The database"}${where} went without a full backup past ${crossings.join(" and past ")}.`;
 
-      return cleared ? `${rose} A new backup cleared it at ${cleared}.` : `${rose} The next full backup clears it.`;
+      return cleared ? `${rose} A new backup cleared it ${cleared}.` : `${rose} The next full backup clears it.`;
     }
     case "db-agent-job": {
       const failed = `The last run of SQL Agent job ${alert.block.part ?? ""}${where} failed.`;
 
-      return cleared
-        ? `${failed} The next run succeeded at ${cleared}.`
-        : `${failed} The next successful run clears it.`;
+      return cleared ? `${failed} The next run succeeded ${cleared}.` : `${failed} The next successful run clears it.`;
     }
     case "db-connections":
     case "db-wraparound": {
@@ -255,7 +268,7 @@ export function alertStory(alert: AlertDetails): string {
       const below = formatDiskShare(clearsBelow(alert));
 
       if (cleared) {
-        return `${rose} It cleared at ${cleared}, below ${below}.`;
+        return `${rose} It cleared ${cleared}, below ${below}.`;
       }
 
       return alert.severity === "Warning"

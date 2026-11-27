@@ -124,6 +124,34 @@ public class ActivityRecordMapperTests
     }
 
     [Fact]
+    public void Map_BackupRow_IsARecordKeyedByItsBackupSetAndSampledWhenItFinished()
+    {
+        var row = Row(new Dictionary<string, string>
+        {
+            ["key"] = "48213",
+            ["database_name"] = "shop",
+            ["backup_type"] = "log",
+            ["started"] = "1795176000000",
+            ["bytes"] = "73400320",
+            ["compressed_bytes"] = "12582912",
+            ["copy_only"] = "0",
+        }) with
+        { Body = "/var/opt/mssql/backup/shop_log.trn" };
+        var columns = (Dictionary<string, string>)row.Attributes;
+        columns["veyra_record"] = "sqlserver.backup";
+
+        Assert.True(ActivityRecordMapper.IsActivity(row));
+
+        var record = Assert.IsType<ActivityRecord>(ActivityRecordMapper.Map(row));
+        Assert.Equal(("sqlserver.backup", "48213", _sample), (record.Kind, record.Key, record.SampledAt));
+        Assert.Equal(("shop", "log", "12582912"), (
+            record.Attributes["database_name"],
+            record.Attributes["backup_type"],
+            record.Attributes["compressed_bytes"]));
+        Assert.Equal("/var/opt/mssql/backup/shop_log.trn", record.Body);
+    }
+
+    [Fact]
     public void IsActivity_RecordWithoutAKnownKind_StaysALogRecord()
     {
         Assert.True(ActivityRecordMapper.IsActivity(Row([])));

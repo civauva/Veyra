@@ -28,7 +28,10 @@ interface LineChartProps {
   title: string;
   /** The top of the scale; the highest value when left out. */
   max?: number;
-  /** The chart's height in pixels. Defaults to 170. */
+  /**
+   * The least height of the plot in pixels, 170 when left out. Where its tile is taller, as beside a taller tile in the
+   * same row, the plot grows to fill it.
+   */
   height?: number;
 }
 
@@ -38,16 +41,23 @@ const top = 8;
 const axis = 20;
 
 /**
- * Lines over time with a value axis, a time axis, and a legend with each line's latest value. It follows the width of
- * its panel, so labels stay readable on a phone. Gaps without data stay gaps instead of dropping to zero.
+ * Lines over time with a value axis, a time axis, and a legend with each line's latest value. It follows the width and
+ * the height of its tile, so labels stay readable on a phone and the plot fills a tall tile; the labels stay inside the
+ * plot's box. Gaps without data stay gaps instead of dropping to zero, and a range without data says so.
  */
-export function LineChart({ series, format, title, max, height = 170 }: LineChartProps) {
-  const box = useRef<HTMLDivElement>(null);
-  const width = useWidth(box);
+export function LineChart({ series, format, title, max, height: least = 170 }: LineChartProps) {
+  const plot = useRef<HTMLDivElement>(null);
+  const size = useSize(plot);
+  const width = size.width;
+  const height = Math.max(least, size.height);
   const gradient = useId();
   const points = series[0]?.line.points ?? [];
-  const highest = Math.max(1e-9, ...series.flatMap((one) => one.line.points.map((point) => point.value ?? 0)));
-  const scaleTop = max ?? niceTop(highest * 1.1);
+  const values = series.flatMap((one) =>
+    one.line.points.flatMap((point) => (point.value === null ? [] : [point.value])),
+  );
+  const highest = Math.max(0, ...values);
+  const scaleTop = max ?? (highest > 0 ? niceTop(highest * 1.1) : 1);
+  const labelled = valueLabels(scaleTop, format, max === undefined && highest === 0);
   const plotBottom = height - axis;
   const plotRight = width - right;
   const x = (index: number) => left + (points.length > 1 ? (index / (points.length - 1)) * (plotRight - left) : 0);
@@ -58,53 +68,62 @@ export function LineChart({ series, format, title, max, height = 170 }: LineChar
     .join(", ")}.`;
 
   return (
-    <div className="line-chart" ref={box}>
-      <svg width={width} height={height} role="img" aria-label={summary}>
-        <defs>
-          <linearGradient id={gradient} x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0" stopColor="currentColor" stopOpacity="0.25" />
-            <stop offset="1" stopColor="currentColor" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        {[0, 0.25, 0.5, 0.75, 1].map((share) => (
-          <g key={share}>
-            <line className="chart-grid" x1={left} x2={plotRight} y1={y(scaleTop * share)} y2={y(scaleTop * share)} />
-            {share % 0.5 === 0 && (
-              <text className="chart-axis" x={left - 6} y={y(scaleTop * share) + 4} textAnchor="end">
-                {share === 0 ? "0" : format(scaleTop * share)}
-              </text>
-            )}
-          </g>
-        ))}
-        {series.map((one, index) => {
-          const path = linePath(one.line, x, y);
-
-          return (
-            <g key={`${one.line.label}-${index}`} style={{ color: one.color }}>
-              {one.filled && path && <path d={areaPath(one.line, x, y, plotBottom)} fill={`url(#${gradient})`} />}
-              {path && (
-                <path
-                  d={path}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={one.dashed ? 1.5 : 2}
-                  strokeDasharray={one.dashed ? "5 4" : undefined}
-                  strokeLinejoin="round"
-                />
+    <div className="line-chart">
+      <div className="line-chart-plot" ref={plot} style={{ minHeight: least }}>
+        <svg width={width} height={height} role="img" aria-label={summary}>
+          <defs>
+            <linearGradient id={gradient} x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0" stopColor="currentColor" stopOpacity="0.25" />
+              <stop offset="1" stopColor="currentColor" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          {[0, 0.25, 0.5, 0.75, 1].map((share) => (
+            <g key={share}>
+              <line className="chart-grid" x1={left} x2={plotRight} y1={y(scaleTop * share)} y2={y(scaleTop * share)} />
+              {labelled.has(share) && (
+                <text className="chart-axis value" x={left - 6} y={y(scaleTop * share) + 4} textAnchor="end">
+                  {share === 0 ? "0" : format(scaleTop * share)}
+                </text>
               )}
             </g>
-          );
-        })}
-        {ticks.map((index) => {
-          const point = points[index];
+          ))}
+          {series.map((one, index) => {
+            const path = linePath(one.line, x, y);
 
-          return point ? (
-            <text key={index} className="chart-axis" x={x(index)} y={height - 4} textAnchor="middle">
-              {label(point.at, points)}
-            </text>
-          ) : null;
-        })}
-      </svg>
+            return (
+              <g key={`${one.line.label}-${index}`} style={{ color: one.color }}>
+                {one.filled && path && <path d={areaPath(one.line, x, y, plotBottom)} fill={`url(#${gradient})`} />}
+                {path && (
+                  <path
+                    d={path}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={one.dashed ? 1.5 : 2}
+                    strokeDasharray={one.dashed ? "5 4" : undefined}
+                    strokeLinejoin="round"
+                  />
+                )}
+              </g>
+            );
+          })}
+          {ticks.map((index, place) => {
+            const point = points[index];
+
+            return point ? (
+              <text
+                key={index}
+                className="chart-axis time"
+                x={x(index)}
+                y={height - 4}
+                textAnchor={place === 0 ? "start" : place === ticks.length - 1 ? "end" : "middle"}
+              >
+                {label(point.at, points)}
+              </text>
+            ) : null;
+          })}
+        </svg>
+        {values.length === 0 && <p className="chart-empty">No data in this range</p>}
+      </div>
       <ul className="chart-legend">
         {series.map((one, index) => (
           <li key={`${one.line.label}-${index}`}>
@@ -117,9 +136,13 @@ export function LineChart({ series, format, title, max, height = 170 }: LineChar
   );
 }
 
-/** The width of an element, following it as it resizes. Falls back to a desktop width where nothing is measured. */
-function useWidth(element: RefObject<HTMLDivElement | null>): number {
-  const [width, setWidth] = useState(600);
+/**
+ * The size of the plot's box, following it as it resizes. The drawing sits on top of the box rather than in its flow,
+ * so the box takes its size from the tile alone and drawing at that size never grows it. Falls back to a desktop width
+ * and no extra height where nothing is measured.
+ */
+function useSize(element: RefObject<HTMLDivElement | null>): { width: number; height: number } {
+  const [size, setSize] = useState({ width: 600, height: 0 });
 
   useEffect(() => {
     const target = element.current;
@@ -130,7 +153,7 @@ function useWidth(element: RefObject<HTMLDivElement | null>): number {
 
     const observer = new ResizeObserver(([entry]) => {
       if (entry && entry.contentRect.width > 0) {
-        setWidth(Math.round(entry.contentRect.width));
+        setSize({ width: Math.round(entry.contentRect.width), height: Math.floor(entry.contentRect.height) });
       }
     });
     observer.observe(target);
@@ -138,7 +161,33 @@ function useWidth(element: RefObject<HTMLDivElement | null>): number {
     return () => observer.disconnect();
   }, [element]);
 
-  return width;
+  return size;
+}
+
+/**
+ * The shares of the scale that carry a value label: the bottom, the middle, and the top, leaving out any that would
+ * read the same as one below it, as small counts rounded by the format would. A chart without values labels only the
+ * zero, since any other figure would be made up.
+ */
+function valueLabels(top: number, format: (value: number) => string, empty: boolean): Set<number> {
+  const shown = new Set<number>([0]);
+
+  if (empty) {
+    return shown;
+  }
+
+  const words = new Set<string>(["0"]);
+
+  for (const share of [0.5, 1]) {
+    const word = format(top * share);
+
+    if (!words.has(word)) {
+      shown.add(share);
+      words.add(word);
+    }
+  }
+
+  return shown;
 }
 
 /** A round number above the highest value, so the top label reads well. */

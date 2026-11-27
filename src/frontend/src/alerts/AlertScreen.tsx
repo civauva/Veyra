@@ -1,13 +1,16 @@
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
 
 import type { AlertDetails } from "../api/types";
+import { ScreenBar } from "../ui/ScreenBar";
 import { useShell } from "../app/shellContext";
 import { formatBytes, severityWord } from "../home/homeFormat";
 import { WeatherIcon } from "../home/WeatherIcon";
 import { formatClock, formatCount } from "../logs/format";
 import { defaultFilters, filtersToUrl, type TimeRange } from "../logs/logFilters";
-import { alertScene, alertStory, formatDuration, headline, isErrorRate, stateLine } from "./alertFormat";
+import { HelpTip } from "../ui/HelpTip";
+import { alertScene, alertStory, atMoment, formatDuration, headline, isErrorRate, stateLine } from "./alertFormat";
+import { AlertGuidance } from "./AlertGuidance";
 import { AlertTimeline } from "./AlertTimeline";
 import { DiskChart } from "./DiskChart";
 import { ErrorRateChart } from "./ErrorRateChart";
@@ -20,8 +23,12 @@ import {
   formatDiskShare,
   formatMeasure,
   formatThreshold,
+  ruleMeasures,
+  ruleName,
+  ruleSentence,
   serverName,
 } from "./ruleWords";
+import { ServerErrors } from "./ServerErrors";
 import { SlowRoutes } from "./SlowRoutes";
 import { TopErrors } from "./TopErrors";
 import { useAlertDetails } from "./useAlertDetails";
@@ -29,7 +36,7 @@ import { localDay, shortDate, zoneLabel } from "../time/zone";
 import { defaultTraceFilters, filtersToSearch, type TraceShow } from "../traces/traceFilters";
 import "../home/home.css";
 import "./alert.css";
-import { useViewMode, ViewToggle } from "../app/ViewToggle";
+import { useViewMode } from "../ui/ViewToggle";
 
 /** Where the rest of an alert is in the Simple view. */
 const advancedNote =
@@ -63,10 +70,8 @@ export function AlertScreen() {
   if (!alert) {
     return (
       <main className="home alert-screen">
+        <ScreenBar trail={[{ label: "Alerts", to: "/alerts" }, { label: "Alert" }]} view />
         <div className="alert-page">
-          <Link className="alert-back" to="/alerts">
-            ← Alerts
-          </Link>
           {notFound ? (
             <p className="home-message">
               There is no such alert. Resolved alerts are kept for 90 days, so it may have been older than that.
@@ -85,11 +90,8 @@ export function AlertScreen() {
 
   return (
     <main className="home alert-screen">
+      <ScreenBar trail={[{ label: "Alerts", to: "/alerts" }, { label: ruleName(alert.rule) }]} view />
       <div className="alert-page">
-        <Link className="alert-back" to="/alerts">
-          ← Alerts
-        </Link>
-        <ViewToggle className="alert-view-toggle" />
         {error && (
           <p className="home-stale" role="alert">
             Could not refresh: {error}. Showing the alert as of {formatClock(alert.updatedAt)}{" "}
@@ -98,6 +100,8 @@ export function AlertScreen() {
         )}
         <AlertHero alert={alert} />
         <AlertFacts alert={alert} />
+        <AlertGuidance alert={alert} />
+        {alert.serverErrors && <ServerErrors alert={alert} errors={alert.serverErrors} />}
         <AlertChart alert={alert} />
         {mode === "advanced" ? (
           <div className="alert-lower">
@@ -234,19 +238,20 @@ function tracesOf(alert: AlertDetails, show: TraceShow): string {
 
 /** Five numbers: now, the rule's own figure, the threshold, how long, and who was told. */
 function AlertFacts({ alert }: { alert: AlertDetails }) {
-  const told = [
-    ...new Map(
-      alert.events.flatMap((event) => event.deliveries).map((delivery) => [delivery.channelId, delivery.channelName]),
-    ).values(),
-  ];
+  // The server lists each channel told once (VEY-68).
+  const told = alert.told.map((channel) => channel.name);
   const other = alert.severity === "Warning" ? "caution" : "warning";
   const otherThreshold = alert.severity === "Warning" ? alert.cautionThreshold : alert.warningThreshold;
+  const clears = `${alert.lowerIsWorse ? "rises back above" : "falls back below"} ${formatMeasure(alert.rule, alert.clearThreshold)}`;
 
   return (
     <dl className="alert-facts">
       <FirstFacts alert={alert} />
       <div className="glass fact">
-        <dt className="cap">Threshold</dt>
+        <FactName name="Threshold">
+          {ruleSentence(alert.rule, alert.severity, alert.threshold, alert.windowSeconds)} Admins change the levels on
+          the Settings screen.
+        </FactName>
         <dd className="fact-value">
           {formatMeasure(alert.rule, alert.threshold)} <small>{severityWord(alert.severity)}</small>
         </dd>
@@ -256,7 +261,14 @@ function AlertFacts({ alert }: { alert: AlertDetails }) {
         </dd>
       </div>
       <div className="glass fact">
-        <dt className="cap">{alert.resolvedAt ? "Lasted" : "Since"}</dt>
+        {alert.resolvedAt ? (
+          <FactName name="Lasted">How long the alert was open, from when it opened to when it resolved.</FactName>
+        ) : (
+          <FactName name="Since">
+            When the alert opened, on the day under it, in your time zone. It resolves by itself once the measure{" "}
+            {clears}.
+          </FactName>
+        )}
         <dd className="fact-value">
           {alert.resolvedAt
             ? formatDuration(new Date(alert.resolvedAt).getTime() - new Date(alert.openedAt).getTime())
@@ -269,7 +281,10 @@ function AlertFacts({ alert }: { alert: AlertDetails }) {
         </dd>
       </div>
       <div className="glass fact">
-        <dt className="cap">Notified</dt>
+        <FactName name="Notified">
+          How many notification channels were sent this alert, and which. Admins add channels, such as email or a
+          webhook, on the Notifications screen.
+        </FactName>
         <dd className="fact-value">{told.length}</dd>
         <dd className="fact-note">{told.length === 0 ? "no channel" : told.join(", ")}</dd>
       </div>
@@ -282,9 +297,12 @@ function FirstFacts({ alert }: { alert: AlertDetails }) {
   const minutes = Math.round(alert.windowSeconds / 60);
   const peak = (
     <div className="glass fact">
-      <dt className="cap">Peak</dt>
+      <FactName name="Peak">
+        The worst the measure has been while the alert was open{alert.lowerIsWorse ? ", here its lowest" : ""}, and when
+        it was measured.
+      </FactName>
       <dd className="fact-value">{formatMeasure(alert.rule, alert.peak)}</dd>
-      <dd className="fact-note">{alert.peakAt ? `at ${formatClock(alert.peakAt)}` : "time not recorded"}</dd>
+      <dd className="fact-note">{alert.peakAt ? atMoment(alert.peakAt, alert.updatedAt) : "time not recorded"}</dd>
     </div>
   );
 
@@ -298,7 +316,7 @@ function FirstFacts({ alert }: { alert: AlertDetails }) {
     return (
       <>
         <div className="glass fact">
-          <dt className="cap">Full in</dt>
+          <FactName name="Full in">When the disk is full if it keeps filling at the pace of its last day.</FactName>
           <dd className="fact-value">{disk.daysUntilFull === null ? "not filling" : formatDays(disk.daysUntilFull)}</dd>
           <dd className="fact-note">
             {disk.daysUntilFull === null
@@ -307,7 +325,9 @@ function FirstFacts({ alert }: { alert: AlertDetails }) {
           </dd>
         </div>
         <div className="glass fact">
-          <dt className="cap">In use</dt>
+          <FactName name="In use">
+            How much of the disk is in use now, of its size, and by how many percentage points a day it grows.
+          </FactName>
           <dd className="fact-value">{disk.ratio === null ? "—" : formatDiskShare(disk.ratio)}</dd>
           <dd className="fact-note">
             {disk.usedBytes !== null && disk.totalBytes !== null
@@ -326,7 +346,7 @@ function FirstFacts({ alert }: { alert: AlertDetails }) {
     return (
       <>
         <div className="glass fact">
-          <dt className="cap">{alert.resolvedAt ? "At the end" : "Now"}</dt>
+          <NowName alert={alert} />
           <dd className="fact-value">{formatMeasure(alert.rule, alert.value)}</dd>
           <dd className="fact-note">
             p95 over the last {minutes} min{last ? ` · ${formatCount(last.requests)} requests a minute` : ""}
@@ -342,16 +362,42 @@ function FirstFacts({ alert }: { alert: AlertDetails }) {
   return (
     <>
       <div className="glass fact">
-        <dt className="cap">{alert.resolvedAt ? "At the end" : "Now"}</dt>
+        <NowName alert={alert} />
         <dd className="fact-value">{formatMeasure(alert.rule, alert.value)}</dd>
         <dd className="fact-note">
           {last && last.windowTotal > 0
             ? `${formatCount(last.windowErrors)} of ${formatCount(last.windowTotal)} records, last ${minutes} min`
-            : `Over the last ${minutes} min`}
+            : minutes > 0
+              ? `Over the last ${minutes} min`
+              : `last checked ${atMoment(alert.updatedAt, alert.updatedAt)}`}
         </dd>
       </div>
       {peak}
     </>
+  );
+}
+
+/** The name of a fact, with a question mark that explains it (VEY-60). */
+function FactName({ name, children }: { name: string; children: ReactNode }) {
+  return (
+    <dt className="fact-name">
+      <span className="cap">{name}</span>
+      <HelpTip label={name}>{children}</HelpTip>
+    </dt>
+  );
+}
+
+/** The name of the first fact, the rule's measure now or at the end, and what that measure is. */
+function NowName({ alert }: { alert: AlertDetails }) {
+  const measures = ruleMeasures(alert.rule, alert.windowSeconds);
+
+  return (
+    <FactName name={alert.resolvedAt ? "At the end" : "Now"}>
+      {alert.resolvedAt
+        ? "The last value the rule measured before the alert resolved."
+        : "The value the rule measured at its last check."}{" "}
+      It measures: {measures.endsWith(".") ? measures : `${measures}.`}
+    </FactName>
   );
 }
 
@@ -361,9 +407,15 @@ function AlertChart({ alert }: { alert: AlertDetails }) {
     return (
       <section className="glass alert-chart" aria-labelledby="alert-chart">
         <div className="alert-chart-head">
-          <h2 id="alert-chart" className="cap">
-            Disk {alert.disk.mountpoint} in use · the week before and the forecast
-          </h2>
+          <div className="alert-name">
+            <h2 id="alert-chart" className="cap">
+              Disk {alert.disk.mountpoint} in use · the week before and the forecast
+            </h2>
+            <HelpTip label="Disk in use">
+              The disk&apos;s share in use, from a week before the alert opened to a day after it resolved, or to now.
+              The forecast runs on from now at the pace of the last day, to the day the disk is full.
+            </HelpTip>
+          </div>
           <ul className="alert-legend" aria-hidden="true">
             <li className="legend-disk">in use</li>
             <li className="legend-forecast">forecast</li>
@@ -379,10 +431,17 @@ function AlertChart({ alert }: { alert: AlertDetails }) {
     return (
       <section className="glass alert-chart" aria-labelledby="alert-chart">
         <div className="alert-chart-head">
-          <h2 id="alert-chart" className="cap">
-            {alert.block.name} · request duration, per{" "}
-            {alert.latency.bucketSeconds === 60 ? "minute" : `${alert.latency.bucketSeconds / 60} min`}
-          </h2>
+          <div className="alert-name">
+            <h2 id="alert-chart" className="cap">
+              {alert.block.name} · request duration, per{" "}
+              {alert.latency.bucketSeconds === 60 ? "minute" : `${alert.latency.bucketSeconds / 60} min`}
+            </h2>
+            <HelpTip label="Request duration">
+              How long the service took to answer HTTP requests: the median (p50) and the 95th percentile (p95), with
+              its requests below, from 30 minutes before the alert opened to 10 minutes after it resolved, or to now.
+              The rule judges the p95 against the dashed caution and warning lines.
+            </HelpTip>
+          </div>
           <ul className="chart-legend" aria-hidden="true">
             <li className="legend-p95">p95</li>
             <li className="legend-p50">p50</li>
@@ -403,10 +462,18 @@ function AlertChart({ alert }: { alert: AlertDetails }) {
   return (
     <section className="glass alert-chart" aria-labelledby="alert-chart">
       <div className="alert-chart-head">
-        <h2 id="alert-chart" className="cap">
-          Error rate · {Math.round(alert.windowSeconds / 60)}-minute window, per{" "}
-          {alert.series.bucketSeconds === 60 ? "minute" : `${alert.series.bucketSeconds / 60} min`}
-        </h2>
+        <div className="alert-name">
+          <h2 id="alert-chart" className="cap">
+            Error rate · {Math.round(alert.windowSeconds / 60)}-minute window, per{" "}
+            {alert.series.bucketSeconds === 60 ? "minute" : `${alert.series.bucketSeconds / 60} min`}
+          </h2>
+          <HelpTip label="Error rate">
+            The share of the service&apos;s log records at Error or worse over the rule&apos;s{" "}
+            {Math.round(alert.windowSeconds / 60)}-minute window, as the rule measured it, with its records below. It
+            runs from 30 minutes before the alert opened to 10 minutes after it resolved, or to now; the dashed lines
+            are the caution and warning thresholds.
+          </HelpTip>
+        </div>
         <ul className="chart-legend" aria-hidden="true">
           <li className="legend-rate">error rate</li>
           <li className="legend-warning">warning {formatMeasure(alert.rule, alert.warningThreshold)}</li>

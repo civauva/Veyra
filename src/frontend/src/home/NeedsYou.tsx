@@ -11,6 +11,7 @@ import {
   subjectLabel,
 } from "../alerts/ruleWords";
 import type { HomeAlert, HomeSnapshot } from "../api/types";
+import { HelpTip } from "../ui/HelpTip";
 import { formatClock } from "../logs/format";
 import { defaultFilters, filtersToUrl } from "../logs/logFilters";
 import { formatAge } from "./homeFormat";
@@ -52,6 +53,10 @@ export function NeedsYou({ snapshot, selectedId, onSelect, now }: NeedsYouProps)
         <h2 id={headingId} className="cap">
           Needs you
         </h2>
+        <HelpTip label="Needs you">
+          Every open alert, warnings first and then the oldest, each with its latest figure and how long it has been
+          open. Choose one for the steps that help with it. Resolved alerts are in the alert history.
+        </HelpTip>
       </div>
 
       {alerts.length === 0 ? (

@@ -29,6 +29,11 @@ public sealed class DatabaseLiveController : ControllerBase
     /// <param name="engine">The engine, such as <c>microsoft.sql_server</c>.</param>
     /// <param name="server">The server's name.</param>
     /// <param name="at">An ISO 8601 moment to look back at; omitted for now.</param>
+    /// <param name="database">Lists only the sessions that use this database.</param>
+    /// <param name="program">Lists only the sessions of this program.</param>
+    /// <param name="host">Lists only the sessions from this machine.</param>
+    /// <param name="login">Lists only the sessions of this login.</param>
+    /// <param name="wait">Lists only the sessions whose request waits on this wait type.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The tab; 404 when the server sent nothing; 400 for a moment that is not a time.</returns>
     [HttpGet("live")]
@@ -39,6 +44,11 @@ public sealed class DatabaseLiveController : ControllerBase
         string engine,
         string server,
         [FromQuery] string? at,
+        [FromQuery] string? database,
+        [FromQuery] string? program,
+        [FromQuery] string? host,
+        [FromQuery] string? login,
+        [FromQuery] string? wait,
         CancellationToken cancellationToken)
     {
         DateTimeOffset? moment = null;
@@ -59,6 +69,10 @@ public sealed class DatabaseLiveController : ControllerBase
             moment = parsed;
         }
 
-        return await _live.LiveAsync(engine, server, moment, cancellationToken) is { } view ? Ok(view) : NotFound();
+        var filter = new LiveFilter(database, program, host, login, wait);
+
+        return await _live.LiveAsync(engine, server, moment, filter, cancellationToken) is { } view
+            ? Ok(view)
+            : NotFound();
     }
 }

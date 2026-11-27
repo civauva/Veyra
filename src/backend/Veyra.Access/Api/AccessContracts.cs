@@ -29,7 +29,26 @@ public sealed record SignInRequest([Required] string Email, [Required] string Pa
 /// <param name="DisplayName">The name shown in the UI.</param>
 /// <param name="Role">What the user may do.</param>
 /// <param name="TimeZone">The IANA time zone the user picked, or <see langword="null"/> for the browser's.</param>
-public sealed record SessionResponse(Guid Id, string Email, string DisplayName, VeyraRole Role, string? TimeZone);
+/// <param name="Look">The look the user picked, the default look, and whether people may pick (ADR 0021).</param>
+public sealed record SessionResponse(
+    Guid Id,
+    string Email,
+    string DisplayName,
+    VeyraRole Role,
+    string? TimeZone,
+    LookResponse Look);
+
+/// <summary>
+/// The look of the web app for the signed-in user (ADR 0021). The app shows <paramref name="Chosen"/> when
+/// <paramref name="MayChoose"/> is true and a look is chosen, and <paramref name="Default"/> otherwise.
+/// </summary>
+/// <param name="Chosen">
+/// The look the user picked, such as <c>console</c>, or <see langword="null"/>. It stays saved while an Admin has set
+/// one look for everyone, so it comes back when choosing is on again.
+/// </param>
+/// <param name="Default">The look for everyone who has not picked one, set by an Admin.</param>
+/// <param name="MayChoose">Whether people may pick their own look.</param>
+public sealed record LookResponse(string? Chosen, string Default, bool MayChoose);
 
 /// <summary>The token to send in the antiforgery header on requests that change state.</summary>
 /// <param name="Token">The request token. Fetch a new one after signing in.</param>

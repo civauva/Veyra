@@ -1,4 +1,5 @@
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -28,6 +29,7 @@ const viewer = {
   displayName: "Dana Kim",
   role: "Viewer" as const,
   timeZone: null,
+  look: { chosen: null, default: "forecast", mayChoose: true },
 };
 
 function renderAt(path: string) {
@@ -54,7 +56,7 @@ describe("AlertScreen for a disk alert", () => {
     renderAt(`/alerts/${openDiskFilling.id}`);
 
     expect(await screen.findByRole("heading", { level: 1, name: "Disk / on web-01 is full in 9 days" })).toBeVisible();
-    expect(screen.getByText("Open · caution · 4 h 14 min")).toBeVisible();
+    expect(screen.getByText("Open for 4 h 14 min · caution")).toBeVisible();
     expect(screen.getByText(/grows 1.5 points a day and is 86% used now/)).toBeVisible();
     expect(screen.getByText(/clears once the forecast is beyond 21 days/)).toBeVisible();
   });
@@ -65,8 +67,8 @@ describe("AlertScreen for a disk alert", () => {
     renderAt(`/alerts/${openDiskFilling.id}`);
 
     const facts = await screen.findByText("Full in");
-    expect(facts.parentElement).toHaveTextContent("9 days");
-    expect(screen.getByText("In use").parentElement).toHaveTextContent("86%");
+    expect(facts.closest(".fact")).toHaveTextContent("9 days");
+    expect(screen.getByText("In use").closest(".fact")).toHaveTextContent("86%");
     expect(screen.getByRole("img", { name: /full on Nov 19 at the pace of the last day/ })).toBeInTheDocument();
     const disks = screen.getByRole("region", { name: "Disks of web-01" });
     expect(
@@ -79,6 +81,18 @@ describe("AlertScreen for a disk alert", () => {
       "/metrics/hosts/web-01",
     );
     expect(screen.queryByRole("region", { name: /Most frequent errors/ })).not.toBeInTheDocument();
+  });
+
+  it("explains the disk chart and the host's disks behind their question marks", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.alert).mockResolvedValue(openDiskFilling);
+
+    renderAt(`/alerts/${openDiskFilling.id}`);
+
+    expect(await screen.findByRole("button", { name: "What Disk in use means" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Disks of web-01" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "What Disks of web-01 means" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/every disk of the host/i);
   });
 });
 
@@ -93,7 +107,7 @@ describe("AlertScreen for a latency alert", () => {
     expect(
       screen.getByText(/went above 1 s at 21:40 and above 3 s at 21:47\. It cleared at 22:05, below 800 ms/),
     ).toBeVisible();
-    expect(screen.getByText("Peak").parentElement).toHaveTextContent("3.4 s");
+    expect(screen.getByText("Peak").closest(".fact")).toHaveTextContent("3.4 s");
     const routes = screen.getByRole("table");
     expect(
       within(routes)
@@ -106,5 +120,16 @@ describe("AlertScreen for a latency alert", () => {
       "/metrics/services/checkout-web",
     );
     expect(screen.getByRole("img", { name: /Request durations of checkout-web/ })).toBeInTheDocument();
+  });
+
+  it("explains the request durations and the slowest routes behind their question marks", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.alert).mockResolvedValue(resolvedLatency);
+
+    renderAt(`/alerts/${resolvedLatency.id}`);
+
+    expect(await screen.findByRole("button", { name: "What Request duration means" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "What Slowest routes means" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/slowest first/i);
   });
 });

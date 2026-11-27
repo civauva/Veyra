@@ -15,8 +15,28 @@ async function scrollsSideways(page: Page): Promise<boolean> {
 }
 
 test.describe("Metrics", () => {
+  test("asks the server for the cards of the search and the environment", async ({ page }) => {
+    // The server keeps the cards that match before it reads them (VEY-67), so each choice must reach it.
+    await answerApi(page, { look: "forecast" });
+    const asked = (name: string, value: string) =>
+      page.waitForRequest((request) => {
+        const url = new URL(request.url());
+
+        return url.pathname === "/api/v1/metrics/overview" && url.searchParams.get(name) === value;
+      });
+
+    const environment = asked("environment", "production");
+    await page.goto("/metrics");
+    await environment;
+
+    const search = asked("search", "web");
+    await page.getByRole("searchbox", { name: "Find a host or service" }).fill("web");
+    await search;
+    await expect(page).toHaveURL(/search=web/);
+  });
+
   test("lays the host cards out for the screen size", async ({ page }, testInfo) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/metrics");
 
     const hosts = page.getByRole("region", { name: "Hosts" }).getByRole("article");
@@ -39,7 +59,7 @@ test.describe("Metrics", () => {
   });
 
   test("opens a host and draws its charts at every size", async ({ page }) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/metrics");
 
     await page.getByRole("link", { name: /^web-01/ }).click();
@@ -56,7 +76,7 @@ test.describe("Metrics", () => {
   });
 
   test("leads from a container card to its row on its host, at every size", async ({ page }) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/metrics");
 
     const containers = page.getByRole("region", { name: "Containers" });
@@ -75,7 +95,7 @@ test.describe("Metrics", () => {
   });
 
   test("opens a service and its routes", async ({ page }) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/metrics/services/payments-gateway?environment=production");
 
     await expect(page.getByRole("heading", { level: 1, name: "payments-gateway" })).toBeVisible();
@@ -85,7 +105,7 @@ test.describe("Metrics", () => {
 
   test("charts a metric from the browser with the keyboard", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name === "phone", "Phones have no keyboard to tab with.");
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/metrics?tab=all");
 
     const metric = page.getByRole("button", { name: /http.server.request.duration/ });
@@ -98,7 +118,7 @@ test.describe("Metrics", () => {
 
   test("keeps the cards readable in the dark theme", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "dark" });
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/metrics");
 
     const card = page.getByRole("article", { name: "web-01" });
@@ -113,4 +133,24 @@ test.describe("Metrics", () => {
     expect(background).toBe("rgba(16, 24, 51, 0.78)");
     expect(ring).toBe("rgb(255, 197, 85)");
   });
+});
+
+test.describe("Wide windows", () => {
+  for (const [name, path] of [
+    ["the Metrics overview", "/metrics"],
+    ["a database server", "/metrics/databases/microsoft.sql_server/sql-prod-01?tab=waits"],
+    ["Notifications", "/notifications"],
+  ] as const) {
+    test(`scrolls ${name} at the window's edge, its content in the middle`, async ({ page }, testInfo) => {
+      test.skip(testInfo.project.name !== "desktop", "Only a wide window has room beside the content.");
+      await page.setViewportSize({ width: 2000, height: 900 });
+      await answerApi(page, { look: "forecast" });
+      await page.goto(path);
+
+      const area = page.locator("main").first();
+      await expect(area).toBeVisible();
+      const box = await area.boundingBox();
+      expect((box?.x ?? 0) + (box?.width ?? 0)).toBeGreaterThan(1995);
+    });
+  }
 });

@@ -5,7 +5,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Veyra.Core;
+using Veyra.Core.Agents;
 using Veyra.Core.Settings;
+using Veyra.Core.Telemetry;
 using Veyra.Ingestion.Otlp;
 using Veyra.Ingestion.Pipeline;
 using Veyra.Ingestion.Settings;
@@ -40,6 +42,13 @@ public static class IngestionServiceCollectionExtensions
         services.AddSingleton<IModuleSettings, IngestionSettings>();
 
         services.TryAddSingleton(TimeProvider.System);
+
+        // The writers tell the live streams what they stored. The Query module registers the real hub, which wins
+        // over this stand-in whichever module is added first.
+        services.TryAddSingleton<ILiveTelemetry, NoLiveTelemetry>();
+
+        // Probe answers go to the Agents module, whose registration wins over this stand-in in the same way.
+        services.TryAddSingleton<IAgentProbeReports, NoAgentProbeReports>();
         services.AddSingleton<FailedKeyThrottle>();
         services.AddSingleton<LogQueue>();
         services.AddSingleton<ActivityQueue>();

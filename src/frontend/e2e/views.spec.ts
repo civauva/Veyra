@@ -11,7 +11,7 @@ async function scrollsSideways(page: Page): Promise<boolean> {
 /** The Simple view of the monitoring screens, at every size (VEY-37). */
 test.describe("Simple view", () => {
   test("shows a host's fundamentals and switches to every panel", async ({ page }) => {
-    await answerApi(page, { view: "simple" });
+    await answerApi(page, { look: "forecast", view: "simple" });
     await page.goto("/metrics/hosts/web-01");
 
     await expect(page.getByRole("region", { name: "Now" })).toBeVisible();
@@ -26,7 +26,7 @@ test.describe("Simple view", () => {
   });
 
   test("keeps the Log Explorer to its fundamentals", async ({ page }, testInfo) => {
-    await answerApi(page, { view: "simple" });
+    await answerApi(page, { look: "forecast", view: "simple" });
     await page.goto("/logs");
 
     if (testInfo.project.name === "phone") {
@@ -39,7 +39,7 @@ test.describe("Simple view", () => {
   });
 
   test("keeps a trace to its spans and logs", async ({ page }) => {
-    await answerApi(page, { view: "simple" });
+    await answerApi(page, { look: "forecast", view: "simple" });
     await page.goto(`/traces/${checkoutId}`);
 
     await expect(page.getByRole("tab", { name: "Spans" })).toBeVisible();
@@ -48,7 +48,7 @@ test.describe("Simple view", () => {
   });
 
   test("keeps the alerts to the list, and an alert to its facts and chart", async ({ page }) => {
-    await answerApi(page, { view: "simple" });
+    await answerApi(page, { look: "forecast", view: "simple" });
     await page.goto("/alerts");
 
     await expect(page.getByRole("region", { name: "Alert list" })).toBeVisible();

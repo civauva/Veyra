@@ -1,21 +1,21 @@
 import { useMemo, useState, type CSSProperties } from "react";
 
-import type { TraceSpan } from "../api/types";
+import type { TraceSpan, TraceSummary } from "../api/types";
 import { serviceColor } from "./serviceColors";
-import { criticalPath, endOf, formatDuration, startOf, traceBounds, waterfallRows } from "./traceMath";
+import { endOf, formatDuration, startOf, waterfallRows } from "./traceMath";
 
 /** Props for {@link Waterfall}. */
 interface WaterfallProps {
-  /** Every span of the trace. */
+  /** The spans the server listed for the view. */
   spans: TraceSpan[];
+  /** The figures of the whole trace: its start and length set the timeline, and its critical path. */
+  summary: TraceSummary;
   /** The selected span's ID, or null. */
   selected: string | null;
   /** Called with the span the person selects. */
   onSelect: (spanId: string) => void;
   /** Whether to draw the critical path. */
   showCriticalPath: boolean;
-  /** Whether to show only failed spans and the spans above them. */
-  errorsOnly: boolean;
 }
 
 /**
@@ -25,15 +25,14 @@ interface WaterfallProps {
  * duration stay bright and the rest dim. A span whose parent has not arrived is marked, so a gap is visible where it
  * is (ADR 0014).
  */
-export function Waterfall({ spans, selected, onSelect, showCriticalPath, errorsOnly }: WaterfallProps) {
+export function Waterfall({ spans, summary, selected, onSelect, showCriticalPath }: WaterfallProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const bounds = traceBounds(spans);
+  const bounds = { start: Date.parse(summary.start), durationMs: summary.durationMs };
   const critical = useMemo(
-    () => (showCriticalPath ? criticalPath(spans) : new Set<string>()),
-    [spans, showCriticalPath],
+    () => (showCriticalPath ? new Set(summary.criticalPath) : new Set<string>()),
+    [summary, showCriticalPath],
   );
-  const kept = useMemo(() => (errorsOnly ? failedAndAbove(spans) : null), [spans, errorsOnly]);
-  const rows = waterfallRows(spans, collapsed).filter((row) => kept === null || kept.has(row.span.spanId));
+  const rows = waterfallRows(spans, collapsed);
   const ticks = [0, 0.25, 0.5, 0.75, 1];
   const at = (time: number) => ((time - bounds.start) / Math.max(bounds.durationMs, 0.001)) * 100;
 
@@ -158,18 +157,3 @@ const kindLabel: Record<TraceSpan["kind"], string> = {
   Producer: "producer",
   Consumer: "consumer",
 };
-
-/** The failed spans and every span above them, so "errors only" keeps the path to each failure. */
-function failedAndAbove(spans: TraceSpan[]): Set<string> {
-  const byId = new Map(spans.map((span) => [span.spanId, span]));
-  const kept = new Set<string>();
-
-  for (const span of spans.filter((candidate) => candidate.status === "Error")) {
-    for (let current: TraceSpan | undefined = span; current && !kept.has(current.spanId);) {
-      kept.add(current.spanId);
-      current = current.parentSpanId === null ? undefined : byId.get(current.parentSpanId);
-    }
-  }
-
-  return kept;
-}

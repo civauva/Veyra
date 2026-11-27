@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type * as client from "../../api/client";
 import { api, ApiError } from "../../api/client";
 import { StorageTab } from "./StorageTab";
-import { storageView } from "./testDatabase";
+import { asServer, storageView } from "./testDatabase";
 
 vi.mock("../../api/client", async (importOriginal) => {
   const original = await importOriginal<typeof client>();
@@ -18,7 +18,12 @@ function renderTab(advanced: boolean) {
 }
 
 beforeEach(() => {
-  vi.mocked(api.databaseStorage).mockResolvedValue(storageView);
+  // The server leaves its own databases out unless System is on (VEY-66).
+  vi.mocked(api.databaseStorage).mockImplementation((_engine, _server, system) => {
+    const databases = asServer(storageView.databases, system, (database) => database.name);
+
+    return Promise.resolve({ ...storageView, databases: databases.rows, hiddenDatabases: databases.hidden });
+  });
 });
 
 describe("StorageTab", () => {
@@ -36,7 +41,9 @@ describe("StorageTab", () => {
     renderTab(true);
 
     const each = await screen.findByRole("region", { name: "Each database" });
-    expect(within(each).getAllByText(/last good CHECKDB 2 d ago/)).toHaveLength(3);
+    // shop and reporting; tempdb is the server's own and waits for System (VEY-64).
+    expect(within(each).getAllByText(/last good CHECKDB 2 d ago/)).toHaveLength(2);
+    expect(within(each).getByRole("note")).toHaveTextContent("1 system database hidden.");
     expect(within(each).getAllByText("shop_data")).toHaveLength(1);
   });
 

@@ -5,6 +5,7 @@ using Npgsql;
 using NpgsqlTypes;
 using Veyra.Core.Alerts;
 using Veyra.Core.Telemetry;
+using Veyra.Storage.Ingest;
 
 namespace Veyra.Storage.Logs;
 
@@ -24,11 +25,12 @@ internal sealed class LogStore(NpgsqlDataSource dataSource) : ILogWriter, ILogSe
 
     private const string _selectColumns =
         "id, timestamp, observed_at, severity, severity_text, body, service_name, environment, trace_id, span_id, "
-        + "attributes::text, resource_attributes::text";
+        + "attributes::text, resource_attributes::text, host_name";
 
     /// <summary>
     /// Stores a batch with PostgreSQL's binary <c>COPY</c>, the fastest way to insert many rows, and adds it to the
-    /// counts in the same transaction, so the counts never disagree with the records (ADR 0015).
+    /// log counts (ADR 0015) and the ingest counts (ADR 0023) in the same transaction, so the counts never disagree
+    /// with the records.
     /// </summary>
     /// <param name="records">The records to store.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
@@ -70,6 +72,11 @@ internal sealed class LogStore(NpgsqlDataSource dataSource) : ILogWriter, ILogSe
         await writer.CompleteAsync(cancellationToken);
         await writer.CloseAsync(cancellationToken);
         await LogCounts.AddAsync(connection, records, cancellationToken);
+        await IngestCounts.AddAsync(
+            connection,
+            IngestSignal.Logs,
+            records.Select(record => (record.Timestamp, record.Environment)),
+            cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 
@@ -191,9 +198,10 @@ internal sealed class LogStore(NpgsqlDataSource dataSource) : ILogWriter, ILogSe
         AppendCursor(sql, command, query);
 
         command.Parameters.AddWithValue(rows);
+        var order = query.OldestFirst ? "timestamp, id" : "timestamp DESC, id DESC";
         sql.Append(
             CultureInfo.InvariantCulture,
-            $" ORDER BY timestamp DESC, id DESC LIMIT ${command.Parameters.Count}");
+            $" ORDER BY {order} LIMIT ${command.Parameters.Count}");
 
         command.CommandText = sql.ToString();
 
@@ -208,7 +216,8 @@ internal sealed class LogStore(NpgsqlDataSource dataSource) : ILogWriter, ILogSe
             command.Parameters.AddWithValue(after.Timestamp);
             command.Parameters.AddWithValue(after.Id);
             var count = command.Parameters.Count;
-            sql.Append(CultureInfo.InvariantCulture, $" AND (timestamp, id) < (${count - 1}, ${count})");
+            var direction = query.OldestFirst ? ">" : "<";
+            sql.Append(CultureInfo.InvariantCulture, $" AND (timestamp, id) {direction} (${count - 1}, ${count})");
         }
     }
 
@@ -295,18 +304,21 @@ internal sealed class LogStore(NpgsqlDataSource dataSource) : ILogWriter, ILogSe
         var starts = LogCountPlan.BucketStarts(query.From, query.To, bucketSize);
         var totals = new long[starts.Count];
         var errors = new long[starts.Count];
+        var levels = starts.Select(_ => new SortedDictionary<LogSeverity, long>()).ToList();
         var services = query.Services is { Count: > 0 } chosen ? chosen.ToHashSet(StringComparer.Ordinal) : null;
 
         // The buckets honour the service filter; the service counts do not, so other services can still be added.
         // Records of other blocks, such as a database's query events, are in the buckets but never a service.
         foreach (var row in rows.Where(row => services is null || services.Contains(row.ServiceName)))
         {
-            var index = LogCountPlan.BucketOf(row.Bucket!.Value, query.From, bucketSize);
+            var index = (int)LogCountPlan.BucketOf(row.Bucket!.Value, query.From, bucketSize);
             totals[index] += row.Total;
             errors[index] += row.Errors;
+            levels[index][row.Severity] = levels[index].GetValueOrDefault(row.Severity) + row.Total;
         }
 
         var buckets = starts.Select((start, index) => new LogBucket(start, totals[index], errors[index])).ToList();
+        IReadOnlyList<IReadOnlyDictionary<LogSeverity, long>> perBucket = levels;
         var perService = rows
             .Where(row => row.Kind == AlertBlockKind.Service)
             .GroupBy(row => row.ServiceName, StringComparer.Ordinal)
@@ -317,7 +329,7 @@ internal sealed class LogStore(NpgsqlDataSource dataSource) : ILogWriter, ILogSe
             .Take(50)
             .ToList();
 
-        return new LogSummary(bucketSize, buckets, perService);
+        return new LogSummary(bucketSize, buckets, perService, perBucket);
     }
 
     /// <inheritdoc />
@@ -409,11 +421,7 @@ internal sealed class LogStore(NpgsqlDataSource dataSource) : ILogWriter, ILogSe
 
         while (await reader.ReadAsync(cancellationToken))
         {
-            records.Add(Read(reader).Record with
-            {
-                BlockKind = block.Kind,
-                HostName = reader.IsDBNull(12) ? null : reader.GetString(12),
-            });
+            records.Add(Read(reader).Record with { BlockKind = block.Kind });
         }
 
         return records;
@@ -435,7 +443,7 @@ internal sealed class LogStore(NpgsqlDataSource dataSource) : ILogWriter, ILogSe
     {
         var command = new NpgsqlCommand(
             $"""
-            SELECT {_selectColumns}, host_name
+            SELECT {_selectColumns}
             FROM storage.log_record
             WHERE service_name = $1 AND block_kind = $2 AND timestamp >= $3 AND timestamp < $4 AND attributes @> $5
             ORDER BY timestamp DESC
@@ -487,6 +495,24 @@ internal sealed class LogStore(NpgsqlDataSource dataSource) : ILogWriter, ILogSe
             sql.Append(Condition(command, "environment = ANY({0})", environments.ToArray()));
         }
 
+        if (query.Hosts is { Count: > 0 } hosts)
+        {
+            sql.Append(Condition(command, "host_name = ANY({0})", hosts.ToArray()));
+        }
+
+        // An empty list of levels matches nothing: ANY of an empty array is false.
+        if (query.Levels is { } levels)
+        {
+            sql.Append(Condition(command, "severity = ANY({0})", levels.Select(level => (short)level).ToArray()));
+        }
+
+        foreach (var phrase in query.Phrases ?? [])
+        {
+            // Checked only on the records the words already found. strpos takes the phrase as plain text, so no
+            // character in it has a meaning, as % and _ would in LIKE.
+            sql.Append(Condition(command, "strpos(lower(body), lower({0})) > 0", phrase));
+        }
+
         if (query.Attributes is { Count: > 0 } attributes)
         {
             // Containment (@>) matches records that have all these pairs, and can use the jsonb_path_ops index.
@@ -525,6 +551,11 @@ internal sealed class LogStore(NpgsqlDataSource dataSource) : ILogWriter, ILogSe
         {
             sql.Append(Condition(command, "trace_id = {0}", query.TraceId.ToLowerInvariant()));
         }
+
+        if (!string.IsNullOrWhiteSpace(query.SpanId))
+        {
+            sql.Append(Condition(command, "span_id = {0}", query.SpanId.ToLowerInvariant()));
+        }
     }
 
     private static string Condition(NpgsqlCommand command, string template, object value)
@@ -550,7 +581,8 @@ internal sealed class LogStore(NpgsqlDataSource dataSource) : ILogWriter, ILogSe
             TraceId: reader.IsDBNull(8) ? null : reader.GetString(8),
             SpanId: reader.IsDBNull(9) ? null : reader.GetString(9),
             Attributes: Deserialize(reader.GetString(10)),
-            ResourceAttributes: Deserialize(reader.GetString(11))));
+            ResourceAttributes: Deserialize(reader.GetString(11)),
+            HostName: reader.IsDBNull(12) ? null : reader.GetString(12)));
 
     private static Dictionary<string, string> Deserialize(string json) =>
         JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? [];

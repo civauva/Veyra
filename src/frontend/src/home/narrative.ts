@@ -8,22 +8,22 @@ import type { HomeSnapshot } from "../api/types";
  * @returns The sentence or sentences.
  */
 export function narrative(snapshot: HomeSnapshot): string {
+  // The server groups and counts (VEY-68); the line only words its figures.
   const { alerts } = snapshot;
-  const services = snapshot.blocks.filter((block) => block.kind === "service");
+  const { services, serviceCounts, alertCounts } = snapshot.estate;
 
   if (services.length === 0 && alerts.length === 0) {
     return "No logs arrived in the last hour.";
   }
 
-  const dry = services.filter((block) => block.health === "Ok").length;
+  const dry = serviceCounts.ok;
   const [only] = services;
 
   if (alerts.length === 0) {
     return `No alerts are open. ${services.length === 1 && only ? `${only.name} is dry.` : `All ${dry} services are dry.`}`;
   }
 
-  const warnings = alerts.filter((alert) => alert.severity === "Warning").length;
-  const cautions = alerts.length - warnings;
+  const { warnings, cautions } = alertCounts;
   const parts = [
     warnings > 0 ? `${warnings} ${warnings === 1 ? "warning" : "warnings"}` : "",
     cautions > 0 ? `${cautions} ${cautions === 1 ? "caution" : "cautions"}` : "",

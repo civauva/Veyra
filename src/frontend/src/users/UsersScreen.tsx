@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { api } from "../api/client";
-import type { SecondFactorPolicy, UserSummary } from "../api/types";
+import type { SecondFactorPolicy, UserList, UserShow } from "../api/types";
+import { HelpTip } from "../ui/HelpTip";
+import { ScreenBar } from "../ui/ScreenBar";
 import { useSession } from "../session/useSession";
 import { AddUserPanel } from "./AddUserPanel";
 import { PersonBadge } from "./PersonBadge";
@@ -10,9 +12,6 @@ import { PersonPanel, type PersonTab } from "./PersonPanel";
 import { Posture } from "./Posture";
 import { RoleBar } from "./RoleBar";
 import "./users.css";
-
-/** Which people the badge grid shows. */
-type Show = "everyone" | "nofactor" | "locked" | "off";
 
 const tabs: PersonTab[] = ["overview", "signins", "sessions", "history"];
 
@@ -29,29 +28,43 @@ export function UsersScreen() {
   const tabParam = params.get("tab");
   const tab: PersonTab = tabs.includes(tabParam as PersonTab) ? (tabParam as PersonTab) : "overview";
   const filterName = useId();
-  const [people, setPeople] = useState<UserSummary[] | null>(null);
+  const [list, setList] = useState<UserList | null>(null);
   const [policy, setPolicy] = useState<SecondFactorPolicy | null>(null);
   const [search, setSearch] = useState("");
-  const [show, setShow] = useState<Show>("everyone");
+  const [show, setShow] = useState<UserShow>("everyone");
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const now = new Date();
 
-  const load = useCallback(
-    () =>
-      Promise.all([api.listUsers(), api.secondFactorPolicy()])
-        .then(([list, current]) => {
-          setPeople(list);
+  const asking = useRef<AbortController | null>(null);
+
+  // The server applies the search and the chip, and counts every figure (VEY-67). A newer question cancels an older
+  // one, and the last answer stays on screen until the new one arrives.
+  const load = useCallback(() => {
+    asking.current?.abort();
+    const controller = new AbortController();
+    asking.current = controller;
+
+    return Promise.all([api.listUsers({ search, show }, controller.signal), api.secondFactorPolicy()])
+      .then(([answer, current]) => {
+        if (!controller.signal.aborted) {
+          setList(answer);
           setPolicy(current.requiredFor);
           setError(null);
-        })
-        .catch((failure: unknown) => setError(messageOf(failure))),
-    [],
-  );
+        }
+      })
+      .catch((failure: unknown) => {
+        if (!controller.signal.aborted) {
+          setError(messageOf(failure));
+        }
+      });
+  }, [search, show]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => () => asking.current?.abort(), []);
 
   function open(id: string | null, nextTab: PersonTab = "overview") {
     const changed = new URLSearchParams(params);
@@ -83,32 +96,17 @@ export function UsersScreen() {
     }
   }
 
-  const needle = search.trim().toLowerCase();
-  const shown = (people ?? []).filter((person) => {
-    const matches =
-      !needle ||
-      person.displayName.toLowerCase().includes(needle) ||
-      person.email.toLowerCase().includes(needle) ||
-      (person.team ?? "").toLowerCase().includes(needle);
-    const locked = person.lockedUntil !== null && new Date(person.lockedUntil) > now;
-
-    return (
-      matches &&
-      (show === "everyone" ||
-        (show === "nofactor" && !person.secondFactorSince) ||
-        (show === "locked" && locked) ||
-        (show === "off" && person.disabled))
-    );
-  });
-  const counts: Record<Show, number> = {
-    everyone: people?.length ?? 0,
-    nofactor: (people ?? []).filter((person) => !person.secondFactorSince).length,
-    locked: (people ?? []).filter((person) => person.lockedUntil !== null && new Date(person.lockedUntil) > now).length,
-    off: (people ?? []).filter((person) => person.disabled).length,
+  const shown = list?.people ?? [];
+  const counts: Record<UserShow, number> = {
+    everyone: list?.counts.everyone ?? 0,
+    nofactor: list?.counts.noFactor ?? 0,
+    locked: list?.counts.locked ?? 0,
+    off: list?.counts.off ?? 0,
   };
 
   return (
     <main className="people">
+      <ScreenBar trail={[{ label: "Users" }]} />
       <div className="people-head">
         <div>
           <h1>Users</h1>
@@ -125,11 +123,11 @@ export function UsersScreen() {
         </p>
       )}
 
-      {people && (
+      {list && (
         <div className={selected ? "people-layout open" : "people-layout"}>
           <div className="people-main">
-            <Posture people={people} policy={policy} onPolicy={(next) => void choosePolicy(next)} now={now} />
-            <RoleBar people={people} />
+            <Posture posture={list.posture} policy={policy} onPolicy={(next) => void choosePolicy(next)} />
+            <RoleBar roles={list.roles} />
 
             <div className="people-toolbar">
               <input
@@ -154,6 +152,11 @@ export function UsersScreen() {
                   </label>
                 ))}
               </div>
+              <HelpTip label="People">
+                Each badge is one person: the band shows their role, 2FA whether they use a second factor, and the time
+                when they were last active. An amber badge is locked after too many wrong passwords; a grey one is
+                switched off and cannot sign in. Choose a badge to see more.
+              </HelpTip>
             </div>
 
             {shown.length === 0 ? (

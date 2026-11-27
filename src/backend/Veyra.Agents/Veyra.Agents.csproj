@@ -30,6 +30,10 @@
     <EmbeddedResource Include="Install\install.sh" LogicalName="Veyra.Agents.Install.install.sh" />
     <!-- The tested Collector configuration each agent's configuration is built from: one file, one contract. -->
     <EmbeddedResource Include="..\..\..\integrations\sqlserver\collector.yaml" LogicalName="Veyra.Agents.Templates.sqlserver.yaml" />
+    <!-- The template's previous version, which a server can be rolled back to, and the connection probe (ADR 0028).
+         Renaming the previous file at the next version changes only this line. -->
+    <EmbeddedResource Include="..\..\..\integrations\sqlserver\collector.0.1.0.yaml" LogicalName="Veyra.Agents.Templates.sqlserver.previous.yaml" />
+    <EmbeddedResource Include="..\..\..\integrations\sqlserver\probe.yaml" LogicalName="Veyra.Agents.Templates.sqlserver-probe.yaml" />
     <EmbeddedResource Include="..\..\..\integrations\sqlserver\azure-sql-database.yaml" LogicalName="Veyra.Agents.Templates.azure-sql-database.yaml" />
     <EmbeddedResource Include="..\..\..\integrations\windows\collector.yaml" LogicalName="Veyra.Agents.Templates.windows.yaml" />
     <EmbeddedResource Include="..\..\..\integrations\windows\iis.yaml" LogicalName="Veyra.Agents.Templates.iis.yaml" />

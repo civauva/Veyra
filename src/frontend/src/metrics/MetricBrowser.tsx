@@ -1,10 +1,9 @@
-import { useSearchParams } from "react-router";
-
-import { api } from "../api/client";
-import type { MetricChart, MetricKind, MetricRange } from "../api/types";
+import type { MetricChart, MetricRange } from "../api/types";
 import { LineChart } from "./LineChart";
 import { formatAmount, formatRate, formatSeconds } from "./metricFormat";
-import { useMetricData } from "./useMetricData";
+import { rangeWords } from "./metricRange";
+import { PanelName } from "./TileName";
+import { metricShows, useMetricExplorer } from "./useMetricExplorer";
 
 /** The colours of the browser's lines, in order. */
 export const lineColors = [
@@ -18,13 +17,6 @@ export const lineColors = [
   "var(--muted)",
 ];
 
-/** What each kind can show. */
-const shows: Record<MetricKind, string[]> = {
-  Gauge: ["value"],
-  Sum: ["value", "rate"],
-  Histogram: ["p50", "p95", "p99", "rate"],
-};
-
 /** Props for {@link MetricBrowser}. */
 interface MetricBrowserProps {
   /** The range of the chart. */
@@ -36,32 +28,8 @@ interface MetricBrowserProps {
  * rates, or percentiles as its kind allows. The choice is kept in the URL.
  */
 export function MetricBrowser({ range }: MetricBrowserProps) {
-  const [params, setParams] = useSearchParams();
-  const search = params.get("q") ?? "";
-  const metric = params.get("metric");
-  const show = params.get("show");
-  const split = params.get("split");
-  const names = useMetricData(`names-${range}-${search}`, (signal) => api.metricNames(search, range, signal));
-  const chart = useMetricData(`chart-${range}-${metric ?? ""}-${show ?? ""}-${split ?? ""}`, (signal) =>
-    metric ? api.metricChart({ name: metric, show, split, range }, signal) : Promise.resolve(null),
-  );
-
-  function update(changes: Record<string, string | null>) {
-    const next = new URLSearchParams(params);
-
-    for (const [key, value] of Object.entries(changes)) {
-      if (value === null || value === "") {
-        next.delete(key);
-      } else {
-        next.set(key, value);
-      }
-    }
-
-    setParams(next, { replace: true });
-  }
-
+  const { search, metric, service, host, names, chart, selected, update } = useMetricExplorer(range);
   const list = names.data ?? [];
-  const selected = list.find((name) => name.name === metric);
 
   return (
     <div className="metric-browser">
@@ -99,6 +67,14 @@ export function MetricBrowser({ range }: MetricBrowserProps) {
       </div>
 
       <section className="metric-panel metric-chart-panel" aria-label={metric ?? "Chart"}>
+        {(service || host) && (
+          <p className="metric-description">
+            {[service && `Service ${service}`, host && `host ${host}`].filter(Boolean).join(" · ")} ·{" "}
+            <button type="button" className="link-button" onClick={() => update({ service: null, host: null })}>
+              Show every service and host
+            </button>
+          </p>
+        )}
         {!metric ? (
           <p className="metrics-empty">Pick a metric on the left to chart it.</p>
         ) : chart.data ? (
@@ -110,7 +86,7 @@ export function MetricBrowser({ range }: MetricBrowserProps) {
           />
         ) : chart.notFound ? (
           <p className="metrics-empty">
-            No series of {metric} within the last {range}.
+            No series of {metric} {rangeWords(range, "within")}.
           </p>
         ) : (
           <p className="metrics-empty">Charting {metric}…</p>
@@ -146,7 +122,9 @@ function ChartView({ chart, description, onShow, onSplit }: ChartViewProps) {
   return (
     <>
       <div className="metric-panel-head">
-        <h2>{chart.name}</h2>
+        <PanelName name={chart.name}>
+          {showing(chart)} {chart.split === null ? "One line for all its series." : `One line per ${chart.split}.`}
+        </PanelName>
         <span>
           {chart.show} · {chart.unit || "no unit"} · {chart.kind.toLowerCase()}
         </span>
@@ -154,7 +132,7 @@ function ChartView({ chart, description, onShow, onSplit }: ChartViewProps) {
       {description && <p className="metric-description">{description}</p>}
       <div className="metric-chip-row" role="group" aria-label="Show">
         <span>Show</span>
-        {shows[chart.kind].map((option) => (
+        {metricShows[chart.kind].map((option) => (
           <button
             key={option}
             type="button"
@@ -202,6 +180,32 @@ function ChartView({ chart, description, onShow, onSplit }: ChartViewProps) {
       )}
     </>
   );
+}
+
+/**
+ * What a chart of a metric shows, in a sentence, the way the server works it out per step of the chart.
+ *
+ * @param chart - The chart.
+ * @returns For example "The 95th percentile of what it measured in each step: 95% were at or below it."
+ */
+function showing(chart: MetricChart): string {
+  switch (chart.show) {
+    case "rate":
+      return chart.kind === "Histogram"
+        ? "How many measurements it recorded per second in each step."
+        : "How fast its running total grew per second in each step.";
+    case "p50":
+    case "p95":
+    case "p99": {
+      const share = chart.show.slice(1);
+
+      return `The ${share}th percentile of what it measured in each step: ${share}% were at or below it.`;
+    }
+    default:
+      return chart.kind === "Gauge"
+        ? "Its average value in each step, averaged over its series."
+        : "Its average level in each step, added up over its series.";
+  }
 }
 
 /**

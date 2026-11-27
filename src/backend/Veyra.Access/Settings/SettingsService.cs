@@ -1,10 +1,10 @@
 using System.Globalization;
-using System.Reflection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Configuration.EnvironmentVariables;
 using Microsoft.Extensions.Configuration.Json;
 using Microsoft.Extensions.Hosting;
 using Npgsql;
+using Veyra.Access.About;
 using Veyra.Access.Api;
 using Veyra.Access.Users;
 using Veyra.Core;
@@ -62,6 +62,14 @@ internal sealed class SettingsService(
             "AGENTS" => [MonitoringSubject.Agent],
             _ => [],
         };
+
+    /// <summary>What the Settings screen lists for a search or a section in a view (VEY-67).</summary>
+    /// <param name="search">Words a setting must all hold; null or blank lists the section.</param>
+    /// <param name="section">The section, such as <c>Data</c>.</param>
+    /// <param name="advanced">Whether the Advanced view is chosen.</param>
+    /// <returns>The keys to show and the sections to list.</returns>
+    public SettingsListingResponse Listing(string? search, string? section, bool advanced) =>
+        SettingsListing.Build(_definitions.Values, search, section, advanced);
 
     /// <summary>Every setting in screen order, with its value, default, and who saved it.</summary>
     /// <param name="cancellationToken">Cancels the queries.</param>
@@ -482,10 +490,7 @@ internal sealed class SettingsService(
         items.Add(new SystemSettingResponse("Environment", environment.EnvironmentName, "ASPNETCORE_ENVIRONMENT"));
         items.Add(new SystemSettingResponse(
             "Version",
-            Assembly.GetEntryAssembly()?
-                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
-                .InformationalVersion
-                ?? "unknown",
+            VeyraVersion.Current,
             "the image"));
 
         return items;

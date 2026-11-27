@@ -15,6 +15,9 @@ public enum SettingSection
     /// <summary>Sign-in, passwords, lockout, and sessions.</summary>
     Security,
 
+    /// <summary>The look of the web app: the default one and whether people pick their own (ADR 0021).</summary>
+    Appearance,
+
     /// <summary>How much telemetry may wait to be written.</summary>
     Ingestion,
 

@@ -23,6 +23,10 @@ public sealed class MailpitFixture : IAsyncLifetime
         // Accept any user name and password over plain SMTP, so the sign-in path can be tested without TLS.
         .WithEnvironment("MP_SMTP_AUTH_ACCEPT_ANY", "1")
         .WithEnvironment("MP_SMTP_AUTH_ALLOW_INSECURE", "1")
+
+        // Greet at once. Mailpit looks up the client's address before its greeting, and where Docker's DNS cannot
+        // answer that (Docker Desktop on Windows), the lookup takes 10 s: as long as the sender waits, so it timed out.
+        .WithEnvironment("MP_SMTP_DISABLE_RDNS", "1")
         .WithWaitStrategy(Wait.ForUnixContainer()
             .UntilHttpRequestIsSucceeded(request => request.ForPort(_apiPort).ForPath("/readyz")))
         .Build();

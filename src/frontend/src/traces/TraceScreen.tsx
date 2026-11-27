@@ -1,18 +1,19 @@
-import { useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router";
+import { useState, type ReactNode } from "react";
+import { useParams, useSearchParams } from "react-router";
 
-import { api } from "../api/client";
 import type { LogEntry, Trace, TraceSpan } from "../api/types";
+import { HelpTip } from "../ui/HelpTip";
+import { ScreenBar } from "../ui/ScreenBar";
 import { formatInstant, formatTime } from "../logs/format";
 import "../logs/logs.css";
 import { SeverityBadge } from "../logs/SeverityBadge";
-import { useMetricData } from "../metrics/useMetricData";
 import { serviceColor } from "./serviceColors";
 import { SpanPanel } from "./SpanPanel";
-import { formatDuration, traceBounds, waterfallRows } from "./traceMath";
+import { formatDuration } from "./traceMath";
 import "./traces.css";
+import { useTrace, useTraceRecords } from "./useTrace";
 import { Waterfall } from "./Waterfall";
-import { useViewMode, ViewToggle } from "../app/ViewToggle";
+import { useViewMode } from "../ui/ViewToggle";
 
 /** The tabs of the trace view. */
 type TraceTab = "spans" | "logs" | "attributes";
@@ -26,14 +27,13 @@ export function TraceScreen() {
   const { traceId = "" } = useParams();
   const [searchParams] = useSearchParams();
   const at = searchParams.get("at");
-  const trace = useMetricData(`trace-${traceId}-${at ?? ""}`, (signal) => api.trace(traceId, at, signal));
+  const [errorsOnly, setErrorsOnly] = useState(false);
+  const trace = useTrace(traceId, at, errorsOnly);
 
   if (trace.notFound) {
     return (
       <main className="trace-view trace-missing">
-        <p className="crumbs">
-          <Link to="/traces">‹ Traces</Link>
-        </p>
+        <ScreenBar trail={[{ label: "Traces", to: "/traces" }, { label: "Trace" }]} view />
         <h1>Trace not found</h1>
         <p>
           No span of trace <span className="mono">{traceId}</span> is stored. It may be older than the traces kept, or
@@ -46,9 +46,7 @@ export function TraceScreen() {
   if (trace.data === null) {
     return (
       <main className="trace-view" aria-busy="true">
-        <p className="crumbs">
-          <Link to="/traces">‹ Traces</Link>
-        </p>
+        <ScreenBar trail={[{ label: "Traces", to: "/traces" }, { label: "Trace" }]} view />
         {trace.error ? (
           <p className="explorer-error" role="alert">
             {trace.error}
@@ -67,7 +65,16 @@ export function TraceScreen() {
     return null;
   }
 
-  return <TraceView key={trace.data.traceId} trace={trace.data} root={root} error={trace.error} />;
+  return (
+    <TraceView
+      key={trace.data.traceId}
+      trace={trace.data}
+      root={root}
+      error={trace.error}
+      errorsOnly={errorsOnly}
+      onErrorsOnly={setErrorsOnly}
+    />
+  );
 }
 
 /** Props for {@link TraceView}. */
@@ -78,41 +85,35 @@ interface TraceViewProps {
   root: TraceSpan;
   /** Why the latest refresh failed, or null. */
   error: string | null;
+  /** Whether the server was asked for the failed spans and the spans above them only. */
+  errorsOnly: boolean;
+  /** Asks for the failed spans only, or for every span again. */
+  onErrorsOnly: (errorsOnly: boolean) => void;
 }
 
 /** The loaded trace: header, notice, tabs, waterfall, and the selected span. */
-function TraceView({ trace, root, error }: TraceViewProps) {
+function TraceView({ trace, root, error, errorsOnly, onErrorsOnly }: TraceViewProps) {
   const [mode] = useViewMode();
   const advanced = mode === "advanced";
-  const spans = trace.spans;
-  const bounds = traceBounds(spans);
-  const failed = spans.filter((span) => span.status === "Error");
-  const orphans = waterfallRows(spans).filter((row) => row.missingParent);
-  const services = countServices(spans);
+  const { spans, summary } = trace;
+  const bounds = { start: Date.parse(summary.start), durationMs: summary.durationMs };
   const [tab, setTab] = useState<TraceTab>("spans");
   // Beside the waterfall, the cause is the first thing worth reading; on phones the span is a sheet over the
   // waterfall, so it opens only when the person taps a span.
   const [selected, setSelected] = useState<string | null>(() =>
-    besideTheWaterfall() ? (deepestFailure(spans)?.spanId ?? root.spanId) : null,
+    besideTheWaterfall() ? (summary.cause ?? root.spanId) : null,
   );
   const [showCriticalPath, setShowCriticalPath] = useState(true);
-  const [errorsOnly, setErrorsOnly] = useState(false);
-  const from = new Date(bounds.start - 60_000).toISOString();
-  const to = new Date(bounds.start + bounds.durationMs + 60_000).toISOString();
-  const logs = useMetricData(`trace-logs-${trace.traceId}-${from}`, (signal) =>
-    api.searchLogs(new URLSearchParams({ traceId: trace.traceId, from, to, limit: "500" }), signal),
-  );
-  const logItems = logs.data?.items ?? null;
+  const records = useTraceRecords(trace, selected);
+  const logItems = records.logs;
   const selectedSpan = spans.find((span) => span.spanId === selected) ?? null;
+  const spanLogItems = records.spanLogs;
 
   return (
     <main className={selectedSpan ? "trace-view has-span" : "trace-view"}>
+      <ScreenBar trail={[{ label: "Traces", to: "/traces" }, { label: root.name }]} view />
       <section className="trace-main">
-        <p className="crumbs">
-          <Link to="/traces">‹ Traces</Link> · {root.service}
-        </p>
         <header className="trace-header">
-          <ViewToggle className="trace-view-toggle" />
           <div>
             <h1>
               <span
@@ -140,20 +141,31 @@ function TraceView({ trace, root, error }: TraceViewProps) {
           </div>
           <dl className="trace-stats">
             <div>
-              <dt>Duration</dt>
+              <StatName name="Duration">
+                How long the request took: from the start of its first span to the end of its last, as far as its spans
+                have arrived.
+              </StatName>
               <dd>{formatDuration(bounds.durationMs)}</dd>
             </div>
             <div>
-              <dt>Spans</dt>
-              <dd>{spans.length}</dd>
+              <StatName name="Spans">
+                The steps of the request that have arrived. Each span is one piece of work a service did, such as
+                answering a call or running a query.
+              </StatName>
+              <dd>{summary.spans}</dd>
             </div>
             <div>
-              <dt>Services</dt>
-              <dd>{services.length}</dd>
+              <StatName name="Services">
+                How many services took part in the request. Each has its own colour in the waterfall below.
+              </StatName>
+              <dd>{summary.services.length}</dd>
             </div>
-            <div className={failed.length > 0 ? "failed" : ""}>
-              <dt>Failed</dt>
-              <dd>{failed.length}</dd>
+            <div className={summary.failed > 0 ? "failed" : ""}>
+              <StatName name="Failed">
+                Spans that ended in an error. A failure often passes up through the spans above it, so the trace opens
+                on the deepest one, where it most likely began.
+              </StatName>
+              <dd>{summary.failed}</dd>
             </div>
           </dl>
         </header>
@@ -164,11 +176,12 @@ function TraceView({ trace, root, error }: TraceViewProps) {
           </p>
         )}
 
-        {orphans.length > 0 && (
+        {summary.missingParents > 0 && (
           <p className="trace-notice" role="status">
-            <b>Part of this trace has not arrived.</b> {orphans.length === 1 ? "1 span" : `${orphans.length} spans`} of{" "}
-            {[...new Set(orphans.map((row) => row.span.service))].join(", ")} point to a parent Veyra never received. It
-            may still arrive, or its service did not sample it.
+            <b>Part of this trace has not arrived.</b>{" "}
+            {summary.missingParents === 1 ? "1 span" : `${summary.missingParents} spans`} of{" "}
+            {summary.missingParentServices.join(", ")} point to a parent Veyra never received. It may still arrive, or
+            its service did not sample it.
           </p>
         )}
 
@@ -186,20 +199,26 @@ function TraceView({ trace, root, error }: TraceViewProps) {
           )}
           {(tab === "spans" || (tab === "attributes" && !advanced)) && (
             <span className="trace-toggles">
-              <button
-                type="button"
-                className="chip-button trace-critical"
-                aria-pressed={showCriticalPath}
-                onClick={() => setShowCriticalPath(!showCriticalPath)}
-              >
-                Critical path
-              </button>
+              <span className="trace-critical-help">
+                <button
+                  type="button"
+                  className="chip-button trace-critical"
+                  aria-pressed={showCriticalPath}
+                  onClick={() => setShowCriticalPath(!showCriticalPath)}
+                >
+                  Critical path
+                </button>
+                <HelpTip label="Critical path">
+                  The chain of spans that decided how long the request took, each waiting on the next. Making one of
+                  them faster makes the request faster; the spans beside the path ran alongside it and would not have.
+                </HelpTip>
+              </span>
               <button
                 type="button"
                 className="chip-button"
                 aria-pressed={errorsOnly}
-                onClick={() => setErrorsOnly(!errorsOnly)}
-                disabled={failed.length === 0}
+                onClick={() => onErrorsOnly(!errorsOnly)}
+                disabled={summary.failed === 0}
               >
                 Errors only
               </button>
@@ -210,7 +229,7 @@ function TraceView({ trace, root, error }: TraceViewProps) {
         {tab === "spans" && (
           <div role="tabpanel" aria-label="Spans" className="trace-panel">
             <p className="trace-services">
-              {services.map(([service, count]) => (
+              {summary.services.map(({ service, spans: count }) => (
                 <span key={service} className="trace-service-tag">
                   <i style={{ background: serviceColor(service) }} aria-hidden="true" />
                   {service} <span className="faint">{count}</span>
@@ -224,10 +243,10 @@ function TraceView({ trace, root, error }: TraceViewProps) {
             </p>
             <Waterfall
               spans={spans}
+              summary={summary}
               selected={selected}
               onSelect={setSelected}
               showCriticalPath={showCriticalPath}
-              errorsOnly={errorsOnly}
             />
           </div>
         )}
@@ -247,16 +266,20 @@ function TraceView({ trace, root, error }: TraceViewProps) {
 
         {tab === "attributes" && advanced && (
           <div role="tabpanel" aria-label="Attributes" className="trace-panel">
-            <h3 className="section-title">Resource of {root.service}</h3>
+            <div className="trace-panel-head">
+              <h3 className="section-title">Resource of {root.service}</h3>
+              <HelpTip label="Resource">
+                What sent the trace&apos;s first span, the same for everything that process sends: service.name, its
+                version, host.name, and the like. The OpenTelemetry SDK or the Collector sets them.
+              </HelpTip>
+            </div>
             <dl className="span-attributes">
-              {Object.entries(root.resourceAttributes)
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([key, value]) => (
-                  <div key={key}>
-                    <dt>{key}</dt>
-                    <dd className="mono">{value}</dd>
-                  </div>
-                ))}
+              {Object.entries(root.resourceAttributes).map(([key, value]) => (
+                <div key={key}>
+                  <dt>{key}</dt>
+                  <dd className="mono">{value}</dd>
+                </div>
+              ))}
             </dl>
           </div>
         )}
@@ -268,7 +291,7 @@ function TraceView({ trace, root, error }: TraceViewProps) {
           traceId={trace.traceId}
           traceStart={bounds.start}
           traceDurationMs={bounds.durationMs}
-          logs={logItems === null ? null : logItems.filter((log) => log.spanId === selectedSpan.spanId)}
+          logs={spanLogItems}
           onClose={() => setSelected(null)}
         />
       )}
@@ -298,54 +321,45 @@ function TraceLogs({ logs, spans, onSelect }: TraceLogsProps) {
 
   return (
     <ul className="trace-logs">
-      {[...logs]
-        .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
-        .map((log) => {
-          const span = spans.find((candidate) => candidate.spanId === log.spanId);
+      {logs.map((log) => {
+        const span = spans.find((candidate) => candidate.spanId === log.spanId);
 
-          return (
-            <li key={log.id}>
-              <span className="mono faint">{formatTime(log.timestamp)}</span>
-              <SeverityBadge severity={log.severity} />
-              <span className="trace-log-body">{log.body}</span>
-              {span && (
-                <button type="button" className="link-button" onClick={() => onSelect(span.spanId)}>
-                  {span.service} · {span.name}
-                </button>
-              )}
-            </li>
-          );
-        })}
+        return (
+          <li key={log.id}>
+            <span className="mono faint">{formatTime(log.timestamp)}</span>
+            <SeverityBadge severity={log.severity} />
+            <span className="trace-log-body">{log.body}</span>
+            {span && (
+              <button type="button" className="link-button" onClick={() => onSelect(span.spanId)}>
+                {span.service} · {span.name}
+              </button>
+            )}
+          </li>
+        );
+      })}
     </ul>
+  );
+}
+
+/** Props for {@link StatName}. */
+interface StatNameProps {
+  /** The number's name, such as "Duration". */
+  name: string;
+  /** What the number means, behind the question mark. */
+  children: ReactNode;
+}
+
+/** The name of one of the trace's numbers, with a question mark that explains it (VEY-60). */
+function StatName({ name, children }: StatNameProps) {
+  return (
+    <dt>
+      <span>{name}</span>
+      <HelpTip label={name}>{children}</HelpTip>
+    </dt>
   );
 }
 
 /** Whether the span panel sits beside the waterfall rather than over it, as on phones. */
 function besideTheWaterfall(): boolean {
   return typeof window.matchMedia !== "function" || !window.matchMedia("(max-width: 767px)").matches;
-}
-
-/** The services of a trace with their span counts, most spans first. */
-function countServices(spans: TraceSpan[]): [string, number][] {
-  const counts = new Map<string, number>();
-
-  for (const span of spans) {
-    counts.set(span.service, (counts.get(span.service) ?? 0) + 1);
-  }
-
-  return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-}
-
-/**
- * The failed span none of whose children failed: the cause rather than the requests that passed it on. Spans with an
- * exception come first, because an exception explains more than a bare "timeout" on the call below it; the API picks
- * the list's cause the same way.
- */
-function deepestFailure(spans: TraceSpan[]): TraceSpan | undefined {
-  const failed = spans.filter((span) => span.status === "Error");
-  const explained = failed.filter((span) => span.events.some((event) => event.name === "exception"));
-  const pool = explained.length > 0 ? explained : failed;
-  const parents = new Set(pool.map((span) => span.parentSpanId));
-
-  return pool.find((span) => !parents.has(span.spanId)) ?? pool[0];
 }

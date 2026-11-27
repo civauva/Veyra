@@ -1,13 +1,16 @@
 import { useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router";
+import { useParams, useSearchParams } from "react-router";
 
 import { api } from "../../api/client";
-import type { ChartLine, DatabaseQuery, PlanWarning, QueryPlan } from "../../api/types";
-import { useViewMode, ViewToggle } from "../../app/ViewToggle";
+import type { ChartLine, DatabaseQuery, MetricRange, PlanWarning, QueryPlan } from "../../api/types";
+import { ScreenBar } from "../../ui/ScreenBar";
+import { useViewMode } from "../../ui/ViewToggle";
 import { LineChart } from "../LineChart";
 import { formatSeconds } from "../metricFormat";
-import { RangePicker, rangeFrom } from "../RangePicker";
+import { rangeOf, rangeSearch, rangeWords, withRange } from "../metricRange";
+import { RangePicker } from "../RangePicker";
 import { useMetricData } from "../useMetricData";
+import { PanelHead, TileName } from "./helpNames";
 import { copyText, programName, shortCount } from "./liveFormat";
 import "../metrics.css";
 import "./live.css";
@@ -18,24 +21,34 @@ const planColors = ["var(--warning-fg)", "var(--accent)", "var(--ok-fg)", "var(-
 /**
  * One statement of a SQL Server (ADR 0020, area 4), opened from the Queries tab. The Simple view says what is wrong in
  * words, how to fix it, and who runs it; the Advanced view adds every figure per run, its plans side by side with their
- * operators and warnings, and the plan to download for SQL Server Management Studio.
+ * operators and warnings, and the plan to download for SQL Server Management Studio. Its bar leads back to the server's
+ * Queries tab and the Metrics overview (VEY-62).
  */
 export function QueryScreen() {
   const { engine = "", server = "", hash = "" } = useParams();
   const [params, setParams] = useSearchParams();
-  const range = rangeFrom(params.get("range"));
+  const range = rangeOf(params);
   const [mode] = useViewMode();
   const advanced = mode === "advanced";
   const { data, notFound, error } = useMetricData(`query-${engine}-${server}-${hash}-${range}`, (signal) =>
     api.databaseQuery(engine, server, hash, range, signal),
   );
-  const back = `/metrics/databases/${encodeURIComponent(engine)}/${encodeURIComponent(server)}?tab=queries&range=${range}`;
+  const serverPage = `/metrics/databases/${encodeURIComponent(engine)}/${encodeURIComponent(server)}`;
+  const back = `${serverPage}?tab=queries&${rangeSearch(range)}`;
 
   return (
     <main className="metrics">
-      <Link className="metrics-back" to={back}>
-        ← {server} · Queries
-      </Link>
+      <ScreenBar
+        trail={[
+          { label: "Metrics", to: `/metrics?${rangeSearch(range)}` },
+          { label: "Database servers", to: `/metrics?${rangeSearch(range)}#metrics-databases` },
+          { label: server, to: back },
+          { label: "Statement" },
+        ]}
+        view
+      >
+        <RangePicker value={range} onChange={(next) => setParams(withRange(params, next), { replace: true })} />
+      </ScreenBar>
       <div className="metrics-detail-head">
         <div>
           <h1>{data?.name ?? "Statement"}</h1>
@@ -45,16 +58,14 @@ export function QueryScreen() {
             {data && <li>{data.plans.length === 1 ? "1 plan" : `${data.plans.length} plans`}</li>}
           </ul>
         </div>
-        <ViewToggle />
-        <RangePicker value={range} onChange={(next) => setParams({ range: next }, { replace: true })} />
       </div>
       {error && (
         <p className="metrics-error" role="alert">
           {data ? `Could not refresh: ${error}.` : `The statement could not be loaded: ${error}`}
         </p>
       )}
-      {notFound && <p className="metrics-empty">The statement did not run within the last {range}.</p>}
-      {data && <Body query={data} advanced={advanced} engine={engine} server={server} />}
+      {notFound && <p className="metrics-empty">The statement did not run {rangeWords(range, "within")}.</p>}
+      {data && <Body query={data} range={range} advanced={advanced} engine={engine} server={server} />}
     </main>
   );
 }
@@ -63,6 +74,8 @@ export function QueryScreen() {
 interface BodyProps {
   /** The statement. */
   query: DatabaseQuery;
+  /** The range the screen shows, for the page's words. */
+  range: MetricRange;
   /** Whether the Advanced view is on. */
   advanced: boolean;
   /** The engine. */
@@ -72,11 +85,11 @@ interface BodyProps {
 }
 
 /** The statement's page below its title. */
-function Body({ query, advanced, engine, server }: BodyProps) {
+function Body({ query, range, advanced, engine, server }: BodyProps) {
   const [chosen, setChosen] = useState<string | null>(null);
   const plan = query.plans.find((one) => one.hash === chosen) ?? query.plans[0];
   const worst = query.findings[0];
-  const totalCallers = query.callers.reduce((sum, caller) => sum + caller.samples, 0);
+  const totalCallers = query.callerSamples;
 
   return (
     <div className="live">
@@ -94,7 +107,7 @@ function Body({ query, advanced, engine, server }: BodyProps) {
           <div>
             <h2>Nothing wrong shows in this statement&apos;s plans or history.</h2>
             <p>
-              It ran {shortCount(query.totals.executions)} times over the last {query.range}, taking{" "}
+              It ran {shortCount(query.totals.executions)} times {rangeWords(range, "over")}, taking{" "}
               {formatSeconds(query.totals.perRunSeconds)} a run.
             </p>
           </div>
@@ -103,28 +116,75 @@ function Body({ query, advanced, engine, server }: BodyProps) {
 
       {advanced && (
         <section className="live-tiles" aria-label="Totals">
-          <Stat label="Runs" value={shortCount(query.totals.executions)} />
-          <Stat label="Total time" value={formatSeconds(query.totals.totalSeconds)} />
-          <Stat label="Time per run" value={formatSeconds(query.totals.perRunSeconds)} />
+          <Stat
+            label="Runs"
+            help={
+              "How many times the statement ran over the range, from execution_count in " +
+              "sys.dm_exec_query_stats, read every minute. Many cheap runs can cost more in all " +
+              "than one slow run."
+            }
+            value={shortCount(query.totals.executions)}
+          />
+          <Stat
+            label="Total time"
+            help={
+              "The elapsed time of all its runs together over the range. The statements with " +
+              "the most total time are where tuning pays off most."
+            }
+            value={formatSeconds(query.totals.totalSeconds)}
+          />
+          <Stat
+            label="Time per run"
+            help={
+              "The average elapsed time of one run over the range, waiting included. Much more " +
+              "than CPU per run means it spends its time waiting: on locks, the disk, or " +
+              "memory."
+            }
+            value={formatSeconds(query.totals.perRunSeconds)}
+          />
           <Stat
             label="CPU per run"
+            help={
+              "The processor time of one run on average. Close to time per run means the " +
+              "statement works rather than waits; reading less is what lowers it."
+            }
             value={formatSeconds(query.totals.executions > 0 ? query.totals.cpuSeconds / query.totals.executions : 0)}
           />
           <Stat
             label="Reads per run"
+            help={
+              "The logical reads of one run on average: 8 KB pages read from memory or disk. " +
+              "Far more pages than the rows it returns usually means a scan that an index would " +
+              "avoid."
+            }
             value={shortCount(
               query.totals.executions > 0 ? Math.round(query.totals.reads / query.totals.executions) : 0,
             )}
           />
-          <Stat label="Plans" value={String(query.plans.length)} />
+          <Stat
+            label="Plans"
+            help={
+              "How many plans SQL Server used for the statement over the range. More than one " +
+              "can mean its speed depends on the values of the run that compiled the plan, " +
+              "known as parameter sensitivity."
+            }
+            value={String(query.plans.length)}
+          />
         </section>
       )}
 
       <section className="metric-panel" aria-labelledby="query-time">
-        <div className="metric-panel-head">
-          <h2 id="query-time">Time per run</h2>
+        <PanelHead
+          id="query-time"
+          name="Time per run"
+          help={
+            "The average time of one run over the range, from sys.dm_exec_query_stats, read " +
+            "every minute. The colour changes where SQL Server changed its plan, the usual " +
+            "reason a statement suddenly gets slower; Advanced draws a line per plan."
+          }
+        >
           <span>{advanced ? "a line per plan" : "the colour changes where SQL Server changed its way"}</span>
-        </div>
+        </PanelHead>
         <LineChart
           title="Time per run"
           format={(value) => formatSeconds(value)}
@@ -138,10 +198,17 @@ function Body({ query, advanced, engine, server }: BodyProps) {
 
       {query.findings.length > 0 && (
         <section className="metric-panel" aria-labelledby="query-fix">
-          <div className="metric-panel-head">
-            <h2 id="query-fix">How to fix it</h2>
+          <PanelHead
+            id="query-fix"
+            name="How to fix it"
+            help={
+              "What Veyra found in the statement's plans and history, the best fix first: a " +
+              "missing index, a parameter of the wrong type, a spill to tempdb, a plan that got " +
+              "slower. A DBA reviews a statement to copy before running it."
+            }
+          >
             <span>best first</span>
-          </div>
+          </PanelHead>
           <ol className="live-findings">
             {query.findings.map((finding) => (
               <Fix key={`${finding.kind}-${finding.title}`} finding={finding} />
@@ -152,8 +219,16 @@ function Body({ query, advanced, engine, server }: BodyProps) {
 
       {advanced && plan && (
         <section className="metric-panel" aria-labelledby="query-plans">
-          <div className="metric-panel-head">
-            <h2 id="query-plans">Plans</h2>
+          <PanelHead
+            id="query-plans"
+            name="Plans"
+            help={
+              "Each plan SQL Server used, with its operators in plan order and each one's share " +
+              "of the estimated cost. Captured every 15 minutes for the 10 busiest statements. " +
+              "Start with the costliest operator, above all a scan of a large table; the " +
+              ".sqlplan opens in SQL Server Management Studio."
+            }
+          >
             {plan.captured && (
               <a
                 className="live-link"
@@ -163,7 +238,7 @@ function Body({ query, advanced, engine, server }: BodyProps) {
                 .sqlplan ↓
               </a>
             )}
-          </div>
+          </PanelHead>
           <div className="live-filters" role="group" aria-label="Plans">
             {query.plans.map((one) => (
               <button
@@ -183,10 +258,17 @@ function Body({ query, advanced, engine, server }: BodyProps) {
 
       {query.history.length > 0 && (
         <section className="metric-panel" aria-labelledby="query-history">
-          <div className="metric-panel-head">
-            <h2 id="query-history">History from Query Store</h2>
+          <PanelHead
+            id="query-history"
+            name="History from Query Store"
+            help={
+              "The statement's time per run as Query Store kept it inside the database, over " +
+              "restarts and after its plan left the cache, read every 15 minutes. Advanced " +
+              "lists what it waited on most. A step up in the line is the moment to look at."
+            }
+          >
             <span>kept by SQL Server over restarts</span>
-          </div>
+          </PanelHead>
           <LineChart
             title="Time per run, Query Store"
             format={(value) => formatSeconds(value)}
@@ -216,10 +298,17 @@ function Body({ query, advanced, engine, server }: BodyProps) {
       )}
 
       <section className="metric-panel" aria-labelledby="query-callers">
-        <div className="metric-panel-head">
-          <h2 id="query-callers">Who runs it</h2>
+        <PanelHead
+          id="query-callers"
+          name="Who runs it"
+          help={
+            "The programs and machines seen running the statement, each by its share of the " +
+            "Live tab's reads every 10 seconds that caught it. A statement that always " +
+            "finishes within 10 seconds may not be caught at all."
+          }
+        >
           <span>from the live view</span>
-        </div>
+        </PanelHead>
         {query.callers.length === 0 ? (
           <p className="metrics-empty">The live view did not see it run: it finishes within its 10 seconds.</p>
         ) : (
@@ -241,20 +330,35 @@ function Body({ query, advanced, engine, server }: BodyProps) {
       </section>
 
       <section className="metric-panel" aria-labelledby="query-text">
-        <div className="metric-panel-head">
-          <h2 id="query-text">The statement</h2>
-        </div>
+        <PanelHead
+          id="query-text"
+          name="The statement"
+          help={
+            "The statement's text as SQL Server reports it, which the other figures on this " +
+            "page measure. It can hold values from the application, so share it with care."
+          }
+        />
         <pre className="live-sql">{query.text}</pre>
       </section>
     </div>
   );
 }
 
-/** One number of the statement's totals. */
-function Stat({ label, value }: { label: string; value: string }) {
+/** Props for {@link Stat}. */
+interface StatProps {
+  /** What the number is. */
+  label: string;
+  /** What the number means, behind the question mark beside its name (VEY-60). */
+  help: string;
+  /** The number, formatted. */
+  value: string;
+}
+
+/** One number of the statement's totals, with a question mark that explains it. */
+function Stat({ label, help, value }: StatProps) {
   return (
     <div className="live-tile">
-      <span className="live-tile-label">{label}</span>
+      <TileName name={label} help={help} className="live-tile-label" />
       <b>{value}</b>
     </div>
   );

@@ -119,9 +119,12 @@ internal sealed class HomeSnapshotBuilder(
             resolved,
             blocks,
             new HomeMetricsResponse(ratio, records / _window.TotalSeconds, records, (int)_window.TotalSeconds, latency),
-            new HourlyResponse(observed.Buckets, expected.Hours, expected.DaysOfHistory),
+            HomeEstate.Totals(new HourlyResponse(observed.Buckets, expected.Hours, expected.DaysOfHistory)),
             LogStorageOutlook.From(usage),
-            disks);
+            disks)
+        {
+            Estate = HomeEstate.Build(blocks, disks, numbered),
+        };
     }
 
     private async Task<ExpectedLoad> ExpectedAsync(

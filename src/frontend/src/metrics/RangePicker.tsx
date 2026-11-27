@@ -1,32 +1,30 @@
-import type { MetricRange } from "../api/types";
-
-/** The ranges every metrics screen offers. */
-export const metricRanges: readonly MetricRange[] = ["1h", "6h", "24h", "7d"];
-
-/**
- * Reads a range from the URL, falling back to six hours.
- *
- * @param value - The `range` query parameter.
- * @returns A valid range.
- */
-export function rangeFrom(value: string | null): MetricRange {
-  return metricRanges.find((range) => range === value) ?? "6h";
-}
+import type { MetricPreset, MetricRange } from "../api/types";
+import { useTimeInBar } from "../app/shellContext";
+import { metricRanges } from "./metricRange";
 
 /** Props for {@link RangePicker}. */
 interface RangePickerProps {
-  /** The range shown. */
+  /** The range shown: a preset, or a window of the person's own, which presses none of the buttons. */
   value: MetricRange;
   /**
-   * Called when the person picks another range.
+   * Called when the person picks a preset.
    *
-   * @param range - The range.
+   * @param range - The preset.
    */
-  onChange(range: MetricRange): void;
+  onChange(range: MetricPreset): void;
 }
 
-/** One-click choices of the time range, as toggle buttons. */
+/**
+ * One-click choices of the shared time range (ADR 0022), as toggle buttons. Nothing is drawn where the shell's top bar
+ * chooses the range, so the page has one place to change it.
+ */
 export function RangePicker({ value, onChange }: RangePickerProps) {
+  const inBar = useTimeInBar();
+
+  if (inBar) {
+    return null;
+  }
+
   return (
     <div className="range-picker" role="group" aria-label="Time range">
       {metricRanges.map((range) => (

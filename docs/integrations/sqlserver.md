@@ -45,6 +45,71 @@ For SQL Servers the built-in agent cannot reach, such as those behind a company 
 add an agent for their network under **Settings → Agents** and install it there with one line; see
 [`agents.md`](agents.md#an-agent-in-another-network). Then choose it under **Read by**.
 
+### Named instances
+
+A server may name an instance, such as `sql01.corp.local\REPORTS`: type it so in the address, or give the instance on
+its own (ADR 0028). The agent then asks the SQL Server Browser on the server for the instance's port instead of using
+one, so **UDP 1434** must be open from the agent to the server, and the SQL Server Browser service must run there. An
+instance on a fixed port can instead be added by its port, without the instance's name.
+
+### Windows authentication
+
+Besides a SQL login and its password, the agent can sign in with Windows authentication:
+
+- **Windows (NTLM)**: a domain login, written `DOMAIN\name`, and its password, from an agent on any system. On Linux
+  the agent uses NTLM; on Windows it signs in with those credentials through Windows itself. Grant the domain login
+  what step 1 below grants, with `CREATE LOGIN [DOMAIN\name] FROM WINDOWS` in place of the SQL login.
+- **Windows (integrated)**: the account the agent's service runs as, with no login or password in Veyra. Only for an
+  agent on Windows, and only once it has reported its operating system. Run the agent's service as a domain account,
+  or as the machine account (`DOMAIN\MACHINE$`), and grant that account the same permissions.
+
+Azure SQL Managed Instance and Azure SQL Database sign in with SQL authentication.
+
+### Modules and intervals
+
+The template's reads come in modules, each switched on or off and timed per server (ADR 0028):
+
+| Module | Reads | Default | Choices |
+| --- | --- | --- | --- |
+| Core | the `sqlserver` receiver, the minute's queries (sizes, backup age, jobs' last runs, the longest request, each statement's time), the server | 15 s | 10 s, 15 s, 30 s, 1 min |
+| Activity and blocking | the live view's sessions | 10 s | 10 s, 15 s, 30 s, 1 min |
+| Queries | execution plans and Query Store | 15 min | 5 min, 15 min, 1 h |
+| Storage | databases, files, volumes, the log, integrity | 5 min | 1 min, 5 min, 15 min, 1 h |
+| Backups | every backup msdb records | 5 min | 1 min, 5 min, 15 min, 1 h |
+| Jobs | SQL Agent jobs, runs, and steps | 1 min | 30 s, 1 min, 5 min, 15 min |
+| Events | deadlocks and errors from system_health | 1 min | 30 s, 1 min, 5 min, 15 min |
+| Configuration | server and database settings | 1 h | 15 min, 1 h |
+| Indexes | index usage, missing indexes, fragmentation | 1 h | 15 min, 1 h |
+
+- **Core cannot be switched off.** The login's permissions are read every 5 minutes even with Storage off, so every
+  screen can still say why it is empty.
+- **One interval per module.** A module's other receivers keep their ratio to its first: Core at 30 seconds reads the
+  `sqlserver` receiver every 30 seconds and the minute's queries every 2 minutes. Each statement's time stays in Core,
+  since the integration page's active checks and the top queries need it every minute.
+- **At the defaults,** the agent reads exactly as the template says. A switched-off module's tabs say Veyra cannot read
+  them, as for a missing permission.
+
+### Test connection and Validate now
+
+The setup wizard's **Test connection** and the integration page's **Validate now** ask the agent itself (ADR 0028):
+Veyra adds a one-off read to the agent's configuration, the agent answers with the server's version, edition,
+platform, databases, and the permissions the login lacks, and Veyra removes the read again. It takes 30 to 60
+seconds, and fails after 2 minutes without an answer. The agent's Collector applies its configuration twice, which
+pauses its other reads for a few seconds each time; the wizard says so before it tests. The password of a test is
+encrypted while it runs and deleted when it finishes.
+
+### Template versions, Update, and Roll back
+
+The template carries its version in its header, such as `# veyra-template: sqlserver 0.2.0`, with the Collector it is
+tested with and the oldest SQL Server it reads. Veyra ships the current version and the one before it
+(`integrations/sqlserver/collector.0.1.0.yaml`). A new server takes the current version; a server added before
+versions existed is on 0.1.0, which reads exactly what it did.
+
+On the integration page, **Update** moves a server to the current version and **Roll back** to the previous one. The
+agent reads with it from its next poll, and the change is recorded in the settings history with both versions. Agent
+binaries do not change: they stay pinned to Veyra's release (ADR 0019). A server on a version Veyra no longer ships
+is read with the previous one.
+
 ## Azure SQL Managed Instance and Azure SQL Database
 
 Under **Kind**, the form also takes an Azure SQL Managed Instance or an Azure SQL Database (ADR 0020, VEY-57). The
@@ -188,7 +253,8 @@ part of a connection string; `p@ss` becomes `p%40ss`.
 | Databases: state, settings, log use, virtual log files, files, volumes; log and differential backups, the log chain, last good CHECKDB, damaged pages | `sqlserver.database.offline`, `sqlserver.log.*`, `sqlserver.file.size`, `sqlserver.volume.*`, `sqlserver.database.*` (`sqlquery/storage`) | 5 min |
 | Availability Groups: replicas, queues, lag, sync; log shipping; cluster nodes | `sqlserver.ag.*`, `sqlserver.logshipping.*`, `sqlserver.cluster.node.owner` (`sqlquery/server`) | 60 s |
 | SQL Agent: each job running now, next run, late, usual duration; runs and steps with their messages | `sqlserver.agent.job.*`, `sqlserver.job` rows (`sqlquery/jobs`) | 60 s |
-| The server: version, CPU of SQL Server and of others, runnable tasks, workers, memory, grants waiting, dumps, SQL Server Agent, restarts | `sqlserver.server.info`, `sqlserver.cpu.*`, `sqlserver.workers.ratio`, `sqlserver.memory.*`, `sqlserver.agent.stopped`, `sqlserver.server.*` (`sqlquery/server`) | 60 s |
+| The server: version, CPU of SQL Server and of others, runnable tasks, workers, memory, grants waiting, dumps, SQL Server Agent, restarts; the machine's memory and operating system | `sqlserver.server.info` (with `os_name`, `os_release`), `sqlserver.cpu.*`, `sqlserver.workers.ratio`, `sqlserver.memory.*`, `sqlserver.os.memory.*`, `sqlserver.agent.stopped`, `sqlserver.server.*` (`sqlquery/server`) | 60 s |
+| Backup history: each full, differential, and log backup with its start, finish, size, compressed size, copy-only, and device | `sqlserver.backup` rows (`sqlquery/backups`), kept as database activity | 5 min |
 | Indexes: missing, use, writes, size, keys, escalations; statistics age of large tables | `sqlserver.index` rows (`sqlquery/indexes`) | 1 h |
 | Query Store: each plan per interval, with waits; whether each database keeps it | `sqlserver.querystore` rows (`sqlquery/querystore`) | 15 min |
 | Deadlocks with their graphs, from `system_health` | `sqlserver.deadlock` rows (`sqlquery/events`) | 60 s |
@@ -240,7 +306,17 @@ part of a connection string; `p@ss` becomes `p%40ss`.
   catches a change), runnable tasks, the share of worker threads in use, memory, grants waiting, memory dumps of the
   last day, whether SQL Server Agent runs, a restart in the last 15 minutes, and whether the version is past its end
   of extended support. The Server tab compares batch requests with the same hour of the week over the last four
-  weeks, and the Waits tab explains the wait types with the most time.
+  weeks, and the Waits tab explains the wait types with the most time. It also names the machine (ADR 0025): its
+  physical memory (`sqlserver.os.memory.total`, from `sys.dm_os_sys_info`) and its operating system (`os_name` and
+  `os_release` on `sqlserver.server.info`, from `sys.dm_os_host_info`). Azure SQL Database has neither, so its
+  Overview shows neither.
+- **Backup history (ADR 0025).** Every 5 minutes `sqlquery/backups` reads `msdb.dbo.backupset`, with the device from
+  `msdb.dbo.backupmediafamily`, for the full, differential, and log backups that finished in the last 15 minutes, at
+  most 500, newest first. Each is sent as a `sqlserver.backup` row keyed by its `backup_set_id` and timed when it
+  finished, so Veyra keeps it once although three reads see it, for 90 days like the other records. The Backups tab
+  shows them, their time per day, a 7-day grid, and each database's freshness by the backup rules' thresholds. Azure
+  SQL Database and Managed Instance back up by themselves and keep no history to read, so their agents leave the read
+  out and the tab says so. The existing grants on `backupset` and `backupmediafamily` cover it.
 - **Indexes and statistics (ADR 0020).** Every hour `sqlquery/indexes` reads the missing indexes SQL Server noted and,
   per database, the 300 largest indexes with their reads and writes since SQL Server started, size, keys, included
   columns, and lock escalations, and the statistics of tables over 100,000 rows. Veyra turns them into advice with
@@ -306,7 +382,7 @@ Each rule has a switch and its levels on the **Settings** screen, under Alert ru
 | Version out of support | | out of support | upgraded |
 | Job running long: times its usual duration, per job, after 5 minutes | 2× | 4× | it finishes |
 | Job did not run: 15 minutes after its scheduled time, per job | | late | it runs |
-| Severe error: severity 20 and above, or 823/824, in 15 minutes | | 1 | none for 15 minutes |
+| Severe error: severity 20 and above, or 823/824, in 15 minutes, but not a client's broken connection | | 1 | none for 15 minutes |
 | Memory error in 15 minutes | | 1 | none for 15 minutes |
 | Failed logins and permission checks in 15 minutes | 10 | 50 | below caution |
 | Replica not healthy, per replica | | not healthy | healthy |
@@ -315,8 +391,47 @@ Each rule has a switch and its levels on the **Settings** screen, under Alert ru
 | Failover, per availability group | | in 15 minutes | 15 steady minutes |
 | Log shipping behind its threshold, per database | | behind | caught up |
 
+A client's connection that closed or broke while it logged in or sent a request (errors 4014, 17830, 17832, 17835,
+and 17836) is severity 20 too, but says nothing of the server: usually the client gave up or timed out. The severe
+error rule leaves them out, and the Events tab shows them as cautions. The details of a severe error, memory error, or
+failed logins alert list each error the rule counted, with its number, severity, and message (VEY-61).
+
 The backup rule leaves `tempdb` alone, and every database that has never had a full backup. Databases that are not
 backed up on purpose can be listed by name on the Settings screen.
+
+## The server's screen
+
+A SQL Server opens on its **Overview** (VEY-62): a weather card for each area (Live, Queries, Waits, Blocking,
+Databases, Jobs, Events, Server; in the Simple view only Simple's), worst first. An area's weather comes from the
+server's open alerts of the rules that belong to it, and its sentence from the worst of them, or from the server's
+figures when none is open. Each card opens its tab. The server's name in the bar at the top switches to another
+database server on the same tab, and the alert banner closes with ×. Tiles that lead somewhere say where: Blocked opens
+who blocks whom, the longest request and the oldest open transaction open their session, the Waits tab's Blocked and
+Deadlocks open the Blocking tab, and a finding under Needs doing opens its database.
+
+On a window 1800 px wide or more, the server's open alerts stand in a rail on the right instead of the banner
+(VEY-63): the worst first, each opening its details, with what it means and how to fix it. Closing the rail closes
+the banner too, until another alert opens.
+
+### System
+
+The **System** switch in the bar, off until you turn it on, shows what the server does for itself (VEY-64). Off,
+every tab lists the applications' work only, and says under the list how many system rows it hides. Veyra leaves
+them out on the server, before it cuts a list to its top rows (VEY-66), so msdb's history never takes the place of
+an application's index, and **Rank by** on the Queries tab finds the statement that reads or runs the most even when
+others took more time. The Live tab's filters are applied by the server too. What System hides:
+
+| Tab | Hidden while System is off |
+| --- | --- |
+| Queries, Overview | Statements in master, model, msdb, or tempdb, and statements that read only the catalog, DMVs, system tables, or server properties: SSMS's Object Explorer, change tracking's and Query Store's cleanup, other tools' checks |
+| Waits | Idle waits of background tasks, such as `XE_TIMER_EVENT` and `PWAIT_EXTENSIBILITY_CLEANUP_TASK` (the chart never showed them) |
+| Databases | master, model, msdb, and tempdb, with their findings under Needs doing and their indexes |
+| Jobs | Jobs SQL Server sets up itself: policy management, SSIS, the utility, the data collector, replication, mirroring |
+
+PostgreSQL hides `postgres`, `template0`, and `template1`, and catalog tables; its wraparound tile still counts every
+database. Alerts watch system rows either way, and a tab names a hidden database or job that has an alert open, such as
+"msdb has an open alert". The choice holds for every server and tab in this browser. Veyra reads a statement's text,
+not a parse tree, so an unusual one can land on the other side of the switch; nothing is lost, only listed apart.
 
 ## When a tab says Veyra cannot read it
 
@@ -348,7 +463,8 @@ On an idle server, such as one on a developer's machine, the Live and Blocking t
 run [`samples/sqlserver-workload`](../../samples/sqlserver-workload/README.md) for a few minutes: a blocking chain, a
 long query, and a deadlock each minute, all in a database of its own.
 
-To check a change to the configuration, run the same check as CI, which needs Docker and Node.js:
+To check a change to the configuration, run the same check as CI, which needs Docker and Node.js. It also runs the
+connection probe of `probe.yaml` against the server and checks the template's version header:
 
 ```bash
 bash integrations/sqlserver/test/run.sh

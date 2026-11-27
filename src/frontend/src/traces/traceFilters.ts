@@ -1,15 +1,42 @@
 import type { AttributeFilter } from "../logs/logFilters";
 
 /** The time ranges offered as one-click choices, counted back from now. Traces keep 7 days (ADR 0014). */
-export const traceRanges = ["15m", "1h", "6h", "24h", "7d"] as const;
+export const traceRanges = ["15m", "1h", "6h", "24h", "7d", "30d"] as const;
 
 /** One of the {@link traceRanges}. */
 export type TraceRange = (typeof traceRanges)[number];
 
-/** Which traces to show: all, those whose request failed, or those as slow as the slowest 5%. */
-export type TraceShow = "all" | "failed" | "slow";
+/**
+ * Which traces to show: all, those whose request failed, those as slow as the slowest 5%, or those that are both
+ * (ADR 0029).
+ */
+export type TraceShow = "all" | "failed" | "slow" | "failed-slow";
 
-const rangeMinutes: Record<TraceRange, number> = { "15m": 15, "1h": 60, "6h": 360, "24h": 1440, "7d": 10080 };
+/** The order of the list (ADR 0029): newest first, or worst first, failed and then the slowest. */
+export type TraceOrder = "newest" | "worst";
+
+/** A trace ID as people paste it: 32 hexadecimal characters. */
+const traceIdPattern = /^[0-9a-f]{32}$/i;
+
+/**
+ * Whether text typed into a trace search is a trace ID to open rather than a name to filter by.
+ *
+ * @param text - What the person typed.
+ * @returns True for 32 hexadecimal characters, spaces around them aside.
+ */
+export function isTraceId(text: string): boolean {
+  return traceIdPattern.test(text.trim());
+}
+
+// Traces are kept 7 days, so the last 30 days show what is kept (ADR 0022).
+const rangeMinutes: Record<TraceRange, number> = {
+  "15m": 15,
+  "1h": 60,
+  "6h": 360,
+  "24h": 1440,
+  "7d": 10_080,
+  "30d": 43_200,
+};
 
 /** Everything a person can filter the trace list by. */
 export interface TraceFilters {
@@ -31,11 +58,13 @@ export interface TraceFilters {
   from: string | null;
   /** The end of that window. */
   to: string | null;
+  /** The order the server lists the traces in. */
+  order: TraceOrder;
 }
 
-/** The view a person sees first: the last hour, every trace. */
+/** The view a person sees first: the last 24 hours, as every screen opens (ADR 0022), every trace. */
 export const defaultTraceFilters: TraceFilters = {
-  range: "1h",
+  range: "24h",
   show: "all",
   services: [],
   minMs: null,
@@ -44,6 +73,7 @@ export const defaultTraceFilters: TraceFilters = {
   attributes: [],
   from: null,
   to: null,
+  order: "newest",
 };
 
 /**
@@ -66,9 +96,11 @@ export function traceWindow(filters: TraceFilters, now: Date): { from: Date; to:
  * understand falls back to the default.
  *
  * @param params - The query string of the address.
+ * @param order - The order when the address names none: newest first, or worst first on a screen that opens on it.
  * @returns The filters.
  */
-export function filtersFromSearch(params: URLSearchParams): TraceFilters {
+export function filtersFromSearch(params: URLSearchParams, order: TraceOrder = "newest"): TraceFilters {
+  const named = params.get("order");
   const range = params.get("range");
   const show = params.get("show");
   const number = (name: string) => {
@@ -82,7 +114,7 @@ export function filtersFromSearch(params: URLSearchParams): TraceFilters {
 
   return {
     range: traceRanges.includes(range as TraceRange) ? (range as TraceRange) : defaultTraceFilters.range,
-    show: show === "failed" || show === "slow" ? show : "all",
+    show: show === "failed" || show === "slow" || show === "failed-slow" ? show : "all",
     services: params.getAll("service"),
     minMs: number("min"),
     maxMs: number("max"),
@@ -93,6 +125,7 @@ export function filtersFromSearch(params: URLSearchParams): TraceFilters {
       .filter((attribute) => attribute.key.length > 0),
     from: picked ? from : null,
     to: picked ? to : null,
+    order: named === "worst" || named === "newest" ? named : order,
   };
 }
 
@@ -100,9 +133,10 @@ export function filtersFromSearch(params: URLSearchParams): TraceFilters {
  * Writes the filters into the address, leaving defaults out so a plain view keeps a plain address.
  *
  * @param filters - What the person chose.
+ * @param order - The screen's own default order, which the address leaves out.
  * @returns The query string.
  */
-export function filtersToSearch(filters: TraceFilters): URLSearchParams {
+export function filtersToSearch(filters: TraceFilters, order: TraceOrder = "newest"): URLSearchParams {
   const params = new URLSearchParams();
 
   if (filters.range !== defaultTraceFilters.range) {
@@ -134,6 +168,10 @@ export function filtersToSearch(filters: TraceFilters): URLSearchParams {
     params.set("to", filters.to);
   }
 
+  if (filters.order !== order) {
+    params.set("order", filters.order);
+  }
+
   return params;
 }
 
@@ -163,12 +201,17 @@ export function filtersToApiParams(
     params.set("environment", environment);
   }
 
-  if (filters.show === "failed") {
+  if (filters.show === "failed" || filters.show === "failed-slow") {
     params.set("failed", "true");
   }
 
-  if (filters.show === "slow") {
+  if (filters.show === "slow" || filters.show === "failed-slow") {
     params.set("slow", "true");
+  }
+
+  // Newest first is the server's own order, so only worst first is asked for (ADR 0029).
+  if (filters.order === "worst") {
+    params.set("order", "worst");
   }
 
   if (filters.minMs !== null) {

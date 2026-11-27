@@ -42,6 +42,21 @@ public class HomeEndpointTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task GetEnvironments_Search_ListsTheEnvironmentsThatHoldIt()
+    {
+        await using var factory = await VeyraApiFactory.CreateAsync(postgres);
+        using var admin = await factory.CreateAdminClientAsync();
+        await WriteAsync(factory, Records("orders", total: 3, errors: 0));
+
+        var all = await admin.GetFromJsonAsync<Choices>("/api/v1/home/environments");
+        var none = await admin.GetFromJsonAsync<Choices>("/api/v1/home/environments?search=staging");
+
+        Assert.Equal(("Clear", "production"), (all!.All!.Condition, Assert.Single(all.Environments).Name));
+        Assert.Null(none!.All);
+        Assert.Empty(none.Environments);
+    }
+
+    [Fact]
     public async Task GetHome_AfterTheErrorRateRuleFires_IsStormWithNumberedAlert()
     {
         await using var factory = await VeyraApiFactory.CreateAsync(postgres);
@@ -117,4 +132,8 @@ public class HomeEndpointTests(PostgresFixture postgres)
     private sealed record Hourly(List<LogBucket> Observed);
 
     private sealed record Storage(long UsedBytes);
+
+    private sealed record Choices(AllChoice? All, List<Environment> Environments);
+
+    private sealed record AllChoice(string Condition);
 }

@@ -23,7 +23,7 @@ internal static class LogCountPlan
     /// <param name="bucketSize">The histogram's bucket width, or <see langword="null"/> for one total.</param>
     /// <param name="countable">
     /// Whether the counts hold the query's filters: they do for time, severity, service, and environment, not for
-    /// words, attributes, or a trace.
+    /// words, phrases, attributes, a trace, or a host.
     /// </param>
     /// <param name="uncounted">UTC days whose counts are incomplete, because the backfill has not reached them.</param>
     /// <returns>Adjacent segments that together cover the window exactly once.</returns>

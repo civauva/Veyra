@@ -104,13 +104,16 @@ beforeEach(() => {
       { name: "payments-gateway", count: 4812 },
       { name: "orders-api", count: 1650 },
     ],
+    // The server adds up the window (VEY-68).
+    total: 3118,
+    errors: 42,
   });
 });
 
 afterEach(() => vi.useRealTimers());
 
 describe("LogExplorer", () => {
-  it("shows the newest records of the last hour with the total from the summary", async () => {
+  it("shows the newest records of the last 24 hours with the total from the summary", async () => {
     renderExplorer();
 
     expect(await screen.findByRole("button", { name: /Payment declined by PSP/ })).toBeInTheDocument();
@@ -119,7 +122,16 @@ describe("LogExplorer", () => {
 
     const params = lastParams(api.searchLogs);
     const window = Date.parse(params.get("to") ?? "") - Date.parse(params.get("from") ?? "");
-    expect(window).toBe(60 * 60_000);
+    expect(window).toBe(24 * 60 * 60_000);
+  });
+
+  it("has the bar with its name and the view toggle", async () => {
+    renderExplorer();
+
+    const trail = await screen.findByRole("navigation", { name: "Where you are" });
+    expect(within(trail).getByText("Logs")).toHaveAttribute("aria-current", "page");
+    expect(within(trail.parentElement as HTMLElement).getByRole("group", { name: "View" })).toBeInTheDocument();
+    expect(screen.getAllByRole("group", { name: "View" })).toHaveLength(1);
   });
 
   it("shows the records without waiting for the counts", async () => {
@@ -135,6 +147,32 @@ describe("LogExplorer", () => {
     renderExplorer();
 
     expect(await screen.findByRole("img", { name: /3,118 records, 42 errors/ })).toBeInTheDocument();
+  });
+
+  it("explains the histogram and the filters with a question mark", async () => {
+    const user = userEvent.setup();
+    renderExplorer();
+
+    await user.click(await screen.findByRole("button", { name: "What Records over time means" }));
+
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/Error or worse/);
+    expect(screen.getByRole("button", { name: "What At least means" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "What Services means" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "At least" })).toBeInTheDocument();
+  });
+
+  it("explains a record's attributes, resource, and trace with a question mark", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("veyra.view", "advanced");
+    renderExplorer();
+
+    await user.click(await screen.findByRole("button", { name: /Payment declined by PSP/ }));
+
+    const detail = screen.getByRole("region", { name: "Selected record" });
+    expect(within(detail).getByRole("button", { name: "What Attributes means" })).toBeInTheDocument();
+    expect(within(detail).getByRole("button", { name: "What Trace means" })).toBeInTheDocument();
+    await user.click(within(detail).getByRole("button", { name: "What Resource means" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/service.name/);
   });
 
   it("filters by minimum severity and keeps the choice in the URL", async () => {

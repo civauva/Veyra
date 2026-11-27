@@ -1,0 +1,584 @@
+/*
+ * The Overview (VEY-69, reference screenshot 5): a strip of figures, then rows of panels. Dense, as the mockups draw
+ * it; colours come from the tokens, so each look's own apply.
+ */
+
+.ov {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 8px clamp(12px, 2.4vw, 20px) 28px;
+  overflow-y: auto;
+}
+
+/* The screen scrolls; its parts keep their height instead of shrinking into each other. */
+.ov > * {
+  flex-shrink: 0;
+}
+
+.ov-head h1 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.2px;
+}
+
+.ov-head p {
+  margin: 3px 0 0;
+  color: var(--muted);
+}
+
+.ov-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ov-pill.ok {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+}
+
+.ov-pill.warn {
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+}
+
+.ov-pill.bad {
+  background: var(--error-bg);
+  color: var(--error-fg);
+}
+
+.ov-pill.info {
+  background: color-mix(in srgb, var(--info-fg) 14%, transparent);
+  color: var(--info-fg);
+}
+
+.ov-pill.off {
+  background: var(--chip);
+  color: var(--muted);
+}
+
+.ov-error {
+  margin: 0;
+  color: var(--error-fg);
+}
+
+/* ---- The figures ---- */
+
+.ov-figures {
+  min-height: 96px;
+  display: grid;
+  /* Eight figures: one row on a desktop, two rows of four on a tablet, so none is left alone on a row. */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (min-width: 1280px) {
+  .ov-figures {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+}
+
+.ov-figure {
+  position: relative;
+  min-width: 0;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  transition: border-color 0.15s;
+}
+
+/* A tile opens the screen behind its figure (VEY-82): its name is the link, stretched over the whole tile, and its
+   question mark stays above it. */
+.ov-figure-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Above the tile's own drawings, such as its small line, which are positioned too. */
+.ov-figure-link::after {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  border-radius: inherit;
+  content: "";
+}
+
+.ov-figure-link:focus-visible {
+  outline: none;
+}
+
+.ov-figure:has(.ov-figure-link:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.ov-figure button {
+  position: relative;
+  z-index: 2;
+}
+
+.ov-figure:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+}
+
+.ov-figure:hover .ov-figure-link {
+  color: var(--fg);
+}
+
+.ov-figure.warn {
+  border-color: color-mix(in srgb, var(--warning-fg) 40%, transparent);
+}
+
+.ov-figure.bad {
+  border-color: color-mix(in srgb, var(--error-fg) 45%, transparent);
+  background: linear-gradient(180deg, var(--error-bg), var(--panel) 70%);
+}
+
+.ov-figure-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.ov-figure-value {
+  margin-top: 3px;
+  font-size: 23px;
+  font-weight: 650;
+  letter-spacing: -0.4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-figure-value small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.ov-figure-detail {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.ov-good {
+  color: var(--ok-fg);
+}
+
+.ov-bad {
+  color: var(--error-fg);
+}
+
+.ov-flat {
+  color: var(--muted);
+}
+
+.ov-warn {
+  color: var(--warning-fg);
+}
+
+.ov-none {
+  color: var(--faint);
+}
+
+.ov-figure-line {
+  width: calc(100% + 24px);
+  height: 26px;
+  margin: 6px -12px -12px;
+}
+
+/* ---- Rows of panels ---- */
+
+/* The rows of panels share the screen's height below the figures, each at least as tall as its content needs, so a
+   large screen has no empty band at the foot and its charts and lists have room to grow (VEY-81). */
+.ov > .ov-row {
+  flex: 1 0 0;
+}
+
+.ov-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.ov-row-wide {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 1fr);
+}
+
+.ov-panel {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--panel);
+}
+
+.ov-panel > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.ov-panel h2 {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+/* A panel's title opens the screen with its details (VEY-82). */
+.ov-panel-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 4px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.ov-panel-chevron {
+  color: var(--faint);
+  font-size: 15px;
+  line-height: 1;
+  transition:
+    color 0.15s,
+    transform 0.15s;
+}
+
+.ov-panel-link:hover,
+.ov-panel.whole:hover .ov-panel-link {
+  color: var(--accent);
+}
+
+.ov-panel-link:hover .ov-panel-chevron,
+.ov-panel.whole:hover .ov-panel-chevron {
+  color: var(--accent);
+  transform: translateX(2px);
+}
+
+.ov-panel-link:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* A chart's panel opens from anywhere on it: the title's link covers the panel, and the question mark stays above. */
+.ov-panel.whole {
+  position: relative;
+  transition: border-color 0.15s;
+}
+
+/* Above the chart, whose drawing is positioned in its plot. */
+.ov-panel.whole .ov-panel-link::after {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  border-radius: 11px;
+  content: "";
+}
+
+.ov-panel.whole header button {
+  position: relative;
+  z-index: 2;
+}
+
+.ov-panel.whole:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+}
+
+.ov-meta {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: 11.5px;
+}
+
+.ov-body {
+  flex: 1;
+  padding: 12px 14px;
+}
+
+.ov-body.flush {
+  padding: 0;
+}
+
+.ov-panel > footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 14px;
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+}
+
+.ov-panel > footer a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.ov-panel > footer a:hover {
+  text-decoration: underline;
+}
+
+.ov-empty {
+  margin: 0;
+  padding: 16px 14px;
+  color: var(--muted);
+}
+
+/* ---- Needs attention ---- */
+
+.ov-needs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ov-needs li {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 2px 10px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.ov-needs li:last-child {
+  border-bottom: 0;
+}
+
+.ov-n {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ov-needs .bad .ov-n {
+  background: var(--error-bg);
+  color: var(--error-fg);
+}
+
+.ov-needs-what {
+  min-width: 0;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.ov-needs-what b {
+  display: block;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ov-needs-what small,
+.ov-needs-value small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ov-needs-what:hover b {
+  color: var(--accent);
+}
+
+.ov-needs-value {
+  text-align: right;
+}
+
+.ov-needs-value b {
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-needs-why {
+  grid-column: 2 / 4;
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ov-needs-why a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+/* ---- Charts ---- */
+
+/* A chart's panel lays it out as a column, so the chart fills a panel made taller by its row. */
+.ov-body:has(> .ov-chart, > .ov-bars) {
+  display: flex;
+  flex-direction: column;
+}
+
+.ov-chart,
+.ov-bars {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0;
+  padding: 12px 14px;
+}
+
+.ov-bars svg {
+  display: block;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 170px;
+}
+
+.ov-axis {
+  display: flex;
+  justify-content: space-between;
+  color: var(--faint);
+  font-size: 10px;
+}
+
+.ov-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 6px 0 4px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.ov-legend i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 5px;
+  border-radius: 3px;
+  vertical-align: -1px;
+}
+
+/* ---- Tables ---- */
+
+.ov-scroll {
+  overflow-x: auto;
+}
+
+.ov-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.ov-table th {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--faint);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.7px;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ov-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.ov-table tr:last-child td {
+  border-bottom: 0;
+}
+
+/* A row opens from anywhere on it: its name's link covers the row (VEY-82). */
+.ov-table tbody tr {
+  position: relative;
+}
+
+.ov-table tbody tr:hover td {
+  background: var(--chip);
+}
+
+.ov-name::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+}
+
+.ov-table tbody tr:hover .ov-name {
+  color: var(--accent);
+}
+
+.ov-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-name {
+  display: inline-block;
+  max-width: 150px;
+  overflow: hidden;
+  color: var(--fg);
+  font-weight: 500;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+.ov-name:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/* The rows with tables need about 460 pixels a table to show every column: below a wide screen, two panels side by
+   side and the third across the row, as on a tablet. */
+@media (min-width: 720px) and (max-width: 1919px) {
+  .ov-row-tables {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ov-row-tables > :last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Tablets: two panels a row, the widest on its own. Phones: one. */
+@media (max-width: 1279px) {
+  .ov-row,
+  .ov-row-wide {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ov-row > :last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 719px) {
+  .ov-row,
+  .ov-row-wide {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ov-figures {
+    grid-template-columns: 1fr 1fr;
+  }
+}

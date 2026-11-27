@@ -12,8 +12,11 @@ namespace Veyra.Query.Live.Api;
 /// <param name="At">The moment asked for, or <see langword="null"/> for now.</param>
 /// <param name="Tiles">The numbers at the top.</param>
 /// <param name="Findings">What Veyra found, the worst first; one <c>ok</c> finding when nothing is wrong.</param>
-/// <param name="Blocking">The blocking chains, head blockers first, the one with the most waiting first.</param>
-/// <param name="Sessions">The busy sessions, the longest running first.</param>
+/// <param name="Blocking">
+/// The blocking chains, head blockers first, the one with the most waiting first; with a filter, those with a session
+/// that meets it.
+/// </param>
+/// <param name="Sessions">The busy sessions, the longest running first; with a filter, those that meet it.</param>
 /// <param name="Waits">Every wait type the sessions wait on, explained.</param>
 public sealed record LiveResponse(
     string Engine,
@@ -26,4 +29,17 @@ public sealed record LiveResponse(
     IReadOnlyList<FindingResponse> Findings,
     IReadOnlyList<BlockingNodeResponse> Blocking,
     IReadOnlyList<LiveSessionResponse> Sessions,
-    IReadOnlyDictionary<string, WaitTermResponse> Waits);
+    IReadOnlyDictionary<string, WaitTermResponse> Waits)
+{
+    /// <summary>
+    /// The sessions of the listed chains that do not meet the filter, so a chain can still say who blocks whom; empty
+    /// without a filter, when every session is in <see cref="Sessions"/>.
+    /// </summary>
+    public IReadOnlyList<LiveSessionResponse> Chained { get; init; } = [];
+
+    /// <summary>
+    /// The sessions of <see cref="Sessions"/> with a request running now, the longest first, for the Running panel
+    /// (VEY-68).
+    /// </summary>
+    public IReadOnlyList<LiveSessionResponse> Running => [.. Sessions.Where(session => session.Status != "sleeping")];
+}

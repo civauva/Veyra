@@ -1,0 +1,116 @@
+/* The plain job screens every look shows by default (ADR 0027). The Console look draws its own. */
+
+.jobs {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 16px clamp(12px, 3vw, 28px) 32px;
+}
+
+.jobs h1 {
+  margin: 0;
+}
+
+.jobs h2 {
+  margin: 12px 0 0;
+  font-size: 16px;
+}
+
+.jobs-lead {
+  margin: 0;
+  color: var(--muted);
+}
+
+.jobs-lead a,
+.jobs-links a {
+  color: var(--accent);
+}
+
+.jobs-error {
+  margin: 0;
+  color: var(--error-fg);
+}
+
+.jobs-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.jobs-find {
+  min-width: 0;
+  flex: 1 1 220px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--fg);
+  font: inherit;
+}
+
+.jobs-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin: 0;
+}
+
+.jobs-facts dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.jobs-facts dd {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.jobs-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.jobs-list li {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--ok-fg);
+  border-radius: 8px;
+  background: var(--panel);
+  overflow-wrap: anywhere;
+}
+
+.jobs-list li.failed {
+  border-left-color: var(--error-fg);
+}
+
+.jobs-list li.running {
+  border-left-color: var(--info-fg);
+}
+
+.jobs-list a {
+  color: var(--fg);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.jobs-list small {
+  color: var(--muted);
+}
+
+.jobs-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
+.jobs-list .jobs-links a {
+  color: var(--accent);
+  font-weight: 500;
+}

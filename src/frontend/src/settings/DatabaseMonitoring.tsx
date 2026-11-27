@@ -4,6 +4,8 @@ import { Link } from "react-router";
 import { databasePath } from "../alerts/ruleWords";
 import { api } from "../api/client";
 import type { Agent, MonitoredServer, PostgresServer, SqlServer } from "../api/types";
+import { integrationPath } from "../integrations/integrationWords";
+import { HelpTip } from "../ui/HelpTip";
 import { DatabaseIcon } from "../metrics/MetricCards";
 import { AgentStrip } from "./AgentStrip";
 import { platformLabels, readerOf, serverExplanation, serverStateWords, type ServerEngine } from "./monitoringFormat";
@@ -74,6 +76,15 @@ function ServerCard({ server, engine, kind, agents, now, removing, onEdit, onAsk
         {server.state === "Receiving" && (
           <Link className="button small" to={databasePath(block)}>
             Open
+          </Link>
+        )}
+        {engine === "SqlServer" && (
+          <Link
+            className="button small quiet"
+            to={integrationPath(server.id)}
+            aria-label={`Package page of ${server.name}`}
+          >
+            Package
           </Link>
         )}
         <button type="button" className={`button small${words.tone === "bad" ? "" : " quiet"}`} onClick={onEdit}>
@@ -183,6 +194,10 @@ export function DatabaseMonitoring() {
             <DatabaseIcon size={16} />
             PostgreSQL <small>{loaded ? postgres.length : "…"}</small>
           </span>
+          <HelpTip label="Database servers">
+            Each card below is a server an agent reads. Its chip says how that stands: Receiving means its figures
+            arrive, and a red one needs you, with what to do on the card. Open shows the server&apos;s database screen.
+          </HelpTip>
         </div>
         <div className="monitor-adds">
           <button
@@ -238,6 +253,11 @@ export function DatabaseMonitoring() {
       <div className="monitor-card monitor-rules">
         <div>
           <b>Alerts for these servers</b>
+          <HelpTip label="Alerts for these servers">
+            Built-in rules judge every server above and open alerts on it. Blocking and Deadlocks watch sessions waiting
+            on each other, Long query the longest running query, Backup age the last full backup, and SQL Agent jobs any
+            job whose last run failed. Connections and Wraparound are for PostgreSQL.
+          </HelpTip>
           <p>Built-in rules judge every server above. Their levels are under Alert rules.</p>
         </div>
         <div className="monitor-chips">

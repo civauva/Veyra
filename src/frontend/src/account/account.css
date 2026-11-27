@@ -8,14 +8,14 @@
   padding: 28px max(24px, calc((100% - 1040px) / 2)) 40px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: var(--gap-panel);
   box-sizing: border-box;
 }
 
 .account-grid {
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
-  gap: 16px;
+  gap: min(16px, var(--gap-panel));
   align-items: start;
 }
 
@@ -24,9 +24,9 @@
   flex-direction: column;
   gap: 14px;
   min-width: 0;
-  padding: 20px 22px;
+  padding: calc(var(--pad-panel) + 2px) calc(var(--pad-panel) + 4px);
   border: 1px solid var(--line);
-  border-radius: 22px;
+  border-radius: var(--radius-sheet);
   background: var(--panel);
   box-sizing: border-box;
 }
@@ -38,6 +38,13 @@
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+}
+
+/* A panel's heading with the question mark that explains it (VEY-60), in the heading's colour. */
+.account-panel-head {
+  display: flex;
+  align-items: center;
+  color: var(--faint);
 }
 
 .account-full {
@@ -294,7 +301,7 @@
 .account-info {
   margin: 0;
   padding: 12px 14px;
-  border-radius: 14px;
+  border-radius: var(--radius-tile);
   border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
   background: color-mix(in srgb, var(--accent) 9%, var(--panel));
   font-size: 13.5px;
@@ -304,7 +311,7 @@
 .account-done {
   margin: 0;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: var(--ok-bg);
   color: var(--ok-fg);
   font-size: 13px;
@@ -388,4 +395,108 @@
     height: 56px;
     font-size: 19px;
   }
+}
+
+/* ---- Look (VEY-71): the look of the whole app, as small pictures to pick from ---- */
+
+.look-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: min(12px, var(--radius-tile));
+  background: var(--chip);
+  color: var(--muted);
+}
+
+.look-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.look-option {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 6px;
+  padding: 10px 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: min(16px, var(--radius-panel));
+  background: var(--panel-2);
+  cursor: pointer;
+}
+
+.look-option.on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.look-option:has(input:disabled) {
+  cursor: default;
+}
+
+.look-option:has(input:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.look-option input {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  z-index: 1;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+/* Each look in miniature, drawn with gradients so it needs no picture: Console's panels, Forecast's sky. */
+.look-preview {
+  height: 96px;
+  border-radius: 10px;
+}
+
+.look-preview-console {
+  background:
+    linear-gradient(90deg, #0a141c 0 16%, transparent 16%),
+    repeating-linear-gradient(90deg, transparent 0 18%, #0e1922 18% 33%, transparent 33% 34%) 0 14px / 100% 22px
+      no-repeat,
+    linear-gradient(#0e1922, #0e1922) 20% 46px / 36% 40px no-repeat,
+    linear-gradient(#0e1922, #0e1922) 60% 46px / 36% 40px no-repeat,
+    linear-gradient(135deg, #081017, #0b1a22);
+  box-shadow: inset 0 0 0 1px rgba(45, 212, 180, 0.35);
+}
+
+.look-preview-forecast {
+  background:
+    radial-gradient(circle at 24% 38%, #ffc555 0 10%, transparent 11%),
+    linear-gradient(160deg, #3a62d6, #20357a 55%, #0b1022);
+}
+
+.look-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 2px;
+}
+
+.look-name small {
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--chip);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.look-words {
+  padding-left: 2px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.look-reset {
+  align-self: flex-start;
+}
+
+.look-error {
+  margin: 0;
+  color: var(--error-fg);
 }

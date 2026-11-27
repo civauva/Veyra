@@ -1,0 +1,430 @@
+/*
+ * Console's Settings (VEY-79, ADR 0029): the sections at the left, panels of rows, the look cards with their small
+ * pictures, and the save bar that stays at the foot of the view. Colours come from the tokens, so light and dark both
+ * apply; the pictures keep the dark colours of the looks they show.
+ */
+
+.st-tools {
+  flex-wrap: nowrap;
+}
+
+.st-tools .cn-find {
+  flex: 0 1 260px;
+  min-width: 140px;
+  height: 32px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.st-body {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.st-nav {
+  position: sticky;
+  top: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.st-nav a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.st-nav a:hover {
+  background: var(--chip);
+  color: var(--fg);
+}
+
+.st-nav a.on {
+  background: var(--selected);
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.st-count {
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--accent-fg, #04221c);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.cn-filter.st-pick {
+  display: none;
+}
+
+.st-content {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.st-intro {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  color: var(--muted);
+}
+
+.st-intro b {
+  color: var(--fg);
+}
+
+.st-status {
+  margin: 0;
+  color: var(--ok-fg);
+}
+
+.st-toggle {
+  margin-left: auto;
+}
+
+.cn-meta + .st-toggle {
+  margin-left: 8px;
+}
+
+.st-rows {
+  display: grid;
+}
+
+.st-row {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 8px 24px;
+  align-items: start;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.st-rows .st-row:last-child {
+  border-bottom: 0;
+}
+
+.st-row.changed {
+  box-shadow: inset 3px 0 0 var(--warning-fg);
+}
+
+.st-row-text {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.st-row-text label,
+.st-row-text b {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.st-row-text span {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.st-row-control {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  min-width: 0;
+}
+
+.st-row-control select,
+.st-row-control > input {
+  height: 32px;
+  max-width: 100%;
+  padding: 0 10px;
+  border: 1px solid var(--cn-line-2);
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--fg);
+  font: inherit;
+}
+
+.st-system dd {
+  display: grid;
+  justify-items: end;
+}
+
+.st-source {
+  color: var(--faint);
+  font-size: 11px;
+}
+
+/* ---- The look cards ---- */
+
+.st-looks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.st-look-row {
+  grid-template-columns: minmax(0, 0.45fr) minmax(0, 1.55fr);
+  border-bottom: 0;
+}
+
+.st-look {
+  display: grid;
+  gap: 6px;
+  padding: 0 0 12px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  cursor: pointer;
+}
+
+.st-look.on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.st-look:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.st-look-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 0;
+}
+
+.st-look-name input {
+  accent-color: var(--accent);
+}
+
+.st-look-name .cn-pill {
+  margin-left: auto;
+}
+
+.st-look-words {
+  padding: 0 12px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.st-shot {
+  position: relative;
+  height: 150px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--line);
+}
+
+.st-console {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  background: #081017;
+}
+
+.st-console-menu {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  padding: 8px 7px;
+  border-right: 1px solid rgba(160, 200, 220, 0.1);
+  background: #0a141c;
+}
+
+.st-console-menu i {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(160, 200, 220, 0.2);
+}
+
+.st-console-page {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 5px;
+  padding: 8px;
+}
+
+.st-console-figures,
+.st-console-panels,
+.st-console-tables {
+  display: grid;
+  gap: 4px;
+}
+
+.st-console-figures {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.st-console-panels {
+  grid-template-columns: 1fr 1.5fr 1fr;
+}
+
+.st-console-tables {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.st-console i {
+  display: block;
+  border: 1px solid rgba(160, 200, 220, 0.12);
+  border-radius: 4px;
+  background: #0e1922;
+}
+
+.st-console-figures i {
+  height: 22px;
+}
+
+.st-console-figures i.bad {
+  border-color: rgba(248, 113, 113, 0.55);
+}
+
+.st-console-panels i {
+  height: 36px;
+}
+
+.st-console-tables i {
+  background: repeating-linear-gradient(#0e1922 0 7px, rgba(160, 200, 220, 0.08) 7px 8px);
+}
+
+.st-console .st-console-menu i {
+  height: 4px;
+  border: 0;
+  background: rgba(160, 200, 220, 0.2);
+}
+
+.st-forecast {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 14px;
+  background: linear-gradient(160deg, #20357a, #0b1022 70%);
+  color: #eceff8;
+}
+
+.st-forecast small {
+  font-size: 10px;
+  opacity: 0.7;
+  text-transform: uppercase;
+}
+
+.st-forecast b {
+  font-size: 24px;
+  font-weight: 650;
+}
+
+.st-forecast-hours {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  align-items: end;
+  gap: 8px;
+  height: 40px;
+  margin-top: 10px;
+}
+
+.st-forecast-hours i {
+  width: 6px;
+  justify-self: center;
+  border-radius: 3px;
+  background: #7fb2ff;
+}
+
+.st-forecast-hours i.bad {
+  background: #ff8a80;
+}
+
+/* ---- The save bar ---- */
+
+.st-savebar {
+  position: sticky;
+  bottom: 12px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 11px;
+  background: var(--panel);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25);
+}
+
+.st-savebar-text {
+  min-width: 0;
+  flex: 1 1 240px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+.st-savebar-text ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  margin: 0;
+  padding: 0;
+  color: var(--muted);
+  list-style: none;
+}
+
+.st-savebar-text li::before {
+  content: "· ";
+}
+
+@media (max-width: 1023px) {
+  .st-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .st-nav {
+    display: none;
+  }
+
+  .cn-filter.st-pick {
+    display: inline-flex;
+    justify-self: start;
+  }
+
+  .st-look-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 719px) {
+  .st-tools {
+    flex-wrap: wrap;
+  }
+
+  .st-tools .cn-find {
+    flex: 1 1 100%;
+  }
+
+  .st-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .st-looks {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .st-shot {
+    height: 120px;
+  }
+}

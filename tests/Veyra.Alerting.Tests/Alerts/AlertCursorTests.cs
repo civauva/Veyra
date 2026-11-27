@@ -13,6 +13,18 @@ public class AlertCursorTests
         Assert.Equal(cursor, decoded);
     }
 
+    [Fact]
+    public void Encode_WorstFirstCursor_ThenTryDecode_KeepsTheSeverity()
+    {
+        var cursor = new AlertCursor(
+            new DateTimeOffset(2026, 11, 10, 7, 34, 12, TimeSpan.Zero),
+            Guid.CreateVersion7(),
+            Veyra.Core.Alerts.AlertSeverity.Warning);
+
+        Assert.True(AlertCursor.TryDecode(cursor.Encode(), out var decoded));
+        Assert.Equal(cursor, decoded);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("not base64!")]

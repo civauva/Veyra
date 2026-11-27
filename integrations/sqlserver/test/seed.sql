@@ -1,5 +1,5 @@
--- The monitoring login with exactly the permissions docs/integrations/sqlserver.md lists, a database with a full
--- backup, one without, and two SQL Agent jobs: one that fails and one that succeeds.
+-- The monitoring login with exactly the permissions docs/integrations/sqlserver.md lists, a database with a full,
+-- a differential, and a log backup, one without, and two SQL Agent jobs: one that fails and one that succeeds.
 CREATE LOGIN veyra_monitor WITH PASSWORD = '$(MONITOR_PASSWORD)';
 GRANT VIEW SERVER STATE TO veyra_monitor;
 GRANT VIEW ANY DEFINITION TO veyra_monitor;
@@ -33,7 +33,10 @@ SELECT TOP (5000) ABS(CHECKSUM(NEWID())) % 100, N'new'
 FROM sys.all_objects AS a CROSS JOIN sys.all_objects AS b;
 GO
 
+ALTER DATABASE shop SET RECOVERY FULL;
 BACKUP DATABASE shop TO DISK = N'/var/opt/mssql/data/shop.bak' WITH INIT;
+BACKUP DATABASE shop TO DISK = N'/var/opt/mssql/data/shop_diff.bak' WITH DIFFERENTIAL, INIT;
+BACKUP LOG shop TO DISK = N'/var/opt/mssql/data/shop.trn' WITH INIT;
 GO
 
 USE msdb;

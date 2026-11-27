@@ -165,20 +165,19 @@ internal sealed class MetricHealth(IMetricSearch search, IDatabaseActivitySearch
                 read.Environment,
                 "severe-errors",
                 null,
-                events.Count(one => one.Name == "error_reported" && (one.ErrorSeverity >= 20
-                    || Server.EventsViewBuilder.DamageErrors.Contains(one.Error)))));
+                events.Count(one => Server.EventsViewBuilder.Counts("severe-errors", one))));
             measures.Add(new DatabaseMeasure(
                 server,
                 read.Environment,
                 "memory-errors",
                 null,
-                events.Count(one => Server.EventsViewBuilder.MemoryErrors.Contains(one.Error))));
+                events.Count(one => Server.EventsViewBuilder.Counts("memory-errors", one))));
             measures.Add(new DatabaseMeasure(
                 server,
                 read.Environment,
                 "login-failures",
                 null,
-                events.Count(one => one.Name == "security_error_ring_buffer_recorded")));
+                events.Count(one => Server.EventsViewBuilder.Counts("login-failures", one))));
 
             measures.Add(new DatabaseMeasure(
                 new Core.Telemetry.TelemetryBlock(AlertBlockKind.Database, read.Block),
@@ -189,6 +188,42 @@ internal sealed class MetricHealth(IMetricSearch search, IDatabaseActivitySearch
         }
 
         return measures;
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<ServerError>> ListServerErrorsAsync(
+        string server,
+        string measure,
+        DateTimeOffset periodStart,
+        DateTimeOffset periodEnd,
+        CancellationToken cancellationToken)
+    {
+        if (activity is null)
+        {
+            return [];
+        }
+
+        // The same events, and the same test, as the measure the rule judged.
+        var records = await activity.ListRecordsAsync(
+            server,
+            Server.EventsViewBuilder.EventKind,
+            periodStart,
+            periodEnd,
+            null,
+            1_000,
+            cancellationToken);
+
+        return records
+            .GroupBy(record => record.Key)
+            .Select(group => Server.EventsViewBuilder.Event(group.First()))
+            .Where(one => Server.EventsViewBuilder.Counts(measure, one))
+            .OrderByDescending(one => one.At)
+            .Select(one => new ServerError(
+                one.At,
+                one.Error,
+                one.ErrorSeverity,
+                string.IsNullOrWhiteSpace(one.Message) ? one.Words : one.Message))
+            .ToList();
     }
 
     /// <summary>The measure of the plan-regression rule (ADR 0020).</summary>

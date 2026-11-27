@@ -17,4 +17,8 @@ public sealed record DatabaseTableResponse(
     double? LiveRows,
     double? DeadRows,
     double? DeadRowsRatio,
-    double? Vacuums);
+    double? Vacuums)
+{
+    /// <summary>Whether it is a catalog table, or in a database the engine keeps for itself (VEY-64).</summary>
+    public bool System { get; init; }
+}

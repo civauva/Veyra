@@ -19,4 +19,17 @@ public sealed record JobResponse(
     DateTimeOffset? NextRun,
     bool Late,
     double? UsualSeconds,
-    IReadOnlyList<JobRunResponse> Runs);
+    IReadOnlyList<JobRunResponse> Runs)
+{
+    /// <summary>Whether SQL Server set it up for a feature of its own (VEY-64), such as policy management.</summary>
+    public bool System { get; init; }
+
+    /// <summary>
+    /// Whether it needs a look (VEY-67): its last run failed, it did not start when scheduled, or it has run at least
+    /// five minutes and at least twice its usual time. The Simple view lists only these.
+    /// </summary>
+    public bool NeedsLook =>
+        Failed
+        || Late
+        || (RunningSeconds >= 300 && UsualSeconds is { } usual && RunningSeconds >= 2 * usual);
+}

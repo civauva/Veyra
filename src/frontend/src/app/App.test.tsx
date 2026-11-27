@@ -30,7 +30,14 @@ vi.mock("../api/client", async (importOriginal) => {
   };
 });
 
-const admin = { id: "1", email: "root@example.com", displayName: "Root", role: "Admin" as const, timeZone: null };
+const admin = {
+  id: "1",
+  email: "root@example.com",
+  displayName: "Root",
+  role: "Admin" as const,
+  timeZone: null,
+  look: { chosen: null, default: "forecast", mayChoose: true },
+};
 
 function renderAt(path: string) {
   return render(
@@ -44,7 +51,13 @@ function renderAt(path: string) {
 
 beforeEach(() => {
   vi.mocked(api.searchLogs).mockResolvedValue({ items: [], nextCursor: null });
-  vi.mocked(api.summarizeLogs).mockResolvedValue({ bucketSeconds: 120, buckets: [], services: [] });
+  vi.mocked(api.summarizeLogs).mockResolvedValue({
+    bucketSeconds: 120,
+    buckets: [],
+    services: [],
+    total: 0,
+    errors: 0,
+  });
   vi.mocked(api.home).mockResolvedValue(clearSnapshot);
 });
 

@@ -29,7 +29,7 @@ public class DatabaseViewTests
         AddLevel("sqlserver.query.duration.max", 134, ("database_name", "shop"));
         AddLevel("sqlserver.query.duration.max", 0, ("database_name", "reporting"));
 
-        var view = (await Builder().DatabaseAsync("microsoft.sql_server", "sql-prod-01", "1h", default))!;
+        var view = (await Builder().DatabaseAsync("microsoft.sql_server", "sql-prod-01", "1h", system: true, default))!;
 
         var card = view.Card;
         Assert.Equal(("microsoft.sql_server", "sql-prod-01", "production"), (card.Engine, card.Server, card.Environment));
@@ -45,7 +45,7 @@ public class DatabaseViewTests
         // SQL Server's running total of "Number of Deadlocks/sec", not a rate.
         AddRunningTotal("sqlserver.deadlock.rate", perSecond: 2 / 60d);
 
-        var view = (await Builder().DatabaseAsync("microsoft.sql_server", "sql-prod-01", "1h", default))!;
+        var view = (await Builder().DatabaseAsync("microsoft.sql_server", "sql-prod-01", "1h", system: true, default))!;
 
         Assert.Equal(10, view.Card.Deadlocks);
     }
@@ -56,7 +56,7 @@ public class DatabaseViewTests
         // Three deadlocks since SQL Server started, none of them lately: the running total stands still.
         AddLevel("sqlserver.deadlock.rate", 3);
 
-        var view = (await Builder().DatabaseAsync("microsoft.sql_server", "sql-prod-01", "1h", default))!;
+        var view = (await Builder().DatabaseAsync("microsoft.sql_server", "sql-prod-01", "1h", system: true, default))!;
 
         Assert.Equal(0, view.Card.Deadlocks);
     }
@@ -70,7 +70,7 @@ public class DatabaseViewTests
         AddLevel("sqlserver.database.backup.age", 31 * 3600, ("database_name", "shop"));
         AddLevel("sqlserver.query.duration.max", 12, ("database_name", "shop"));
 
-        var view = (await Builder().DatabaseAsync("microsoft.sql_server", "sql-prod-01", "1h", default))!;
+        var view = (await Builder().DatabaseAsync("microsoft.sql_server", "sql-prod-01", "1h", system: true, default))!;
 
         Assert.Equal(["shop", "tempdb"], view.Databases.Select(database => database.Name));
         var shop = view.Databases[0];
@@ -78,6 +78,9 @@ public class DatabaseViewTests
         Assert.Equal((31d * 3600, 12d), (shop.BackupAgeSeconds, shop.LongestQuerySeconds));
         Assert.Null(view.Databases[1].BackupAgeSeconds);
         Assert.Equal((2, 31d * 3600), (view.Card.Databases, view.Card.OldestBackupSeconds));
+
+        // tempdb needs no backup; shop's is older than 26 hours (VEY-68).
+        Assert.Equal(["shop"], view.Overview!.LateBackups);
     }
 
     [Fact]
@@ -89,12 +92,13 @@ public class DatabaseViewTests
         AddLevel("sqlserver.agent.job.duration", 4324, ("job_name", "Nightly full backup - shop"));
         AddLevel("sqlserver.agent.job.failed", 0, ("job_name", "Purge sessions"));
 
-        var view = (await Builder().DatabaseAsync("microsoft.sql_server", "sql-prod-01", "1h", default))!;
+        var view = (await Builder().DatabaseAsync("microsoft.sql_server", "sql-prod-01", "1h", system: true, default))!;
 
         Assert.Equal(["Nightly full backup - shop", "Purge sessions"], view.Jobs.Select(job => job.Name));
         Assert.Equal((true, started, 4324d), (view.Jobs[0].Failed, view.Jobs[0].LastRun, view.Jobs[0].DurationSeconds));
         Assert.False(view.Jobs[1].Failed);
         Assert.Equal(1, view.Card.FailedJobs);
+        Assert.Equal("Nightly full backup - shop", Assert.Single(view.Overview!.FailedJobs).Name);
     }
 
     [Fact]
@@ -106,7 +110,7 @@ public class DatabaseViewTests
         _events.Add(Sample(_now.AddSeconds(-5), "98", 2, "SELECT TOP (50) * FROM dbo.OrderLines"));
         _events.Add(Sample(_now.AddSeconds(-5), "203", 41, "SELECT c.Region FROM dbo.Orders"));
 
-        var view = (await Builder().DatabaseAsync("microsoft.sql_server", "sql-prod-01", "1h", default))!;
+        var view = (await Builder().DatabaseAsync("microsoft.sql_server", "sql-prod-01", "1h", system: true, default))!;
 
         Assert.Equal(["117", "203"], view.Running.Select(query => query.Session));
         var longest = view.Running[0];
@@ -121,7 +125,7 @@ public class DatabaseViewTests
         AddStatement("0xA1", "shop", "SELECT * FROM dbo.Orders WHERE CustomerId = @id", agent: false, [(6, 200), (6.5, 200)]);
         AddStatement("0xB2", "reporting", "EXEC dbo.MonthlyReport", agent: false, [(80, 1)]);
 
-        var view = (await Builder().DatabaseAsync("microsoft.sql_server", "sql-prod-01", "1h", default))!;
+        var view = (await Builder().DatabaseAsync("microsoft.sql_server", "sql-prod-01", "1h", system: true, default))!;
 
         Assert.Equal(
             ["EXEC dbo.MonthlyReport", "SELECT * FROM dbo.Orders WHERE CustomerId = @id"],
@@ -140,10 +144,88 @@ public class DatabaseViewTests
         AddStatement("0xC4", "master", "SELECT d.name, DATEDIFF_BIG(...)", agent: true, [(1, 1)]);
         AddStatement("0xA1", "shop", "SELECT * FROM dbo.Orders WHERE CustomerId = @id", agent: false, [(0.2, 10)]);
 
-        var view = (await Builder().DatabaseAsync("microsoft.sql_server", "sql-prod-01", "1h", default))!;
+        var view = (await Builder().DatabaseAsync("microsoft.sql_server", "sql-prod-01", "1h", system: true, default))!;
 
         Assert.Equal(["SELECT * FROM dbo.Orders WHERE CustomerId = @id"], view.TopQueries.Select(query => query.Text));
         Assert.Equal(new AgentWorkResponse(2, 6), view.AgentWork);
+    }
+
+    [Fact]
+    public async Task DatabaseAsync_SystemDatabasesAndJobs_AreMarked()
+    {
+        AddLevel("sqlserver.database.size", 412e9, ("database_name", "shop"), ("file_type", "data"));
+        AddLevel("sqlserver.database.size", 2e9, ("database_name", "msdb"), ("file_type", "data"));
+        AddLevel("sqlserver.agent.job.failed", 0, ("job_name", "syspolicy_purge_history"));
+        AddLevel("sqlserver.agent.job.failed", 0, ("job_name", "Purge sessions"));
+
+        var view = (await Builder().DatabaseAsync("microsoft.sql_server", "sql-prod-01", "1h", system: true, default))!;
+
+        Assert.Equal(
+            [("shop", false), ("msdb", true)],
+            view.Databases.Select(database => (database.Name, database.System)));
+        Assert.Equal(
+            [("Purge sessions", false), ("syspolicy_purge_history", true)],
+            view.Jobs.Select(job => (job.Name, job.System)));
+    }
+
+    [Fact]
+    public async Task DatabaseAsync_SystemStatements_AreMarkedAndRankedApart()
+    {
+        AddLevel("sqlserver.batch.request.rate", 10);
+        AddStatement("0xA1", "shop", "SELECT * FROM dbo.Orders WHERE CustomerId = @id", agent: false, [(0.2, 10)]);
+
+        // Twelve busier statements of SSMS browsing the catalog: they do not push the application's out of the list.
+        for (var index = 0; index < 12; index++)
+        {
+            AddStatement(
+                $"0xD{index}",
+                "master",
+                $"SELECT name FROM sys.objects WHERE id = {index}",
+                agent: false,
+                [(5, 1)]);
+        }
+
+        var view = (await Builder().DatabaseAsync("microsoft.sql_server", "sql-prod-01", "1h", system: true, default))!;
+
+        Assert.Equal(11, view.TopQueries.Count);
+        Assert.Equal(10, view.TopQueries.Count(query => query.System));
+        Assert.False(view.TopQueries.Single(query => query.Database == "shop").System);
+    }
+
+    [Fact]
+    public async Task DatabaseAsync_SystemHidden_ListsTheApplicationsAndCountsWhatItLeftOut()
+    {
+        AddLevel("sqlserver.database.size", 412e9, ("database_name", "shop"), ("file_type", "data"));
+        AddLevel("sqlserver.database.size", 2e9, ("database_name", "msdb"), ("file_type", "data"));
+        AddLevel("sqlserver.agent.job.failed", 0, ("job_name", "syspolicy_purge_history"));
+        AddLevel("sqlserver.agent.job.failed", 0, ("job_name", "Purge sessions"));
+        AddStatement("0xA1", "shop", "SELECT * FROM dbo.Orders WHERE CustomerId = @id", agent: false, [(0.2, 10)]);
+
+        for (var index = 0; index < 12; index++)
+        {
+            AddStatement(
+                $"0xD{index}",
+                "master",
+                $"SELECT name FROM sys.objects WHERE id = {index}",
+                agent: false,
+                [(5, 1)]);
+        }
+
+        var view = (await Builder().DatabaseAsync(
+            "microsoft.sql_server",
+            "sql-prod-01",
+            "1h",
+            system: false,
+            default))!;
+
+        Assert.Equal(["shop"], view.Databases.Select(database => database.Name));
+        Assert.Equal(["Purge sessions"], view.Jobs.Select(job => job.Name));
+        Assert.Equal(["shop"], view.TopQueries.Select(query => query.Database));
+        Assert.Equal(1, view.HiddenDatabases.Count);
+        Assert.Equal(["msdb"], view.HiddenDatabases.Names);
+        Assert.Equal(1, view.HiddenJobs.Count);
+        Assert.Equal(12, view.HiddenTopQueries.Count);
+        Assert.Equal(["master"], view.HiddenTopQueries.Names);
     }
 
     [Fact]
@@ -151,7 +233,7 @@ public class DatabaseViewTests
     {
         AddLevel("sqlserver.batch.request.rate", 10);
 
-        var view = (await Builder().DatabaseAsync("microsoft.sql_server", "sql-prod-01", "1h", default))!;
+        var view = (await Builder().DatabaseAsync("microsoft.sql_server", "sql-prod-01", "1h", system: true, default))!;
 
         Assert.Empty(view.TopQueries);
         Assert.Null(view.AgentWork);
@@ -165,7 +247,7 @@ public class DatabaseViewTests
         AddWaits("OTHER", "WAITFOR", perSecond: 0.5);
         AddWaits("Buffer IO", "PAGEIOLATCH_SH", perSecond: 0.1);
 
-        var view = (await Builder().DatabaseAsync("microsoft.sql_server", "sql-prod-01", "1h", default))!;
+        var view = (await Builder().DatabaseAsync("microsoft.sql_server", "sql-prod-01", "1h", system: true, default))!;
 
         Assert.Equal(["Lock", "Buffer IO"], view.Waits.Select(line => line.Label));
     }
@@ -175,7 +257,7 @@ public class DatabaseViewTests
     {
         AddLevel("sqlserver.batch.request.rate", 10);
 
-        Assert.Null(await Builder().DatabaseAsync("microsoft.sql_server", "sql-other", "1h", default));
+        Assert.Null(await Builder().DatabaseAsync("microsoft.sql_server", "sql-other", "1h", system: true, default));
     }
 
     [Fact]
@@ -190,6 +272,27 @@ public class DatabaseViewTests
         Assert.Equal(("sql-prod-01", 1240d, 3d), (card.Server, card.BatchRequests, card.Blocked));
         Assert.Empty(overview.Hosts);
         Assert.Empty(overview.Services);
+    }
+
+    [Fact]
+    public async Task OverviewAsync_SeveralEngines_ListsTheServersByName()
+    {
+        // By block name, microsoft.sql_server zeta would come before postgresql alpha (VEY-68).
+        AddLevel("sqlserver.processes.blocked", 0);
+        _store.Add(AddSeries("postgresql.backends", []) with
+        {
+            Id = 0,
+            Block = TelemetryBlock.Database("postgresql", "alpha"),
+            ResourceAttributes = new Dictionary<string, string>
+            {
+                ["db.system.name"] = "postgresql",
+                ["server.address"] = "alpha",
+            },
+        });
+
+        var overview = await new MetricViewBuilder(_store, new FakeTimeProvider(_now)).OverviewAsync("1h", default);
+
+        Assert.Equal(["alpha", "sql-prod-01"], overview.Databases.Select(card => card.Server));
     }
 
     private DatabaseViewBuilder Builder() => new(_store, _events, new FakeTimeProvider(_now));

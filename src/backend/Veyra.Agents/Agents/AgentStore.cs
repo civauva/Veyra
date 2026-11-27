@@ -12,7 +12,7 @@ internal sealed class AgentStore(NpgsqlDataSource dataSource)
     private const string _columns =
         "id, name, placement, ingestion_key_id, created_at, instance_uid, version, host_name, os, healthy, " +
         "health_error, config_hash, config_state, config_error, last_seen_at, watch_host, watch_event_log, " +
-        "watch_iis, watch_environment, watch_docker";
+        "watch_iis, watch_environment, watch_docker, health_started_at";
 
     /// <summary>Stores a new agent.</summary>
     /// <param name="agent">The agent. Its report is not stored; a new agent has none.</param>
@@ -110,7 +110,7 @@ internal sealed class AgentStore(NpgsqlDataSource dataSource)
             """
             UPDATE agents.agent
             SET instance_uid = $2, version = $3, host_name = $4, os = $5, healthy = $6, health_error = $7,
-                config_hash = $8, config_state = $9, config_error = $10, last_seen_at = $11
+                config_hash = $8, config_state = $9, config_error = $10, last_seen_at = $11, health_started_at = $12
             WHERE id = $1
             """);
 
@@ -125,6 +125,7 @@ internal sealed class AgentStore(NpgsqlDataSource dataSource)
         command.Parameters.AddWithValue((short)report.ConfigState);
         command.Parameters.AddWithValue(NpgsqlDbType.Text, (object?)report.ConfigError ?? DBNull.Value);
         command.Parameters.AddWithValue(NpgsqlDbType.TimestampTz, (object?)report.LastSeenAt ?? DBNull.Value);
+        command.Parameters.AddWithValue(NpgsqlDbType.TimestampTz, (object?)report.StartedAt ?? DBNull.Value);
 
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
@@ -204,7 +205,8 @@ internal sealed class AgentStore(NpgsqlDataSource dataSource)
                 ConfigHash: reader.IsDBNull(11) ? null : reader.GetFieldValue<byte[]>(11),
                 ConfigState: (AgentConfigState)reader.GetInt16(12),
                 ConfigError: reader.IsDBNull(13) ? null : reader.GetString(13),
-                LastSeenAt: reader.IsDBNull(14) ? null : reader.GetFieldValue<DateTimeOffset>(14));
+                LastSeenAt: reader.IsDBNull(14) ? null : reader.GetFieldValue<DateTimeOffset>(14),
+                StartedAt: reader.IsDBNull(20) ? null : reader.GetFieldValue<DateTimeOffset>(20));
 
             agents.Add(new Agent(
                 Id: reader.GetGuid(0),

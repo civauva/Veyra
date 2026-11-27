@@ -136,6 +136,32 @@ public class AccessEndpointTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task Users_SearchAndShow_ListOnlyTheMatchesWithCountsPerChip()
+    {
+        await using var factory = await VeyraApiFactory.CreateAsync(postgres);
+        using var admin = await factory.CreateAdminClientAsync();
+        await CreateUserAsync(admin, "ana@example.com", "Viewer");
+        var tom = await CreateUserAsync(admin, "tom@example.com", "Editor");
+        using var disable = await admin.PatchAsJsonAsync($"/api/v1/users/{tom.Id}", new { disabled = true });
+
+        var page = await admin.GetFromJsonAsync<UserList>(new Uri("/api/v1/users?search=example&show=off", UriKind.Relative));
+
+        Assert.Equal("tom@example.com", Assert.Single(page!.People).Email);
+        Assert.Equal((3, 1), (page.Counts.Everyone, page.Counts.Off));
+    }
+
+    [Fact]
+    public async Task Users_UnknownShow_ReturnsBadRequest()
+    {
+        await using var factory = await VeyraApiFactory.CreateAsync(postgres);
+        using var admin = await factory.CreateAdminClientAsync();
+
+        using var response = await admin.GetAsync(new Uri("/api/v1/users?show=everybody", UriKind.Relative));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task IngestionKeys_Create_ReturnsTheSecretOnceAndNeverInTheList()
     {
         await using var factory = await VeyraApiFactory.CreateAsync(postgres);
@@ -179,6 +205,10 @@ public class AccessEndpointTests(PostgresFixture postgres)
     private sealed record SessionInfo(Guid Id, string Email, string DisplayName, string Role);
 
     private sealed record UserInfo(Guid Id, string Email, string Role, bool Disabled);
+
+    private sealed record UserList(IReadOnlyList<UserInfo> People, ChipCounts Counts);
+
+    private sealed record ChipCounts(int Everyone, int NoFactor, int Locked, int Off);
 
     private sealed record CreatedKey(Guid Id, string Name, string DisplayPrefix, string Secret);
 }

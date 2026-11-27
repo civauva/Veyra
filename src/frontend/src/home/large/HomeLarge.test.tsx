@@ -1,4 +1,5 @@
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -32,6 +33,7 @@ const viewer = {
   displayName: "Dana Kim",
   role: "Viewer" as const,
   timeZone: null,
+  look: { chosen: null, default: "forecast", mayChoose: true },
 };
 
 /** Makes every `min-width` and `min-height` media query answer as this screen would; other queries do not match. */
@@ -159,6 +161,21 @@ describe("Home on large screens", () => {
     expect(api.alertSummary).toHaveBeenCalledWith(30, "production", expect.any(AbortSignal));
   });
 
+  it("explains the wall's panels behind their question marks", async () => {
+    const user = userEvent.setup();
+    screenSize(3840, 2160);
+
+    renderHome();
+
+    expect(await screen.findByRole("button", { name: "What Last 24 hours means" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "What Last 30 days means" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "What Latest alerts means" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Last 30 days" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "What Last 24 hours means" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/records an hour/i);
+  });
+
   it("keeps three columns on a screen as wide but not as tall", async () => {
     screenSize(2560, 1080);
 
@@ -170,9 +187,10 @@ describe("Home on large screens", () => {
 
   it("charts the full day the API sends and marks the hour that stormed", async () => {
     screenSize(3840, 2160);
+    // The server adds up the day and averages its hours (VEY-68).
     vi.mocked(api.home).mockResolvedValue({
       ...stormSnapshot,
-      hourly: { ...stormSnapshot.hourly, observed: day() },
+      hourly: { ...stormSnapshot.hourly, observed: day(), records: 240_000, errors: 626, averageRecords: 10_000 },
     });
 
     renderHome();

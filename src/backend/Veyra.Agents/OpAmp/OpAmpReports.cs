@@ -37,7 +37,16 @@ internal static class OpAmpReports
 
         if (message.Health is { } health)
         {
-            report = report with { Healthy = health.Healthy, HealthError = health.Healthy ? null : FirstError(health) };
+            report = report with
+            {
+                Healthy = health.Healthy,
+                HealthError = health.Healthy ? null : FirstError(health),
+
+                // OpAMP gives the time in nanoseconds since 1970; 0 means the agent did not say.
+                StartedAt = health.StartTimeUnixNano > 0
+                    ? DateTimeOffset.UnixEpoch.AddTicks((long)(health.StartTimeUnixNano / 100))
+                    : report.StartedAt,
+            };
         }
 
         if (message.RemoteConfigStatus is { } status)

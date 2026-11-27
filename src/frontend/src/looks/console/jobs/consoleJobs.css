@@ -1,0 +1,540 @@
+/*
+ * Console's jobs and pipelines (VEY-69 reference screenshots 5 and 7, ADR 0027): the list with its run strips, and a
+ * job with its duration chart, its runs, and the chosen run's steps. Colours come from the tokens, so light and dark
+ * both apply.
+ */
+
+/* ---- Shared parts; the pills' tones come from the other Console screens ---- */
+
+.jb-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.jb-source::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.jb-source.sqlagent::before {
+  border-radius: 50%;
+  background: var(--cn-violet, #a78bfa);
+}
+
+.jb-block {
+  color: var(--fg);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.jb-block:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.jb-share {
+  font-weight: 600;
+}
+
+.jb-share.ok {
+  color: var(--ok-fg);
+}
+
+.jb-share.warn {
+  color: var(--warning-fg);
+}
+
+.jb-share.bad {
+  color: var(--error-fg);
+}
+
+/* The latest runs, oldest on the left. */
+.jb-strip {
+  display: inline-flex;
+  gap: 2px;
+  vertical-align: middle;
+}
+
+.jb-strip i {
+  width: 6px;
+  height: 14px;
+  border-radius: 1.5px;
+  background: var(--ok-fg);
+  opacity: 0.8;
+}
+
+.jb-strip i.bad {
+  background: var(--error-fg);
+  opacity: 1;
+}
+
+.jb-strip i.info {
+  background: var(--info-fg);
+  opacity: 1;
+  animation: jb-pulse 1.6s ease-in-out infinite;
+}
+
+.jb-strip i.off {
+  background: var(--chip);
+}
+
+@keyframes jb-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* ---- The list ---- */
+
+.jb-table td {
+  vertical-align: middle;
+}
+
+.jb-table tr.jb-failing td:first-child {
+  box-shadow: inset 3px 0 0 var(--error-fg);
+}
+
+.jb-last {
+  display: inline-grid;
+  justify-items: start;
+  gap: 2px;
+}
+
+.jb-failed {
+  color: var(--error-fg);
+  font-weight: 600;
+}
+
+/* ---- One job ---- */
+
+.jb-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  font-size: 12.5px;
+}
+
+.jb-facts .jb-source {
+  font-size: 12.5px;
+}
+
+.jb-figures {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+/* The duration chart: a scale on the left, the bars stretching across, the times under them. */
+.jb-chart {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 8px;
+  padding: 12px 14px 10px;
+}
+
+.jb-chart-scale {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 150px;
+  color: var(--faint);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.jb-chart-scale span {
+  line-height: 1;
+}
+
+.jb-chart-plot {
+  min-width: 0;
+}
+
+.jb-chart-svg {
+  display: block;
+  width: 100%;
+  height: 150px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(var(--line), var(--line)) top / 100% 1px no-repeat;
+}
+
+.jb-chart-grid {
+  stroke: var(--line);
+  stroke-dasharray: 3 4;
+  vector-effect: non-scaling-stroke;
+}
+
+.jb-chart-median {
+  stroke: var(--fg);
+  stroke-dasharray: 5 4;
+  stroke-width: 1.2;
+  opacity: 0.55;
+  vector-effect: non-scaling-stroke;
+}
+
+.jb-bar {
+  fill: var(--ok-fg);
+  opacity: 0.75;
+}
+
+.jb-bar:hover {
+  opacity: 1;
+}
+
+.jb-bar.bad {
+  fill: var(--error-fg);
+  opacity: 1;
+}
+
+.jb-bar.info {
+  fill: var(--info-fg);
+  opacity: 1;
+}
+
+.jb-chart-times {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  color: var(--faint);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.jb-legend {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 2px 0 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: 11.5px;
+  list-style: none;
+}
+
+.jb-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.jb-legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--ok-fg);
+}
+
+.jb-legend i.bad {
+  background: var(--error-fg);
+}
+
+.jb-legend i.info {
+  background: var(--info-fg);
+}
+
+.jb-legend i.median {
+  width: 14px;
+  height: 0;
+  border-top: 1.5px dashed var(--muted);
+  border-radius: 0;
+  background: none;
+}
+
+/* The runs: each row picks its run, the picked one marked. */
+.jb-table tbody tr {
+  cursor: pointer;
+}
+
+.jb-table tbody tr.jb-picked td {
+  background: var(--selected);
+}
+
+.jb-table tbody tr.jb-picked td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.jb-pick {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.jb-pick:hover,
+.jb-pick[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+.jb-pick:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.jb-retried {
+  color: var(--warning-fg);
+  font-weight: 600;
+}
+
+.jb-message {
+  max-width: 320px;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The chosen run. */
+.jb-run {
+  display: grid;
+  align-content: start;
+}
+
+.jb-run-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 12px;
+  margin: 0;
+}
+
+.jb-run-facts dt {
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.jb-run-facts dd {
+  margin: 2px 0 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.jb-run-records {
+  grid-column: 1 / -1;
+}
+
+.jb-progress {
+  display: block;
+  height: 5px;
+  margin-top: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--chip);
+}
+
+.jb-progress i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ok-fg);
+}
+
+.jb-progress.bad i {
+  background: var(--error-fg);
+}
+
+.jb-progress.info i {
+  background: var(--info-fg);
+}
+
+/* The steps as an execution path, top to bottom, joined by a line. */
+.jb-steps {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.jb-steps li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 10px;
+  padding-bottom: 12px;
+}
+
+.jb-steps li:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  top: 14px;
+  bottom: 0;
+  left: 6px;
+  width: 2px;
+  background: var(--line);
+}
+
+.jb-step-dot {
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  border: 2px solid var(--ok-fg);
+  border-radius: 50%;
+  background: var(--panel);
+}
+
+.jb-steps li.ok .jb-step-dot {
+  background: var(--ok-fg);
+}
+
+.jb-steps li.bad .jb-step-dot {
+  border-color: var(--error-fg);
+  background: var(--error-fg);
+  box-shadow: 0 0 0 3px var(--error-bg);
+}
+
+.jb-steps li.info .jb-step-dot {
+  border-color: var(--info-fg);
+}
+
+.jb-steps li.off .jb-step-dot {
+  border-color: var(--faint);
+  border-style: dashed;
+}
+
+.jb-step-body {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.jb-step-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12.5px;
+}
+
+.jb-step-line b {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jb-steps li.bad .jb-step-line b {
+  color: var(--error-fg);
+}
+
+.jb-steps li.off .jb-step-line {
+  color: var(--faint);
+}
+
+.jb-step-time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.jb-step-bar {
+  display: block;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--chip);
+}
+
+.jb-step-bar i {
+  display: block;
+  height: 100%;
+  background: color-mix(in srgb, var(--ok-fg) 70%, transparent);
+}
+
+.jb-steps li.bad .jb-step-bar i {
+  background: var(--error-fg);
+}
+
+.jb-steps li.info .jb-step-bar i {
+  background: var(--info-fg);
+}
+
+.jb-steps small {
+  color: var(--error-fg);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+.jb-code {
+  max-height: 160px;
+}
+
+.jb-run-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.jb-run-links .cn-button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.jb-expired {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px dashed var(--cn-line-2);
+  border-radius: 7px;
+  color: var(--faint);
+}
+
+@media (max-width: 1279px) {
+  .jb-figures {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  /* Tablets keep the five figures on one row, and leave out the columns the filters and the job's screen repeat. */
+  .jb .sq-figures-five {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .jb-table .roomy {
+    display: none;
+  }
+}
+
+@media (max-width: 719px) {
+  .jb-figures,
+  .jb .sq-figures-five {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* Five figures two by two: the last one takes the whole row instead of leaving a hole. */
+  .jb .sq-figures-five > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  /* The filters share the width, so each choice is a large enough target for a finger. */
+  .jb .cn-filters .cn-seg {
+    flex: 1 1 100%;
+  }
+
+  .jb-chart-scale,
+  .jb-chart-svg {
+    height: 120px;
+  }
+
+  .jb-legend {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jb-strip i.info {
+    animation: none;
+  }
+}

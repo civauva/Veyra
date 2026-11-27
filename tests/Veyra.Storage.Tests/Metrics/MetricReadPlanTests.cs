@@ -59,6 +59,70 @@ public class MetricReadPlanTests
     }
 
     [Fact]
+    public void Split_OneBucketOverAWeekEndingNow_ReadsTheRollups()
+    {
+        // A total over the 7-day range, such as a statement's, is one bucket from an hour boundary to now: every rollup
+        // row inside it falls into that one bucket, whatever its odd width (VEY-65).
+        var from = _day.AddDays(-7).AddHours(15);
+        var now = _day.AddHours(14).AddMinutes(7).AddSeconds(3);
+
+        var segments = MetricReadPlan.Split(
+            from,
+            now,
+            now - from,
+            fiveMinutesUpTo: _day.AddHours(14).AddMinutes(5),
+            hoursUpTo: _day.AddHours(14),
+            unrolled: []);
+
+        Assert.Equal(
+            [
+                new MetricReadSegment(from, _day.AddHours(14), MetricReadSource.Hours),
+                new MetricReadSegment(_day.AddHours(14), _day.AddHours(14).AddMinutes(5), MetricReadSource.FiveMinutes),
+                new MetricReadSegment(_day.AddHours(14).AddMinutes(5), now, MetricReadSource.Points),
+            ],
+            segments);
+    }
+
+    [Fact]
+    public void Split_OneBucketFromAFiveMinuteBoundary_ReadsFiveMinutesThenThePoints()
+    {
+        var from = _day.AddHours(8).AddMinutes(10);
+        var now = _day.AddHours(14).AddMinutes(7);
+
+        var segments = MetricReadPlan.Split(
+            from,
+            now,
+            now - from,
+            fiveMinutesUpTo: _day.AddHours(14).AddMinutes(5),
+            hoursUpTo: _day.AddHours(14),
+            unrolled: []);
+
+        Assert.Equal(
+            [
+                new MetricReadSegment(from, _day.AddHours(14).AddMinutes(5), MetricReadSource.FiveMinutes),
+                new MetricReadSegment(_day.AddHours(14).AddMinutes(5), now, MetricReadSource.Points),
+            ],
+            segments);
+    }
+
+    [Fact]
+    public void Split_OneBucketOffAFiveMinuteBoundary_ReadsThePoints()
+    {
+        var from = _day.AddHours(8).AddMinutes(7);
+        var now = _day.AddHours(14).AddMinutes(7);
+
+        var segments = MetricReadPlan.Split(
+            from,
+            now,
+            now - from,
+            fiveMinutesUpTo: _day.AddHours(14).AddMinutes(5),
+            hoursUpTo: _day.AddHours(14),
+            unrolled: []);
+
+        Assert.Equal([new MetricReadSegment(from, now, MetricReadSource.Points)], segments);
+    }
+
+    [Fact]
     public void Split_WindowNotOnABucketBoundary_ReadsThePoints()
     {
         var from = _day.AddMinutes(7);

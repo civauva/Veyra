@@ -47,6 +47,40 @@ public sealed class AccessSettingsTests
     }
 
     [Fact]
+    public void Validate_UnknownDefaultLook_NamesTheField()
+    {
+        var problem = Assert.Single(Settings().Validate(Configuration(("Veyra:Access:DefaultLook", "city"))));
+
+        Assert.Equal("Veyra:Access:DefaultLook", problem.Key);
+    }
+
+    [Theory]
+    [InlineData("forecast")]
+    [InlineData("console")]
+    public void Validate_KnownDefaultLook_HasNoProblem(string look)
+    {
+        Assert.Empty(Settings().Validate(Configuration(("Veyra:Access:DefaultLook", look))));
+    }
+
+    [Fact]
+    public void Definitions_Look_AreInTheAppearanceSection_WithTheLooksAsChoices()
+    {
+        var looks = Settings().Definitions
+            .Where(definition => definition.Section == SettingSection.Appearance)
+            .ToList();
+
+        Assert.Equal(["Veyra:Access:DefaultLook", "Veyra:Access:PeopleChooseLook"], looks.Select(look => look.Key));
+        Assert.Equal(
+            (SettingKind.Choice, "console", "Look", "Default look"),
+            (looks[0].Kind, looks[0].Default, looks[0].Group, looks[0].Label));
+        Assert.Equal(["forecast", "console"], looks[0].Choices);
+        Assert.Equal(
+            (SettingKind.Switch, "true", "Look", "Let people choose their look"),
+            (looks[1].Kind, looks[1].Default, looks[1].Group, looks[1].Label));
+        Assert.All(looks, look => Assert.False(look.Advanced));
+    }
+
+    [Fact]
     public void Definitions_DoNotIncludeTheRecoverySwitch()
     {
         Assert.DoesNotContain(

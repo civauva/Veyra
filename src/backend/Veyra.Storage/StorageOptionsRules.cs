@@ -25,6 +25,7 @@ public sealed class StorageOptionsRules : OptionsRules<StorageOptions>
         yield return (
             options.DatabaseRecordRetentionDays >= 1,
             "Veyra:Storage:DatabaseRecordRetentionDays must be at least 1.");
+        yield return (options.JobRunRetentionDays >= 1, "Veyra:Storage:JobRunRetentionDays must be at least 1.");
         yield return (
             options.MaxTraceStorageGigabytes is null or > 0,
             "Veyra:Storage:MaxTraceStorageGigabytes must be positive when set.");

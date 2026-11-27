@@ -22,4 +22,17 @@ public sealed record ServiceMetricsResponse(
     IReadOnlyList<ChartLineResponse> Requests,
     IReadOnlyList<RouteResponse> Routes,
     IReadOnlyList<ChartLineResponse> Resources,
-    IReadOnlyList<ChartLineResponse> Runtime);
+    IReadOnlyList<ChartLineResponse> Runtime)
+{
+    /// <summary>The start of the period the answer covers (ADR 0022).</summary>
+    public DateTimeOffset From { get; init; }
+
+    /// <summary>The end of the period the answer covers: now, or the <c>to</c> asked for (ADR 0022).</summary>
+    public DateTimeOffset To { get; init; }
+
+    /// <summary>
+    /// Up to five routes, the slowest first by their 95th percentile, from every route and not only the busiest, for
+    /// the Simple view (VEY-68).
+    /// </summary>
+    public IReadOnlyList<RouteResponse> SlowestRoutes { get; init; } = [];
+}

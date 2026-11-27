@@ -28,6 +28,7 @@ services:
       Veyra__Storage__MaxTraceStorageGigabytes: ${VEYRA_MAX_TRACE_STORAGE_GB:-}
       Veyra__Storage__DatabaseSessionRetentionDays: ${VEYRA_DATABASE_SESSION_RETENTION_DAYS:-7}
       Veyra__Storage__DatabaseRecordRetentionDays: ${VEYRA_DATABASE_RECORD_RETENTION_DAYS:-90}
+      Veyra__Storage__JobRunRetentionDays: ${VEYRA_JOB_RUN_RETENTION_DAYS:-30}
       # Sign-in attempts and ended sessions, with addresses, are kept this many days (ADR 0011).
       Veyra__Access__SignInHistoryDays: ${VEYRA_SIGN_IN_HISTORY_DAYS:-90}
       # The last way back in for an Admin who lost phone and recovery codes. Empty almost always; see

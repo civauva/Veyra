@@ -4,7 +4,9 @@ import { api } from "../../api/client";
 import type { BlockingNode, DatabaseLive, Finding, LiveSession, WaitTerm } from "../../api/types";
 import { formatAmount, formatClockTime, formatRate, formatShare } from "../metricFormat";
 import { useMetricData } from "../useMetricData";
-import { chainsMeeting, meets, useLiveFilters, type FilterKind, type LiveFilters } from "./liveFilters";
+import { showPart } from "./drill";
+import { PanelHead } from "./helpNames";
+import { filterValues, useLiveFilters, type FilterKind, type LiveFilters } from "./liveFilters";
 import { clock, doingWords, programName, shortCount } from "./liveFormat";
 import { FilterChip, FindingActions, LiveTile, WaitPill } from "./liveParts";
 import { SelectedSession } from "./selectedSession";
@@ -12,6 +14,26 @@ import { SessionPanel } from "./SessionPanel";
 
 /** How often the Live tab asks again: the agent reads every 10 seconds (ADR 0020). */
 export const liveRefreshMilliseconds = 10_000;
+
+/** What the Simple view's tiles mean, in words for whoever owns the application (VEY-60). */
+const simpleHelp = {
+  requests:
+    "How many batches of statements the server receives a second, read every 15 " +
+    "seconds; the line shows the last 15 minutes. It is how busy the server is. A " +
+    "sudden drop can mean the applications cannot reach it.",
+  waiting:
+    "Requests waiting right now for another connection to let go of what it holds, " +
+    "from the read every 10 seconds. 0 is normal. Any for more than a few seconds " +
+    "means one connection holds up others: see who waits for whom below.",
+  longest:
+    "How long the longest request running now has been running, from the read every " +
+    "10 seconds. Reports and maintenance can run for minutes; an application's " +
+    "request should not. Amber from 5 minutes.",
+  oldest:
+    "How long the oldest unfinished transaction has been open, from the read every 10 " +
+    "seconds. Until it finishes it holds what it changed, so others wait. Amber from " +
+    "5 minutes; the tile opens the connection that holds it.",
+};
 
 /** Props for {@link LiveTab}. */
 export interface LiveTabProps {
@@ -36,12 +58,14 @@ export interface LiveTabProps {
  * its detail, filters the page, or explains itself.
  */
 export function LiveTab({ engine, server, at, advanced, onNow, onAdvanced }: LiveTabProps) {
+  const filters = useLiveFilters();
+  // The server lists only the sessions that meet the filters, and the chains they are in (VEY-66).
+  const values = filterValues(filters.filters);
   const { data, notFound, error } = useMetricData(
     `live-${engine}-${server}-${at ?? "now"}`,
-    (signal) => api.databaseLive(engine, server, at, signal),
-    { refreshMs: liveRefreshMilliseconds, paused: at !== null },
+    (signal) => api.databaseLive(engine, server, at, values, signal),
+    { refreshMs: liveRefreshMilliseconds, paused: at !== null, choices: JSON.stringify(values) },
   );
-  const filters = useLiveFilters();
   const [selected, setSelected] = useState<number | null>(null);
   const opener = useRef<HTMLElement | null>(null);
 
@@ -69,7 +93,7 @@ export function LiveTab({ engine, server, at, advanced, onNow, onAdvanced }: Liv
     );
   }
 
-  const session = selected === null ? undefined : data.sessions.find((one) => one.id === selected);
+  const session = selected === null ? undefined : known(data).find((one) => one.id === selected);
 
   return (
     <div className={`live-screen ${session ? "with-panel" : ""}`}>
@@ -146,10 +170,12 @@ interface ViewProps {
 /** The Simple view: Veyra's findings in words first, then who waits for whom, then what runs. */
 function Simple({ live, filters, onSession, onAdvanced }: ViewProps & { onAdvanced: () => void }) {
   const [lead, ...rest] = live.findings;
-  const byId = useMemo(() => new Map(live.sessions.map((session) => [session.id, session])), [live.sessions]);
-  const running = live.sessions.filter((session) => session.status !== "sleeping" && meets(session, filters.filters));
+  const byId = useMemo(() => new Map(known(live).map((session) => [session.id, session])), [live]);
+  // The server picks the sessions running now (VEY-68).
+  const { running } = live;
   const selected = useContext(SelectedSession);
   const { tiles } = live;
+  const longest = longestRequest(live, byId);
 
   return (
     <>
@@ -158,24 +184,33 @@ function Simple({ live, filters, onSession, onAdvanced }: ViewProps & { onAdvanc
       <section className="live-tiles four" aria-label="Now">
         <LiveTile
           label="Requests"
+          help={simpleHelp.requests}
           value={formatRate(tiles.batchRequests)}
           unit="a second"
           line={tiles.batchRequestsLine}
         />
         <LiveTile
           label="Waiting on others"
+          help={simpleHelp.waiting}
           value={String(tiles.blocked)}
           unit={tiles.blocked === 1 ? "request" : "requests"}
           tone={tiles.blocked > 0 ? "bad" : undefined}
-          below={tiles.blocked > 0 ? "see who waits for whom" : "nobody waits"}
+          below={tiles.blocked > 0 ? undefined : "nobody waits"}
+          onOpen={tiles.blocked > 0 && live.blocking.length > 0 ? () => showPart("live-blocking") : undefined}
+          where="See who waits for whom"
         />
         <LiveTile
           label="Longest request"
+          help={simpleHelp.longest}
           value={clock(tiles.longestRequestSeconds)}
           tone={tiles.longestRequestSeconds >= 300 ? "warn" : undefined}
+          below={longest ? `${programName(longest.program)} · connection ${longest.id}` : "nothing runs"}
+          onOpen={longest ? () => onSession(longest.id) : undefined}
+          where="Open the request"
         />
         <LiveTile
           label="Oldest open transaction"
+          help={simpleHelp.oldest}
           value={tiles.oldestTransactionSeconds === null ? "none" : clock(tiles.oldestTransactionSeconds)}
           tone={tiles.oldestTransactionSeconds !== null && tiles.oldestTransactionSeconds >= 300 ? "warn" : undefined}
           onOpen={
@@ -183,33 +218,55 @@ function Simple({ live, filters, onSession, onAdvanced }: ViewProps & { onAdvanc
               ? undefined
               : () => onSession(tiles.oldestTransactionSession as number)
           }
+          where="Open its connection"
         />
       </section>
 
       <FilterBar filters={filters} />
 
       {live.blocking.length > 0 && (
-        <section className="metric-panel" aria-labelledby="live-chains" id="live-blocking">
-          <div className="metric-panel-head">
-            <h2 id="live-chains">Who waits for whom</h2>
+        <section
+          className="metric-panel db-drill-target"
+          aria-labelledby="live-chains"
+          id="live-blocking"
+          tabIndex={-1}
+        >
+          <PanelHead
+            id="live-chains"
+            name="Who waits for whom"
+            help={
+              "Each chain of connections held up right now, from the read every 10 seconds: on " +
+              "the left the one that holds the lock, on the right those that wait for it. The " +
+              "one on the left is the one to deal with; it often changed data and never " +
+              "finished its transaction."
+            }
+          >
             <span>left holds, right waits</span>
-          </div>
-          {chainsMeeting(live.blocking, byId, filters.filters).map((tree) => (
+          </PanelHead>
+          {live.blocking.map((tree) => (
             <Chain key={tree.session} tree={tree} byId={byId} onSession={onSession} />
           ))}
         </section>
       )}
 
       <section className="metric-panel" aria-labelledby="live-running">
-        <div className="metric-panel-head">
-          <h2 id="live-running">Running now</h2>
+        <PanelHead
+          id="live-running"
+          name="Running now"
+          help={
+            "Every request running right now, longest first, from sys.dm_exec_requests, read " +
+            "every 10 seconds. A request that finishes within 10 seconds may never show here. " +
+            "Open one to see its statement, what it waits for, and its transaction."
+          }
+        >
           <span>longest first</span>
-        </div>
+        </PanelHead>
         {running.length === 0 ? (
           <p className="metrics-empty">
             {filters.filters.length > 0
               ? "No request that meets the filters is running."
-              : "Nothing is running right now. Veyra reads the server every 10 seconds; a request shows here while it runs."}
+              : "Nothing is running right now. Veyra reads the server every 10 seconds; a request " +
+                "shows here while it runs."}
           </p>
         ) : (
           <ul className="live-plain">
@@ -236,9 +293,15 @@ function Simple({ live, filters, onSession, onAdvanced }: ViewProps & { onAdvanc
 
       {rest.length > 0 && (
         <section className="metric-panel" aria-labelledby="live-more">
-          <div className="metric-panel-head">
-            <h2 id="live-more">Also worth a look</h2>
-          </div>
+          <PanelHead
+            id="live-more"
+            name="Also worth a look"
+            help={
+              "Veyra's other findings in the latest read, after the one at the top: its rules " +
+              "applied to the sessions and server figures read every 10 seconds. Each says what " +
+              "it found and what can be done."
+            }
+          />
           <ul className="live-findings">
             {rest.map((finding) => (
               <FindingRow
@@ -365,18 +428,26 @@ function Chain({ tree, byId, onSession }: ChainProps) {
 
 /** The Advanced view: findings in SQL Server's terms, every number, the blocking tree, and every session. */
 function Advanced({ live, filters, onSession }: ViewProps) {
-  const byId = useMemo(() => new Map(live.sessions.map((session) => [session.id, session])), [live.sessions]);
-  const sessions = live.sessions.filter((session) => meets(session, filters.filters));
+  const byId = useMemo(() => new Map(known(live).map((session) => [session.id, session])), [live]);
+  const sessions = live.sessions;
   const selected = useContext(SelectedSession);
   const { tiles } = live;
+  const longest = longestRequest(live, byId);
 
   return (
     <>
       <section className="metric-panel" aria-labelledby="live-findings">
-        <div className="metric-panel-head">
-          <h2 id="live-findings">Findings</h2>
+        <PanelHead
+          id="live-findings"
+          name="Findings"
+          help={
+            "What Veyra's rules found in the latest read, worst first: head blockers, old " +
+            "open transactions, long requests, memory grants waiting, and tempdb filling. " +
+            "Each gives its evidence in SQL Server's terms and what to do."
+          }
+        >
           <span>worst first</span>
-        </div>
+        </PanelHead>
         <ul className="live-findings">
           {live.findings.map((finding) => (
             <FindingRow
@@ -393,25 +464,50 @@ function Advanced({ live, filters, onSession }: ViewProps) {
       <section className="live-tiles" aria-label="Now">
         <LiveTile
           label="Batch requests"
+          help={
+            "SQL Server's Batch Requests/sec counter: batches of statements received a " +
+            "second, read every 15 seconds; the line covers the last 15 minutes. It measures " +
+            "the workload, not its cost, so read it against this server's usual."
+          }
           value={formatRate(tiles.batchRequests)}
           unit="/s"
           line={tiles.batchRequestsLine}
         />
         <LiveTile
           label="Blocked"
+          help={
+            "Sessions whose request waits for another session now (blocking_session_id in " +
+            "sys.dm_exec_requests), read every 10 seconds; the line covers the last 15 " +
+            "minutes. 0 is normal. When any wait, the tile opens the blocking tree."
+          }
           value={String(tiles.blocked)}
           unit="sessions"
           line={tiles.blockedLine}
           tone={tiles.blocked > 0 ? "bad" : undefined}
-          onOpen={tiles.blocked > 0 ? () => document.getElementById("live-tree")?.focus() : undefined}
+          onOpen={tiles.blocked > 0 && live.blocking.length > 0 ? () => showPart("live-tree") : undefined}
+          where="See who blocks whom"
         />
         <LiveTile
           label="Longest request"
+          help={
+            "The total_elapsed_time of the longest request running now, from " +
+            "sys.dm_exec_requests, read every 10 seconds. Amber from 5 minutes. A long one " +
+            "usually waits on a lock or reads far too much; its row in Sessions says which."
+          }
           value={clock(tiles.longestRequestSeconds)}
           tone={tiles.longestRequestSeconds >= 300 ? "warn" : undefined}
+          below={longest ? `session ${longest.id}` : undefined}
+          onOpen={longest ? () => onSession(longest.id) : undefined}
+          where="Open the request"
         />
         <LiveTile
           label="Oldest open transaction"
+          help={
+            "The age of the oldest open transaction, from transaction_begin_time in " +
+            "sys.dm_tran_active_transactions, read every 10 seconds. It holds its locks and " +
+            "keeps the log from being reused until it commits or rolls back. Amber from 5 " +
+            "minutes; the tile opens its session."
+          }
           value={tiles.oldestTransactionSeconds === null ? "none" : clock(tiles.oldestTransactionSeconds)}
           tone={tiles.oldestTransactionSeconds !== null && tiles.oldestTransactionSeconds >= 300 ? "warn" : undefined}
           onOpen={
@@ -419,14 +515,27 @@ function Advanced({ live, filters, onSession }: ViewProps) {
               ? undefined
               : () => onSession(tiles.oldestTransactionSession as number)
           }
+          where="Open its session"
         />
         <LiveTile
           label="Grants waiting"
+          help={
+            "Requests waiting for a memory grant before they can run: waiter_count in " +
+            "sys.dm_exec_query_resource_semaphores, read every 10 seconds. It should be 0. " +
+            "Any waiting means memory is short, or a few queries ask for far more than they " +
+            "use."
+          }
           value={String(tiles.grantsWaiting)}
           tone={tiles.grantsWaiting > 0 ? "warn" : undefined}
         />
         <LiveTile
           label="tempdb free"
+          help={
+            "The share of tempdb's data files still free, from " +
+            "tempdb.sys.dm_db_file_space_usage, read every 10 seconds. Sorts, hashes, " +
+            "temporary tables, and row versions use tempdb, and queries fail when it fills. " +
+            "Amber below 10%; the tempdb column of Sessions shows who uses it."
+          }
           value={formatShare(tiles.tempdbFreeRatio)}
           below={tiles.tempdbSizeBytes > 0 ? `of ${formatAmount(tiles.tempdbSizeBytes)}` : undefined}
           tone={tiles.tempdbFreeRatio !== null && tiles.tempdbFreeRatio < 0.1 ? "warn" : undefined}
@@ -437,12 +546,20 @@ function Advanced({ live, filters, onSession }: ViewProps) {
 
       {live.blocking.length > 0 && (
         <section className="metric-panel" aria-labelledby="live-tree-head">
-          <div className="metric-panel-head">
-            <h2 id="live-tree-head">Blocking now</h2>
+          <PanelHead
+            id="live-tree-head"
+            name="Blocking now"
+            help={
+              "The blocking tree from the read every 10 seconds: each head blocker first, the " +
+              "sessions waiting for it under it, with their wait types and how long they " +
+              "waited. The head blocker often sleeps with an open transaction: it changed data " +
+              "and did not commit."
+            }
+          >
             <span>head blocker first</span>
-          </div>
-          <ul className="live-tree" id="live-tree" tabIndex={-1}>
-            {chainsMeeting(live.blocking, byId, filters.filters).map((tree) => (
+          </PanelHead>
+          <ul className="live-tree db-drill-target" id="live-tree" tabIndex={-1}>
+            {live.blocking.map((tree) => (
               <TreeNode
                 key={tree.session}
                 node={tree}
@@ -457,13 +574,22 @@ function Advanced({ live, filters, onSession }: ViewProps) {
       )}
 
       <section className="metric-panel" aria-labelledby="live-sessions">
-        <div className="metric-panel-head">
-          <h2 id="live-sessions">Sessions</h2>
+        <PanelHead
+          id="live-sessions"
+          name="Sessions"
+          help={
+            "Every session that runs, blocks or waits, holds a transaction open, or holds " +
+            "over 8 MB of tempdb, at most 200, from sys.dm_exec_sessions and " +
+            "sys.dm_exec_requests every 10 seconds. Time is the request's, or tx and the " +
+            "transaction's age for a sleeping session. CPU, Reads, and tempdb are what it " +
+            "used so far."
+          }
+        >
           <span>
             {sessions.length === 1 ? "1 session" : `${sessions.length} sessions`} running, waiting, or holding a
             transaction
           </span>
-        </div>
+        </PanelHead>
         {sessions.length === 0 ? (
           <p className="metrics-empty">No session{filters.filters.length > 0 ? " meets the filters" : " is busy"}.</p>
         ) : (
@@ -537,6 +663,30 @@ function Advanced({ live, filters, onSession }: ViewProps) {
       </section>
     </>
   );
+}
+
+/**
+ * The request that has run longest now on the whole server, which the Longest request tile opens. The server names
+ * it; it is undefined when nothing runs, or when the filters leave it out of what the server sent (VEY-66).
+ *
+ * @param live - The tab's data.
+ * @param byId - The sessions the server sent, by ID.
+ * @returns The session, or undefined.
+ */
+function longestRequest(live: DatabaseLive, byId: Map<number, LiveSession>): LiveSession | undefined {
+  const id = live.tiles.longestRequestSession;
+
+  return id === null ? undefined : byId.get(id);
+}
+
+/**
+ * Every session the server sent: those that meet the filters, then the rest of their chains.
+ *
+ * @param live - The tab's data.
+ * @returns The sessions.
+ */
+function known(live: DatabaseLive): LiveSession[] {
+  return [...live.sessions, ...live.chained];
 }
 
 /** Props for {@link State}. */

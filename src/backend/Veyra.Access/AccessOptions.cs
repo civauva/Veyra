@@ -39,6 +39,16 @@ public sealed class AccessOptions
     public int SignInHistoryDays { get; set; } = 90;
 
     /// <summary>
+    /// The look of the web app for people who have not picked one, and for everyone while
+    /// <see cref="PeopleChooseLook"/> is off (ADR 0021). Console since it is complete (ADR 0029); an installation that
+    /// saved Forecast keeps it, because a saved value overrides this default.
+    /// </summary>
+    public string DefaultLook { get; set; } = Users.Looks.Console;
+
+    /// <summary>Whether people may pick their own look. When off, everyone sees <see cref="DefaultLook"/>.</summary>
+    public bool PeopleChooseLook { get; set; } = true;
+
+    /// <summary>
     /// The last way back in (ADR 0011): an email whose second factor Veyra removes at startup, for the only Admin who
     /// lost both phone and recovery codes. Set it, restart, sign in, and take it out again.
     /// </summary>

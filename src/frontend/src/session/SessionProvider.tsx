@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { api } from "../api/client";
+import type { LookId } from "../api/looks";
 import type { Session } from "../api/types";
 import { SessionContext, type SessionState, type SessionValue } from "./SessionContext";
 
@@ -76,13 +77,22 @@ export function SessionProvider({ children }: SessionProviderProps) {
     );
   }, []);
 
+  const setLook = useCallback(async (look: LookId | null) => {
+    await api.setLook(look);
+    setState((current) =>
+      current.status === "signedIn"
+        ? { status: "signedIn", session: { ...current.session, look: { ...current.session.look, chosen: look } } }
+        : current,
+    );
+  }, []);
+
   const setupCompleted = useCallback(() => {
     setState({ status: "signedOut", notice: "Administrator created. Sign in to continue." });
   }, []);
 
   const value = useMemo<SessionValue>(
-    () => ({ state, signIn, completeSignIn, signOut, setupCompleted, setTimeZone }),
-    [state, signIn, completeSignIn, signOut, setupCompleted, setTimeZone],
+    () => ({ state, signIn, completeSignIn, signOut, setupCompleted, setTimeZone, setLook }),
+    [state, signIn, completeSignIn, signOut, setupCompleted, setTimeZone, setLook],
   );
 
   return <SessionContext value={value}>{children}</SessionContext>;

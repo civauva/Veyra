@@ -15,10 +15,10 @@ internal sealed class UserStore(NpgsqlDataSource dataSource)
     /// </summary>
     internal const string Columns =
         "u.id, u.email, u.display_name, u.role, u.disabled, u.password_hash, u.failed_sign_ins, u.locked_until, "
-        + "u.created_at, u.last_sign_in_at, u.team, u.time_zone";
+        + "u.created_at, u.last_sign_in_at, u.team, u.time_zone, u.look";
 
     /// <summary>How many columns <see cref="Columns"/> has.</summary>
-    internal const int ColumnCount = 12;
+    internal const int ColumnCount = 13;
 
     // Serialises first-run setup, so two people using the setup link at the same moment cannot both become admin.
     private const long _setupLockKey = 0x5665797261_01;
@@ -174,6 +174,21 @@ internal sealed class UserStore(NpgsqlDataSource dataSource)
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 
+    /// <summary>Sets the look of the app a person picked, or clears it so the default look is used.</summary>
+    /// <param name="id">The user's ID.</param>
+    /// <param name="look">One of the <see cref="Looks"/>, already checked, or <see langword="null"/>.</param>
+    /// <param name="cancellationToken">Cancels the update.</param>
+    /// <returns>Whether the user exists.</returns>
+    public async Task<bool> SetLookAsync(Guid id, string? look, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(
+            "UPDATE access.user_account SET look = $2 WHERE id = $1");
+        command.Parameters.AddWithValue(id);
+        command.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.Text, (object?)look ?? DBNull.Value);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+    }
+
     /// <summary>Records a failed sign-in, and a lockout when the threshold is reached.</summary>
     /// <param name="id">The user's ID.</param>
     /// <param name="failedSignIns">The new number of failures in a row.</param>
@@ -320,5 +335,6 @@ internal sealed class UserStore(NpgsqlDataSource dataSource)
         CreatedAt: reader.GetFieldValue<DateTimeOffset>(first + 8),
         LastSignInAt: reader.IsDBNull(first + 9) ? null : reader.GetFieldValue<DateTimeOffset>(first + 9),
         Team: reader.IsDBNull(first + 10) ? null : reader.GetString(first + 10),
-        TimeZone: reader.IsDBNull(first + 11) ? null : reader.GetString(first + 11));
+        TimeZone: reader.IsDBNull(first + 11) ? null : reader.GetString(first + 11),
+        Look: reader.IsDBNull(first + 12) ? null : reader.GetString(first + 12));
 }

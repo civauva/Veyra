@@ -3,6 +3,8 @@ import { Link } from "react-router";
 
 import { api } from "../api/client";
 import type { EmailServer, NotificationChannel } from "../api/types";
+import { HelpTip } from "../ui/HelpTip";
+import { ScreenBar } from "../ui/ScreenBar";
 import { ChannelCard } from "./ChannelCard";
 import { ChannelEditor } from "./ChannelEditor";
 import "./notifications.css";
@@ -40,6 +42,7 @@ export function NotificationsScreen() {
 
   return (
     <main className="notifications">
+      <ScreenBar trail={[{ label: "Notifications" }]} />
       <div className="notifications-head">
         <div>
           <h1>Notifications</h1>
@@ -68,6 +71,16 @@ export function NotificationsScreen() {
         </p>
       )}
 
+      {list && list.channels.length > 0 && (
+        <div className="channels-head">
+          <h2>Channels</h2>
+          <HelpTip label="Channels">
+            Each card is one channel. Sends shows which alerts it is told of: warnings, cautions, and resolutions. The
+            bars are the last 14 days of messages, sent and failed; a failed message is tried again for about 25
+            minutes, and the card says why it failed.
+          </HelpTip>
+        </div>
+      )}
       {list && list.channels.length > 0 && (
         <div className="channel-cards">
           {list.channels.map((channel) => (

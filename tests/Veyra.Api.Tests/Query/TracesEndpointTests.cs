@@ -63,6 +63,14 @@ public class TracesEndpointTests(PostgresFixture postgres)
         Assert.Equal(root.SpanId, psp.ParentSpanId);
         Assert.Equal("exception", Assert.Single(psp.Events).Name);
         Assert.Equal("System.TimeoutException", psp.Events[0].Attributes["exception.type"]);
+
+        var errors = await admin.GetFromJsonAsync<TraceDto>(
+            $"/api/v1/traces/{_traceId}?errorsOnly=true&at={Uri.EscapeDataString(start.ToString("O"))}");
+
+        Assert.Equal(2, errors!.Spans.Count);
+        Assert.All(errors.Spans, span => Assert.Equal("Error", span.Status));
+        Assert.Equal((3, 2), (errors.Summary.Spans, errors.Summary.Failed));
+        Assert.Equal(1840, errors.Summary.DurationMs, 3);
     }
 
     [Fact]
@@ -117,7 +125,101 @@ public class TracesEndpointTests(PostgresFixture postgres)
 
         var services = await admin.GetFromJsonAsync<List<ServiceDto>>("/api/v1/traces/services");
 
-        Assert.Equal([new ServiceDto("payments", 2), new ServiceDto("orders", 1)], services);
+        Assert.Equal([new ServiceDto("payments", 2, 10, 0), new ServiceDto("orders", 1, 10, 0)], services);
+    }
+
+    [Fact]
+    public async Task GetServices_Slowest_OrdersByThe95thPercentileWithFailures()
+    {
+        await using var factory = await VeyraApiFactory.CreateAsync(postgres);
+        using var admin = await factory.CreateAdminClientAsync();
+        var now = DateTimeOffset.UtcNow;
+        await WriteAsync(
+            factory,
+            Root(1, now.AddMinutes(-3), 10),
+            Root(2, now.AddMinutes(-2), 30),
+            Root(3, now.AddMinutes(-1), 400) with { ServiceName = "orders", Status = SpanStatus.Error });
+
+        var services = await admin.GetFromJsonAsync<List<ServiceDto>>("/api/v1/traces/services?order=slowest");
+
+        Assert.Equal([new ServiceDto("orders", 1, 400, 1), new ServiceDto("payments", 2, 30, 0)], services);
+    }
+
+    [Fact]
+    public async Task GetTraces_Worst_ListsFailedThenSlowestAndPagesWithACursor()
+    {
+        await using var factory = await VeyraApiFactory.CreateAsync(postgres);
+        using var admin = await factory.CreateAdminClientAsync();
+        var now = DateTimeOffset.UtcNow;
+        await WriteAsync(
+            factory,
+            Root(1, now.AddMinutes(-4), 900),
+            Root(2, now.AddMinutes(-3), 50) with { Status = SpanStatus.Error },
+            Root(3, now.AddMinutes(-2), 300),
+            Root(4, now.AddMinutes(-1), 20));
+
+        var first = await admin.GetFromJsonAsync<TraceListDto>("/api/v1/traces?order=worst&limit=2");
+        var second = await admin.GetFromJsonAsync<TraceListDto>(
+            $"/api/v1/traces?order=worst&limit=2&cursor={first!.NextCursor}");
+        using var mixed = await admin.GetAsync(
+            new Uri($"/api/v1/traces?limit=2&cursor={first.NextCursor}", UriKind.Relative));
+
+        Assert.Equal(["GET /2", "GET /1"], first.Items.Select(item => item.Name));
+        Assert.Equal(["GET /3", "GET /4"], second!.Items.Select(item => item.Name));
+        Assert.Null(second.NextCursor);
+        // A cursor of one order does not continue the other.
+        Assert.Equal(HttpStatusCode.BadRequest, mixed.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("/api/v1/traces?order=sideways")]
+    [InlineData("/api/v1/traces/services?order=sideways")]
+    public async Task Get_UnknownOrder_IsAProblem(string path)
+    {
+        await using var factory = await VeyraApiFactory.CreateAsync(postgres);
+        using var admin = await factory.CreateAdminClientAsync();
+
+        using var response = await admin.GetAsync(new Uri(path, UriKind.Relative));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+    }
+
+    [Fact]
+    public async Task GetSummary_FiltersAndPeriodBefore_CountsTheRangeOnTheServer()
+    {
+        await using var factory = await VeyraApiFactory.CreateAsync(postgres);
+        using var admin = await factory.CreateAdminClientAsync();
+        var to = DateTimeOffset.UtcNow;
+        var from = to.AddMinutes(-30);
+        await WriteAsync(
+            factory,
+            [.. Enumerable.Range(1, 19).Select(i => Root(i, from.AddMinutes(1).AddSeconds(i), i * 10)),
+             Root(20, from.AddMinutes(2), 1000) with { Status = SpanStatus.Error },
+             Root(21, from.AddMinutes(3), 70) with { ServiceName = "orders" },
+             Root(22, from.AddMinutes(-10), 70),
+             Root(23, from.AddMinutes(-20), 70) with { Environment = "staging" }]);
+        var range = $"from={Uri.EscapeDataString(from.ToString("O"))}&to={Uri.EscapeDataString(to.ToString("O"))}";
+
+        var all = await admin.GetFromJsonAsync<SummaryFiguresDto>($"/api/v1/traces/summary?{range}");
+        var production = await admin.GetFromJsonAsync<SummaryFiguresDto>(
+            $"/api/v1/traces/summary?{range}&environment=production&service=payments");
+
+        Assert.Equal(new SummaryFiguresDto(21, 1, 2, 100, 190, 2, 2), all);
+        Assert.Equal(new SummaryFiguresDto(20, 1, 2, 100, 190, 1, 1), production);
+    }
+
+    [Fact]
+    public async Task GetSummary_InvalidWindow_IsAProblem()
+    {
+        await using var factory = await VeyraApiFactory.CreateAsync(postgres);
+        using var admin = await factory.CreateAdminClientAsync();
+
+        using var response = await admin.GetAsync(new Uri(
+            "/api/v1/traces/summary?from=2026-11-26T12:00:00Z&to=2026-11-26T11:00:00Z",
+            UriKind.Relative));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Theory]
@@ -283,9 +385,20 @@ public class TracesEndpointTests(PostgresFixture postgres)
 
     private sealed record PointDto(DateTimeOffset Start, double DurationMs, bool Failed);
 
-    private sealed record ServiceDto(string Service, int Traces);
+    private sealed record ServiceDto(string Service, int Traces, double P95Ms, int Failed);
 
-    private sealed record TraceDto(string TraceId, List<SpanDto> Spans);
+    private sealed record SummaryFiguresDto(
+        int Traces,
+        int Failed,
+        int Slow,
+        double? P50Ms,
+        double? P95Ms,
+        int Services,
+        int? PreviousTraces);
+
+    private sealed record TraceDto(string TraceId, List<SpanDto> Spans, SummaryDto Summary);
+
+    private sealed record SummaryDto(int Spans, int Failed, double DurationMs, string? Cause);
 
     private sealed record SpanDto(
         string SpanId,

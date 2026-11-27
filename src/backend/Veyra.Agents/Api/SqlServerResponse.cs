@@ -19,6 +19,10 @@ namespace Veyra.Agents.Api;
 /// <param name="ChangedAt">When it was last changed.</param>
 /// <param name="Platform">The kind of SQL Server it is.</param>
 /// <param name="Database">The one database it is read in, for an Azure SQL Database.</param>
+/// <param name="Instance">Its named instance, or <see langword="null"/> when it is reached by port (ADR 0028).</param>
+/// <param name="Authentication">How the agent signs in.</param>
+/// <param name="Modules">Each module's switch and interval, in the catalog's order.</param>
+/// <param name="Version">The template version it is read with.</param>
 public sealed record SqlServerResponse(
     Guid Id,
     string Name,
@@ -35,4 +39,8 @@ public sealed record SqlServerResponse(
     DateTimeOffset CreatedAt,
     DateTimeOffset ChangedAt,
     SqlServerPlatform Platform,
-    string? Database);
+    string? Database,
+    string? Instance,
+    SqlServerAuthentication Authentication,
+    IReadOnlyList<SqlServerModuleChoice> Modules,
+    string Version);

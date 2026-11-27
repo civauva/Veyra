@@ -1,12 +1,22 @@
 import { selectableSeverities, type Severity } from "../api/types";
 
-/** The time ranges offered as one-click choices, counted back from now. */
-export const timeRanges = ["15m", "1h", "6h", "24h"] as const;
+/**
+ * The time ranges offered as one-click choices, counted back from now: the shared presets of every screen (ADR 0022).
+ * Logs are kept 14 days, so the last 30 days show what is kept.
+ */
+export const timeRanges = ["15m", "1h", "6h", "24h", "7d", "30d"] as const;
 
 /** One of the {@link timeRanges}. */
 export type TimeRange = (typeof timeRanges)[number];
 
-const rangeMinutes: Record<TimeRange, number> = { "15m": 15, "1h": 60, "6h": 360, "24h": 1440 };
+const rangeMinutes: Record<TimeRange, number> = {
+  "15m": 15,
+  "1h": 60,
+  "6h": 360,
+  "24h": 1440,
+  "7d": 10_080,
+  "30d": 43_200,
+};
 
 /** One `key = value` attribute filter. */
 export interface AttributeFilter {
@@ -18,14 +28,21 @@ export interface AttributeFilter {
 
 /** Everything a person can filter the Log Explorer by. */
 export interface LogFilters {
-  /** How far back from now to search. */
+  /** How far back from now to search, unless a window of one's own is set. */
   range: TimeRange;
+  /** A window of one's own from the shared time range, as ISO instants; null for a range counted back from now. */
+  window: { from: string; to: string } | null;
   /** Only this severity or worse; null for all. */
   minimumSeverity: Severity | null;
   /** Only these services; empty for all. */
   services: string[];
   /** Words that must all appear in the message. */
   text: string;
+  /**
+   * The text of the query bar, which the server parses into filters and ANDs with the others (ADR 0024); empty for
+   * none. The Console look filters with it alone.
+   */
+  query: string;
   /** Attributes that must all match exactly. */
   attributes: AttributeFilter[];
   /** Only records of this trace. */
@@ -37,12 +54,14 @@ export interface LogFilters {
   around: string | null;
 }
 
-/** The view a person sees before choosing anything: the last hour, everything. */
+/** The view a person sees before choosing anything: the last 24 hours, as every screen opens (ADR 0022), everything. */
 export const defaultFilters: LogFilters = {
-  range: "1h",
+  range: "24h",
+  window: null,
   minimumSeverity: null,
   services: [],
   text: "",
+  query: "",
   attributes: [],
   traceId: null,
   around: null,
@@ -92,6 +111,10 @@ export function timeWindow(filters: LogFilters, now: Date): { from: Date; to: Da
     return { from: new Date(centre - aroundMilliseconds), to: new Date(centre + aroundMilliseconds) };
   }
 
+  if (filters.window) {
+    return { from: new Date(filters.window.from), to: new Date(filters.window.to) };
+  }
+
   return { from: new Date(now.getTime() - rangeMinutes[filters.range] * 60_000), to: now };
 }
 
@@ -104,7 +127,10 @@ export function timeWindow(filters: LogFilters, now: Date): { from: Date; to: Da
 export function filtersToUrl(filters: LogFilters): string {
   const params = new URLSearchParams();
 
-  if (filters.range !== defaultFilters.range) {
+  if (filters.window) {
+    params.set("from", filters.window.from);
+    params.set("to", filters.window.to);
+  } else if (filters.range !== defaultFilters.range) {
     params.set("range", filters.range);
   }
 
@@ -130,9 +156,11 @@ export function filtersFromUrl(params: URLSearchParams): LogFilters {
 
   return {
     range: timeRanges.includes(range as TimeRange) ? (range as TimeRange) : defaultFilters.range,
+    window: windowFrom(params),
     minimumSeverity: selectableSeverities.includes(severity as Severity) ? (severity as Severity) : null,
     services: params.getAll("service").filter((service) => service.length > 0),
     text: params.get("text") ?? "",
+    query: params.get("q") ?? "",
     attributes: params
       .getAll("attribute")
       .map(parseAttribute)
@@ -163,6 +191,10 @@ function addCommon(params: URLSearchParams, filters: LogFilters): void {
   if (filters.traceId) {
     params.set("traceId", filters.traceId);
   }
+
+  if (filters.query.trim()) {
+    params.set("q", filters.query.trim());
+  }
 }
 
 /** Splits `key:value` at the first colon, as the API does, so values may contain colons. */
@@ -177,4 +209,24 @@ function parseInstant(text: string | null): string | null {
   const time = text ? Date.parse(text) : Number.NaN;
 
   return Number.isNaN(time) ? null : new Date(time).toISOString();
+}
+
+/**
+ * A window of one's own from the address, when it names a valid `from` and `to` and no preset.
+ *
+ * @param params - The address's query parameters.
+ * @returns The window, or null.
+ */
+function windowFrom(params: URLSearchParams): { from: string; to: string } | null {
+  const from = params.get("from");
+  const to = params.get("to");
+
+  if (params.has("range") || from === null || to === null) {
+    return null;
+  }
+
+  const start = Date.parse(from);
+  const end = Date.parse(to);
+
+  return Number.isNaN(start) || Number.isNaN(end) || start >= end ? null : { from, to };
 }

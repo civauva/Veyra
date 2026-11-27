@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Veyra.Core.Metrics;
+using Veyra.Core.Telemetry;
 
 namespace Veyra.Ingestion.Pipeline;
 
@@ -10,11 +11,13 @@ namespace Veyra.Ingestion.Pipeline;
 /// </summary>
 /// <param name="queue">Where accepted points wait.</param>
 /// <param name="writer">The storage module's writer.</param>
+/// <param name="live">Counts each stored batch, for the live rates (ADR 0022).</param>
 /// <param name="clock">The clock for retry pauses.</param>
 /// <param name="logger">Receives write failures.</param>
 internal sealed partial class MetricWriterService(
     MetricQueue queue,
     IMetricWriter writer,
+    ILiveTelemetry live,
     TimeProvider clock,
     ILogger<MetricWriterService> logger) : BackgroundService
 {
@@ -64,6 +67,7 @@ internal sealed partial class MetricWriterService(
             {
                 await writer.WriteAsync(batch, stoppingToken);
                 queue.MarkWritten(batch.Count);
+                TellLive(batch);
 
                 return;
             }
@@ -92,6 +96,25 @@ internal sealed partial class MetricWriterService(
             delay = TimeSpan.FromTicks(Math.Min(delay.Ticks * 2, _maxRetryDelay.Ticks));
         }
     }
+
+    // As for logs: after the write, and never at the cost of ingestion. Points the series limit dropped count too; the
+    // rate says how much arrives, not how much is kept.
+    private void TellLive(List<MetricPoint> batch)
+    {
+        try
+        {
+            live.PointsWritten(LiveCount.Of(batch, point => point.Environment));
+        }
+        catch (Exception exception)
+        {
+            LogLiveFailed(exception, batch.Count);
+        }
+    }
+
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Counting {Count} written metric points for the live rates failed")]
+    private partial void LogLiveFailed(Exception exception, int count);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Writing {Count} metric points failed; retrying in {Delay}")]
     private partial void LogWriteFailed(Exception exception, int count, TimeSpan delay);

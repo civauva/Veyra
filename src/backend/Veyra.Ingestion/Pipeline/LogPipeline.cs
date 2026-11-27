@@ -1,5 +1,6 @@
 using OpenTelemetry.Proto.Collector.Logs.V1;
 using Veyra.Core.Activity;
+using Veyra.Core.Agents;
 using Veyra.Core.Security;
 using Veyra.Core.Telemetry;
 using Veyra.Ingestion.Activity;
@@ -9,13 +10,18 @@ namespace Veyra.Ingestion.Pipeline;
 
 /// <summary>
 /// The part of ingestion that both OTLP transports share: map the request, apply the key's environment limit, and
-/// queue the result. Rows of Veyra's own agent queries go to the database activity queue (ADR 0020); every other
-/// record is a log record.
+/// queue the result. Rows of Veyra's own agent queries go to the database activity queue (ADR 0020), the answers of
+/// connection probes go to the Agents module (ADR 0028); every other record is a log record.
 /// </summary>
 /// <param name="queue">The bounded queue to the log writer.</param>
 /// <param name="activity">The bounded queue to the database activity writer.</param>
+/// <param name="probes">Takes the probes' answers; it refuses them when its own bounded queue is full.</param>
 /// <param name="clock">The clock for records that carry no time.</param>
-internal sealed class LogPipeline(LogQueue queue, ActivityQueue activity, TimeProvider clock)
+internal sealed class LogPipeline(
+    LogQueue queue,
+    ActivityQueue activity,
+    IAgentProbeReports probes,
+    TimeProvider clock)
 {
     /// <summary>
     /// Accepts the records of one request from a sender whose key was already checked.
@@ -54,16 +60,31 @@ internal sealed class LogPipeline(LogQueue queue, ActivityQueue activity, TimePr
 
         var logs = new List<LogRecord>(accepted.Count);
         var rows = new List<DatabaseActivity>();
+        var answers = new List<AgentProbeReport>();
 
         foreach (var record in accepted)
         {
-            if (ActivityRecordMapper.IsActivity(record))
+            if (IsProbeAnswer(record))
+            {
+                answers.Add(new AgentProbeReport(key.KeyId, record.Attributes, record.Timestamp));
+            }
+            else if (ActivityRecordMapper.IsActivity(record))
             {
                 rows.Add(ActivityRecordMapper.Map(record));
             }
             else
             {
                 logs.Add(record);
+            }
+        }
+
+        // A probe's answer comes alone in its request, from its own pipeline. Should the probes' queue be full, the
+        // sender retries; an answer that arrives twice finds its probe already finished.
+        foreach (var answer in answers)
+        {
+            if (!probes.TryAccept(answer))
+            {
+                return new IngestResult(0, 0, null, QueueFull: true);
             }
         }
 
@@ -81,4 +102,8 @@ internal sealed class LogPipeline(LogQueue queue, ActivityQueue activity, TimePr
 
         return new IngestResult(accepted.Count, records.Count - accepted.Count, reason, QueueFull: false);
     }
+
+    private static bool IsProbeAnswer(LogRecord record) =>
+        record.Attributes.TryGetValue(ActivityRecordMapper.KindAttribute, out var kind)
+        && kind == AgentProbeReport.Kind;
 }

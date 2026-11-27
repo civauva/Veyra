@@ -1,0 +1,1300 @@
+# veyra-template: sqlserver 0.1.0
+# veyra-collector: otelcol-contrib 0.140
+# veyra-sql-server: SQL Server 2019
+# The previous version of collector.yaml, kept so Veyra can roll a server back to it (ADR 0028). Do not edit.
+#
+# OpenTelemetry Collector (contrib distribution) for one SQL Server instance (2019, 2022, or 2025): requests, waits,
+# blocking, deadlocks, file I/O, memory, and connections from the sqlserver receiver; database size, backup age,
+# SQL Agent jobs, the longest running query, and each statement's time, runs, CPU, and reads from sqlquery; the
+# busy sessions every 10 seconds for the live view (sqlquery/live); every backup msdb records (sqlquery/backups).
+# All of it goes to Veyra over OTLP/HTTP. See docs/integrations/sqlserver.md.
+#
+# Settings come from the environment, never from this file:
+#   VEYRA_OTLP_ENDPOINT    Veyra's OTLP/HTTP address, for example https://veyra.example.com or http://127.0.0.1:4318
+#   VEYRA_INGESTION_KEY    an ingestion key created in Veyra (vyk_...)
+#   VEYRA_ENVIRONMENT      the environment the server belongs to, for example production
+#   SQLSERVER_NAME         the name Veyra shows for this server, for example sql-prod-01; keep it once chosen, since
+#                          Veyra files the server's history under it
+#   SQLSERVER_HOST         the address the Collector connects to, for example sql-prod-01.corp.local or 127.0.0.1
+#   SQLSERVER_PORT         usually 1433
+#   SQLSERVER_USER         the monitoring login (see the guide for its permissions)
+#   SQLSERVER_PASSWORD     its password, URL-encoded if it has characters such as @ : / ? # & or %
+#   SQLSERVER_ENCRYPT      true to require TLS, false to let the server choose, disable to turn it off
+#   SQLSERVER_TRUST_CERT   true only for a server with a self-signed certificate the Collector cannot check
+
+receivers:
+  sqlserver:
+    datasource: >-
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
+    # Veyra charts in one-minute buckets at the finest; several points a minute keep the newest bucket filled.
+    collection_interval: 15s
+    events:
+      # Requests running now. The sessions query under sqlquery/live replaces them: it also sees a session that sleeps
+      # with an open transaction, the usual head of a blocking chain, which the receiver's samples miss (ADR 0020).
+      db.server.query_sample:
+        enabled: false
+      # The receiver's top queries count a statement only from the second time it sees it, and sample statements in
+      # no order, so queries run now and then never show. The statements query under sqlquery replaces them (VEY-43).
+      db.server.top_query:
+        enabled: false
+    # Beyond the receiver's defaults: what the database screen and the blocking and deadlock rules read.
+    metrics:
+      sqlserver.database.io:
+        enabled: true
+      sqlserver.database.latency:
+        enabled: true
+      sqlserver.database.operations:
+        enabled: true
+      sqlserver.deadlock.rate:
+        enabled: true
+      sqlserver.memory.usage:
+        enabled: true
+      sqlserver.os.wait.duration:
+        enabled: true
+      sqlserver.processes.blocked:
+        enabled: true
+      sqlserver.cpu.count:
+        enabled: true
+      sqlserver.computer.uptime:
+        enabled: true
+      sqlserver.user.connection.count:
+        enabled: true
+
+  # What the sqlserver receiver does not measure, under the names Veyra reads (ADR 0018). The queries need
+  # VIEW SERVER STATE and read access to msdb; see the guide.
+  sqlquery:
+    driver: sqlserver
+    datasource: >-
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
+    collection_interval: 60s
+    queries:
+      # Data and log files per database. Veyra shows the size and its growth per day.
+      - sql: >-
+          /* veyra-agent: database size */
+          SELECT DB_NAME(database_id) AS database_name,
+                 CASE type WHEN 1 THEN 'log' ELSE 'data' END AS file_type,
+                 SUM(CAST(size AS bigint)) * 8192 AS bytes
+          FROM sys.master_files
+          WHERE type IN (0, 1)
+          GROUP BY database_id, CASE type WHEN 1 THEN 'log' ELSE 'data' END
+        metrics:
+          - metric_name: sqlserver.database.size
+            value_column: bytes
+            attribute_columns:
+              - database_name
+              - file_type
+            unit: By
+            value_type: int
+            data_type: gauge
+
+      # Seconds since the last full backup finished, for each database that has ever had one. tempdb cannot be
+      # backed up; a database never backed up has no point, so the backup rule leaves it alone.
+      - sql: >-
+          /* veyra-agent: backup age */
+          SELECT d.name AS database_name,
+                 DATEDIFF_BIG(SECOND, MAX(b.backup_finish_date), GETDATE()) AS seconds
+          FROM sys.databases AS d
+          JOIN msdb.dbo.backupset AS b ON b.database_name = d.name AND b.type = 'D'
+          WHERE d.name <> 'tempdb'
+          GROUP BY d.name
+        metrics:
+          - metric_name: sqlserver.database.backup.age
+            value_column: seconds
+            attribute_columns:
+              - database_name
+            unit: s
+            value_type: int
+            data_type: gauge
+
+      # The last run of every enabled SQL Agent job: whether it failed, when it started (Unix seconds in UTC; SQL Agent
+      # keeps the server's local time), and how long it took in seconds. Jobs that never ran have no point.
+      - sql: >-
+          /* veyra-agent: job last run */
+          SELECT j.name AS job_name,
+                 CASE WHEN h.run_status = 0 THEN 1 ELSE 0 END AS failed,
+                 DATEDIFF_BIG(SECOND, '1970-01-01',
+                   DATEADD(MINUTE, -DATEDIFF(MINUTE, GETUTCDATE(), GETDATE()),
+                     msdb.dbo.agent_datetime(h.run_date, h.run_time))) AS started,
+                 h.run_duration / 10000 * 3600 + h.run_duration / 100 % 100 * 60 + h.run_duration % 100 AS took
+          FROM msdb.dbo.sysjobs AS j
+          CROSS APPLY (
+            SELECT TOP (1) run_status, run_date, run_time, run_duration
+            FROM msdb.dbo.sysjobhistory
+            WHERE job_id = j.job_id AND step_id = 0
+            ORDER BY instance_id DESC
+          ) AS h
+          WHERE j.enabled = 1
+        metrics:
+          - metric_name: sqlserver.agent.job.failed
+            value_column: failed
+            attribute_columns:
+              - job_name
+            unit: "{jobs}"
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.agent.job.last_run
+            value_column: started
+            attribute_columns:
+              - job_name
+            unit: s
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.agent.job.duration
+            value_column: took
+            attribute_columns:
+              - job_name
+            unit: s
+            value_type: int
+            data_type: gauge
+
+      # The longest running user request now, per online database; 0 when nothing runs, so the long-query alert
+      # clears as soon as the query ends.
+      - sql: >-
+          /* veyra-agent: longest request */
+          SELECT d.name AS database_name,
+                 COALESCE(MAX(r.total_elapsed_time), 0) / 1000.0 AS seconds
+          FROM sys.databases AS d
+          LEFT JOIN sys.dm_exec_requests AS r
+            ON r.database_id = d.database_id
+           AND r.session_id <> @@SPID
+           AND r.session_id IN (SELECT session_id FROM sys.dm_exec_sessions WHERE is_user_process = 1)
+          WHERE d.state = 0
+          GROUP BY d.name
+        metrics:
+          - metric_name: sqlserver.query.duration.max
+            value_column: seconds
+            attribute_columns:
+              - database_name
+            unit: s
+            value_type: double
+            data_type: gauge
+      # Each statement that ran in the last two minutes, the busiest 100, with SQL Server's running totals since its
+      # plan was cached, which becomes the start time. cumulativetodelta below turns the totals into what each minute
+      # added, and counts a plan cached after the agent started in full, so a query run once shows too. They are ranked
+      # by their time in about the last minute: all of a plan cached since, an average minute of an older one. The
+      # agent's own statements are marked: the receiver's carry its server name expression, these carry veyra-agent.
+      - sql: >-
+          /* veyra-agent: statement statistics */
+          SELECT TOP (100)
+                 CONVERT(varchar(18), qs.query_hash, 1) AS query_hash,
+                 CONVERT(varchar(18), qs.query_plan_hash, 1) AS plan_hash,
+                 ISNULL(DB_NAME(CONVERT(int, pa.value)), '') AS database_name,
+                 LEFT(MAX(SUBSTRING(st.text, qs.statement_start_offset / 2 + 1,
+                   (CASE qs.statement_end_offset WHEN -1 THEN DATALENGTH(st.text) ELSE qs.statement_end_offset END
+                    - qs.statement_start_offset) / 2 + 1)), 1000) AS query_text,
+                 MAX(CASE WHEN st.text LIKE '%veyra-agent%' OR st.text LIKE '%REPLACE(@@SERVERNAME,''\'','':'')%'
+                          THEN 'true' ELSE 'false' END) AS agent,
+                 SUM(qs.execution_count) AS executions,
+                 SUM(qs.total_elapsed_time) / 1000000.0 AS elapsed_seconds,
+                 SUM(qs.total_worker_time) / 1000000.0 AS cpu_seconds,
+                 SUM(qs.total_logical_reads) AS logical_reads,
+                 DATEDIFF_BIG(SECOND, '1970-01-01',
+                   DATEADD(MINUTE, -DATEDIFF(MINUTE, GETUTCDATE(), GETDATE()), MIN(qs.creation_time)))
+                   * 1000000000 AS cached_since
+          FROM sys.dm_exec_query_stats AS qs
+          CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS st
+          OUTER APPLY (SELECT value FROM sys.dm_exec_plan_attributes(qs.plan_handle) WHERE attribute = 'dbid') AS pa
+          WHERE qs.last_execution_time > DATEADD(MINUTE, -2, GETDATE())
+          GROUP BY qs.query_hash, qs.query_plan_hash, CONVERT(int, pa.value)
+          ORDER BY SUM(CASE WHEN qs.creation_time > DATEADD(MINUTE, -2, GETDATE()) THEN qs.total_elapsed_time
+                       ELSE qs.total_elapsed_time * 60.0
+                            / NULLIF(DATEDIFF_BIG(SECOND, qs.creation_time, GETDATE()), 0) END) DESC
+        metrics:
+          - metric_name: sqlserver.statement.elapsed
+            value_column: elapsed_seconds
+            attribute_columns: [query_hash, plan_hash, database_name, query_text, agent]
+            start_ts_column: cached_since
+            unit: s
+            value_type: double
+            data_type: sum
+            monotonic: true
+            # Written out: the receiver applies start_ts_column only to an aggregation set to cumulative.
+            aggregation: cumulative
+          - metric_name: sqlserver.statement.cpu
+            value_column: cpu_seconds
+            attribute_columns: [query_hash, plan_hash, database_name, query_text, agent]
+            start_ts_column: cached_since
+            unit: s
+            value_type: double
+            data_type: sum
+            monotonic: true
+            # Written out: the receiver applies start_ts_column only to an aggregation set to cumulative.
+            aggregation: cumulative
+          - metric_name: sqlserver.statement.executions
+            value_column: executions
+            attribute_columns: [query_hash, plan_hash, database_name, query_text, agent]
+            start_ts_column: cached_since
+            unit: "{executions}"
+            value_type: int
+            data_type: sum
+            monotonic: true
+            # Written out: the receiver applies start_ts_column only to an aggregation set to cumulative.
+            aggregation: cumulative
+          - metric_name: sqlserver.statement.logical_reads
+            value_column: logical_reads
+            attribute_columns: [query_hash, plan_hash, database_name, query_text, agent]
+            start_ts_column: cached_since
+            unit: "{reads}"
+            value_type: int
+            data_type: sum
+            monotonic: true
+            # Written out: the receiver applies start_ts_column only to an aggregation set to cumulative.
+            aggregation: cumulative
+
+  # The live view (ADR 0020, area 3): every 10 seconds, each session that runs a request, blocks or waits for another,
+  # holds a transaction open, or holds more than 8 MB of tempdb, at most 200, and one row of server-wide figures, so a
+  # read that found nothing busy still arrives. Each row becomes a log record that Veyra files as database activity by
+  # its veyra_record column; every row of one read carries the same sample time. No column may be NULL, which the
+  # receiver reports as an error: -1 stands for "no open transaction". The agent's own sessions are left out unless
+  # they block or wait.
+  sqlquery/live:
+    driver: sqlserver
+    datasource: >-
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
+    collection_interval: 10s
+    queries:
+      - sql: >-
+          /* veyra-agent: sessions */
+          WITH tx AS (
+            SELECT st.session_id, MIN(at.transaction_begin_time) AS began,
+                   SUM(ISNULL(dt.database_transaction_log_record_count, 0)) AS log_records
+            FROM sys.dm_tran_session_transactions AS st
+            JOIN sys.dm_tran_active_transactions AS at ON at.transaction_id = st.transaction_id
+            LEFT JOIN sys.dm_tran_database_transactions AS dt ON dt.transaction_id = st.transaction_id
+            GROUP BY st.session_id
+          ),
+          blockers AS (
+            SELECT blocking_session_id AS session_id FROM sys.dm_exec_requests WHERE blocking_session_id > 0
+            UNION
+            SELECT blocking_session_id FROM sys.dm_os_waiting_tasks WHERE blocking_session_id > 0
+          ),
+          space AS (
+            SELECT session_id,
+                   SUM(user_objects_alloc_page_count - user_objects_dealloc_page_count
+                       + internal_objects_alloc_page_count - internal_objects_dealloc_page_count) AS pages
+            FROM (
+              SELECT session_id, user_objects_alloc_page_count, user_objects_dealloc_page_count,
+                     internal_objects_alloc_page_count, internal_objects_dealloc_page_count
+              FROM sys.dm_db_session_space_usage
+              UNION ALL
+              SELECT session_id, user_objects_alloc_page_count, user_objects_dealloc_page_count,
+                     internal_objects_alloc_page_count, internal_objects_dealloc_page_count
+              FROM sys.dm_db_task_space_usage
+            ) AS u
+            GROUP BY session_id
+          ),
+          tempdb AS (
+            SELECT SUM(total_page_count) * 8 AS size_kb, SUM(unallocated_extent_page_count) * 8 AS free_kb
+            FROM tempdb.sys.dm_db_file_space_usage
+          ),
+          sessions AS (
+            SELECT
+              s.session_id,
+              ISNULL(r.status, '') AS request_status,
+              s.status AS session_status,
+              ISNULL(r.command, '') AS command,
+              ISNULL(DB_NAME(COALESCE(r.database_id, s.database_id)), '') AS database_name,
+              ISNULL(s.program_name, '') AS program,
+              ISNULL(s.host_name, '') AS host,
+              ISNULL(s.login_name, '') AS login,
+              ISNULL(r.blocking_session_id, 0) AS blocked_by,
+              ISNULL(r.wait_type, '') AS wait_type,
+              ISNULL(r.wait_time, 0) AS wait_ms,
+              ISNULL(r.wait_resource, '') AS wait_resource,
+              ISNULL(r.total_elapsed_time, 0) AS elapsed_ms,
+              ISNULL(r.cpu_time, s.cpu_time) AS cpu_ms,
+              ISNULL(r.logical_reads, s.logical_reads) AS reads,
+              ISNULL(r.writes, s.writes) AS writes,
+              ISNULL(sp.pages, 0) * 8 AS tempdb_kb,
+              ISNULL(g.granted_memory_kb, 0) AS grant_kb,
+              ISNULL(g.requested_memory_kb, 0) AS grant_requested_kb,
+              CASE WHEN g.session_id IS NOT NULL AND g.grant_time IS NULL THEN 1 ELSE 0 END AS grant_waiting,
+              ISNULL(DATEDIFF_BIG(MILLISECOND, tx.began, GETDATE()), -1) AS transaction_ms,
+              ISNULL(tx.log_records, 0) AS transaction_log_records,
+              s.open_transaction_count AS open_transactions,
+              s.transaction_isolation_level AS isolation,
+              ISNULL(r.percent_complete, 0) AS percent_complete,
+              ISNULL(r.estimated_completion_time, 0) AS remaining_ms,
+              ISNULL(CONVERT(varchar(18), r.query_hash, 1), '') AS query_hash,
+              ISNULL(CONVERT(varchar(18), r.query_plan_hash, 1), '') AS plan_hash,
+              ISNULL(DATEDIFF_BIG(MILLISECOND, s.last_request_end_time, GETDATE()), 0) AS idle_ms,
+              DATEDIFF_BIG(SECOND, s.login_time, GETDATE()) AS connected_seconds,
+              LEFT(ISNULL(CASE
+                WHEN r.sql_handle IS NOT NULL THEN SUBSTRING(t.text, r.statement_start_offset / 2 + 1,
+                  (CASE r.statement_end_offset WHEN -1 THEN DATALENGTH(t.text) ELSE r.statement_end_offset END
+                   - r.statement_start_offset) / 2 + 1)
+                ELSE t.text END, ''), 4000) AS statement_text,
+              CASE WHEN r.session_id IS NOT NULL THEN 1 ELSE 0 END AS running,
+              CASE WHEN b.session_id IS NOT NULL THEN 1 ELSE 0 END AS blocking
+            FROM sys.dm_exec_sessions AS s
+            LEFT JOIN sys.dm_exec_requests AS r ON r.session_id = s.session_id
+            LEFT JOIN sys.dm_exec_connections AS c ON c.session_id = s.session_id AND c.parent_connection_id IS NULL
+            LEFT JOIN tx ON tx.session_id = s.session_id
+            LEFT JOIN blockers AS b ON b.session_id = s.session_id
+            LEFT JOIN space AS sp ON sp.session_id = s.session_id
+            LEFT JOIN sys.dm_exec_query_memory_grants AS g
+              ON g.session_id = r.session_id AND g.request_id = r.request_id
+            OUTER APPLY sys.dm_exec_sql_text(COALESCE(r.sql_handle, c.most_recent_sql_handle)) AS t
+            WHERE s.is_user_process = 1
+              AND s.session_id <> @@SPID
+              AND (r.session_id IS NOT NULL OR tx.session_id IS NOT NULL OR b.session_id IS NOT NULL
+                   OR sp.pages > 1024)
+              AND (s.program_name <> 'veyra-collector' OR b.session_id IS NOT NULL
+                   OR ISNULL(r.blocking_session_id, 0) > 0)
+          )
+          SELECT TOP (201) * FROM (
+            SELECT 'sqlserver.session' AS veyra_record,
+                   CONVERT(varchar(30), DATEDIFF_BIG(MILLISECOND, '1970-01-01', SYSUTCDATETIME())) AS sample,
+                   x.*, 0 AS tempdb_size_kb, 0 AS tempdb_free_kb, 0 AS grants_waiting
+            FROM sessions AS x
+            UNION ALL
+            SELECT 'sqlserver.session',
+                   CONVERT(varchar(30), DATEDIFF_BIG(MILLISECOND, '1970-01-01', SYSUTCDATETIME())),
+                   0, '', '', '', '', '', '', '', 0, '', 0, '', 0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0,
+                   '', '', 0, 0, '', 0, 0,
+                   tempdb.size_kb, tempdb.free_kb,
+                   (SELECT ISNULL(SUM(waiter_count), 0) FROM sys.dm_exec_query_resource_semaphores)
+            FROM tempdb
+          ) AS rows
+          ORDER BY CASE WHEN session_id = 0 THEN 0 WHEN blocking = 1 OR blocked_by > 0 THEN 1 ELSE 2 END,
+                   elapsed_ms DESC, transaction_ms DESC
+        logs:
+          - body_column: statement_text
+            attribute_columns: [veyra_record, sample, session_id, request_status, session_status, command,
+              database_name, program, host, login, blocked_by, wait_type, wait_ms, wait_resource, elapsed_ms, cpu_ms,
+              reads, writes, tempdb_kb, grant_kb, grant_requested_kb, grant_waiting, transaction_ms,
+              transaction_log_records, open_transactions, isolation, percent_complete, remaining_ms, query_hash,
+              plan_hash, idle_ms, connected_seconds, running, blocking, tempdb_size_kb, tempdb_free_kb, grants_waiting]
+
+  # The plan of each of the 10 busiest statements of the last 15 minutes, once per plan, as XML up to 2 MB (ADR 0020).
+  # Veyra keeps a plan once a day, reads its operators and warnings, and offers it as a .sqlplan file.
+  sqlquery/plans:
+    driver: sqlserver
+    datasource: >-
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
+    collection_interval: 15m
+    queries:
+      - sql: >-
+          /* veyra-agent: plans */
+          WITH ranked AS (
+            SELECT qs.query_hash, qs.query_plan_hash, qs.plan_handle,
+                   qs.statement_start_offset, qs.statement_end_offset,
+                   ROW_NUMBER() OVER (PARTITION BY qs.query_hash, qs.query_plan_hash
+                                      ORDER BY qs.last_execution_time DESC) AS pick,
+                   SUM(qs.total_elapsed_time) OVER (PARTITION BY qs.query_hash, qs.query_plan_hash) AS elapsed
+            FROM sys.dm_exec_query_stats AS qs
+            WHERE qs.last_execution_time > DATEADD(MINUTE, -15, GETDATE())
+              AND qs.query_plan_hash <> 0x0000000000000000
+          ),
+          busy AS (SELECT TOP (10) * FROM ranked WHERE pick = 1 ORDER BY elapsed DESC)
+          SELECT 'sqlserver.plan' AS veyra_record,
+                 CONVERT(varchar(30), DATEDIFF_BIG(MILLISECOND, '1970-01-01', SYSUTCDATETIME())) AS sample,
+                 CONVERT(varchar(18), b.query_plan_hash, 1) AS [key],
+                 CONVERT(varchar(18), b.query_hash, 1) AS query_hash,
+                 ISNULL(DB_NAME(CONVERT(int, pa.value)), '') AS database_name,
+                 ISNULL(LEFT(CONVERT(nvarchar(max), p.query_plan), 2000000), '') AS plan_xml
+          FROM busy AS b
+          OUTER APPLY sys.dm_exec_text_query_plan(b.plan_handle, b.statement_start_offset, b.statement_end_offset) AS p
+          OUTER APPLY (SELECT value FROM sys.dm_exec_plan_attributes(b.plan_handle) WHERE attribute = 'dbid') AS pa
+        logs:
+          - body_column: plan_xml
+            attribute_columns: [veyra_record, sample, key, query_hash, database_name]
+
+  # Rare events from the built-in system_health session (ADR 0020): every minute, those of the last five minutes.
+  # They are read from the session's current event file. Its ring buffer, which these reads used first, returns at
+  # most 4 MB of XML, and on a server that has run for days the newest events are the ones it cuts off. A server whose
+  # system_health writes no file falls back to the ring buffer. The file's timestamp_utc is compared inside DATEADD:
+  # compared directly, SQL Server pushes the filter into the function and it matches nothing (2022 CU14). The session
+  # writes its file up to two minutes after an event (MAX_DISPATCH_LATENCY 120 seconds), so five minutes leaves a read
+  # or two after the latest write. Each is sent with a hash of its XML as its key, so Veyra keeps it once although it
+  # is read several times. Deadlocks carry their graph.
+  sqlquery/events:
+    driver: sqlserver
+    datasource: >-
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
+    collection_interval: 60s
+    queries:
+      - sql: >-
+          /* veyra-agent: deadlocks */
+          SET NOCOUNT ON;
+          DECLARE @file nvarchar(520) = (
+            SELECT TOP (1) CAST(t.target_data AS xml).value('(EventFileTarget/File/@name)[1]', 'nvarchar(520)')
+            FROM sys.dm_xe_session_targets AS t
+            JOIN sys.dm_xe_sessions AS s ON s.address = t.event_session_address
+            WHERE s.name = 'system_health' AND t.target_name = 'event_file');
+          DECLARE @events TABLE (data xml NOT NULL);
+          IF @file IS NOT NULL
+            INSERT @events (data)
+            SELECT CAST(f.event_data AS xml)
+            FROM sys.fn_xe_file_target_read_file(@file, NULL, NULL, NULL) AS f
+            WHERE f.object_name = N'xml_deadlock_report' AND DATEADD(MINUTE, 5, f.timestamp_utc) > SYSUTCDATETIME();
+          ELSE
+            INSERT @events (data)
+            SELECT x.e.query('.')
+            FROM (SELECT CAST(t.target_data AS xml) AS data
+                  FROM sys.dm_xe_session_targets AS t
+                  JOIN sys.dm_xe_sessions AS s ON s.address = t.event_session_address
+                  WHERE s.name = 'system_health' AND t.target_name = 'ring_buffer') AS r
+            CROSS APPLY r.data.nodes('RingBufferTarget/event[@name="xml_deadlock_report"]') AS x(e);
+          WITH found AS (
+            SELECT e.value('@timestamp', 'datetime2') AS at,
+                   CONVERT(nvarchar(max), e.query('data/value/deadlock')) AS graph
+            FROM @events AS v
+            CROSS APPLY v.data.nodes('event') AS x(e)
+          )
+          SELECT 'sqlserver.deadlock' AS veyra_record,
+                 CONVERT(varchar(30), DATEDIFF_BIG(MILLISECOND, '1970-01-01', at)) AS sample,
+                 CONVERT(varchar(64), HASHBYTES('SHA2_256', graph), 2) AS [key],
+                 graph
+          FROM found
+          WHERE at > DATEADD(MINUTE, -5, SYSUTCDATETIME())
+        logs:
+          - body_column: graph
+            attribute_columns: [veyra_record, sample, key]
+      # Every other event system_health keeps: errors of severity 20 and above and memory errors, long lock and latch
+      # waits, non-yielding schedulers, and security and connectivity records, of the last five minutes.
+      - sql: >-
+          /* veyra-agent: events */
+          SET NOCOUNT ON;
+          DECLARE @file nvarchar(520) = (
+            SELECT TOP (1) CAST(t.target_data AS xml).value('(EventFileTarget/File/@name)[1]', 'nvarchar(520)')
+            FROM sys.dm_xe_session_targets AS t
+            JOIN sys.dm_xe_sessions AS s ON s.address = t.event_session_address
+            WHERE s.name = 'system_health' AND t.target_name = 'event_file');
+          DECLARE @events TABLE (data xml NOT NULL);
+          IF @file IS NOT NULL
+            INSERT @events (data)
+            SELECT CAST(f.event_data AS xml)
+            FROM sys.fn_xe_file_target_read_file(@file, NULL, NULL, NULL) AS f
+            WHERE f.object_name NOT IN (N'xml_deadlock_report', N'sp_server_diagnostics_component_result')
+              AND DATEADD(MINUTE, 5, f.timestamp_utc) > SYSUTCDATETIME();
+          ELSE
+            INSERT @events (data)
+            SELECT x.e.query('.')
+            FROM (SELECT CAST(t.target_data AS xml) AS data
+                  FROM sys.dm_xe_session_targets AS t
+                  JOIN sys.dm_xe_sessions AS s ON s.address = t.event_session_address
+                  WHERE s.name = 'system_health' AND t.target_name = 'ring_buffer') AS r
+            CROSS APPLY r.data.nodes('RingBufferTarget/event[@name != "xml_deadlock_report"
+              and @name != "sp_server_diagnostics_component_result"]') AS x(e);
+          WITH found AS (
+            SELECT e.value('@name', 'varchar(100)') AS event_name,
+                   e.value('@timestamp', 'datetime2') AS at,
+                   ISNULL(e.value('(data[@name="severity"]/value)[1]', 'int'), 0) AS severity,
+                   ISNULL(e.value('(data[@name="error_number"]/value)[1]', 'int'),
+                     ISNULL(e.value('(data[@name="error_code"]/value)[1]', 'int'), 0)) AS error_number,
+                   ISNULL(e.value('(data[@name="wait_type"]/text)[1]', 'varchar(100)'), '') AS wait_type,
+                   ISNULL(e.value('(data[@name="duration"]/value)[1]', 'bigint'), 0) AS duration,
+                   LEFT(ISNULL(e.value('(data[@name="message"]/value)[1]', 'nvarchar(2000)'), ''), 2000) AS message,
+                   CONVERT(nvarchar(max), e.query('.')) AS xml
+            FROM @events AS v
+            CROSS APPLY v.data.nodes('event') AS x(e)
+          )
+          SELECT 'sqlserver.event' AS veyra_record,
+                 CONVERT(varchar(30), DATEDIFF_BIG(MILLISECOND, '1970-01-01', at)) AS sample,
+                 CONVERT(varchar(64), HASHBYTES('SHA2_256', xml), 2) AS [key],
+                 event_name, CONVERT(varchar(10), severity) AS severity,
+                 CONVERT(varchar(10), error_number) AS error_number, wait_type,
+                 CONVERT(varchar(20), duration) AS duration, message
+          FROM found
+          WHERE at > DATEADD(MINUTE, -5, SYSUTCDATETIME())
+        logs:
+          - body_column: message
+            attribute_columns: [veyra_record, sample, key, event_name, severity, error_number, wait_type, duration]
+
+  # Query Store (ADR 0020): every 15 minutes, each plan's runs, time, CPU, reads, and waits in the intervals that ended
+  # in the last 20 minutes, from every database with Query Store on, and whether each user database has it on. One
+  # batch reads every database by its three-part name, which CONNECT ANY DATABASE allows; nothing is installed. Each row
+  # is keyed by database, plan, and interval, so Veyra keeps it once.
+  sqlquery/querystore:
+    driver: sqlserver
+    datasource: >-
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
+    collection_interval: 15m
+    queries:
+      - sql: >-
+          /* veyra-agent: query store */
+          SET NOCOUNT ON;
+          DECLARE @sample varchar(30) = CONVERT(varchar(30), DATEDIFF_BIG(MILLISECOND, '1970-01-01', SYSUTCDATETIME()));
+          DECLARE @sql nvarchar(max) = N'SELECT ''sqlserver.querystore'' AS veyra_record, @sample AS sample,
+            CONCAT(name, ''|state'') AS [key], name AS database_name, '''' AS query_hash, '''' AS plan_hash,
+            ''0'' AS interval_start, ''0'' AS interval_end, CAST(0 AS bigint) AS executions,
+            CAST(0 AS float) AS elapsed_seconds, CAST(0 AS float) AS cpu_seconds, CAST(0 AS float) AS logical_reads,
+            '''' AS top_wait, CAST(0 AS float) AS wait_seconds,
+            CASE is_query_store_on WHEN 1 THEN ''on'' ELSE ''off'' END AS state
+            FROM sys.databases WHERE database_id > 4 AND state = 0';
+          SELECT @sql = @sql + N' UNION ALL SELECT ''sqlserver.querystore'', @sample,
+            CONCAT(' + QUOTENAME(name, '''') + N', ''|'', p.plan_id, ''|'',
+              DATEDIFF_BIG(SECOND, ''1970-01-01'', i.start_time)),
+            ' + QUOTENAME(name, '''') + N', CONVERT(varchar(18), q.query_hash, 1),
+            CONVERT(varchar(18), p.query_plan_hash, 1),
+            CONVERT(varchar(30), DATEDIFF_BIG(SECOND, ''1970-01-01'', i.start_time)),
+            CONVERT(varchar(30), DATEDIFF_BIG(SECOND, ''1970-01-01'', i.end_time)),
+            SUM(rs.count_executions), SUM(rs.avg_duration * rs.count_executions) / 1000000.0,
+            SUM(rs.avg_cpu_time * rs.count_executions) / 1000000.0, SUM(rs.avg_logical_io_reads * rs.count_executions),
+            ISNULL((SELECT TOP (1) ws.wait_category_desc FROM ' + QUOTENAME(name) + N'.sys.query_store_wait_stats AS ws
+              WHERE ws.plan_id = p.plan_id AND ws.runtime_stats_interval_id = i.runtime_stats_interval_id
+              ORDER BY ws.total_query_wait_time_ms DESC), ''''),
+            ISNULL((SELECT SUM(ws.total_query_wait_time_ms) FROM ' + QUOTENAME(name) + N'.sys.query_store_wait_stats AS ws
+              WHERE ws.plan_id = p.plan_id AND ws.runtime_stats_interval_id = i.runtime_stats_interval_id), 0) / 1000.0,
+            ''''
+            FROM ' + QUOTENAME(name) + N'.sys.query_store_runtime_stats AS rs
+            JOIN ' + QUOTENAME(name) + N'.sys.query_store_runtime_stats_interval AS i
+              ON i.runtime_stats_interval_id = rs.runtime_stats_interval_id
+            JOIN ' + QUOTENAME(name) + N'.sys.query_store_plan AS p ON p.plan_id = rs.plan_id
+            JOIN ' + QUOTENAME(name) + N'.sys.query_store_query AS q ON q.query_id = p.query_id
+            WHERE i.end_time > DATEADD(MINUTE, -20, SYSUTCDATETIME())
+            GROUP BY p.plan_id, q.query_hash, p.query_plan_hash, i.start_time, i.end_time, i.runtime_stats_interval_id'
+          FROM sys.databases WHERE database_id > 4 AND state = 0 AND is_query_store_on = 1;
+          EXEC sp_executesql @sql, N'@sample varchar(30)', @sample = @sample;
+        logs:
+          - body_column: state
+            attribute_columns: [veyra_record, sample, key, database_name, query_hash, plan_hash, interval_start,
+              interval_end, executions, elapsed_seconds, cpu_seconds, logical_reads, top_wait, wait_seconds]
+
+  # Databases, files, volumes, log, backups, and integrity (ADR 0020, areas 6 to 8): every 5 minutes, as metrics. A
+  # value of -1 means "none", such as a database never backed up; Veyra leaves it out of the rules.
+  sqlquery/storage:
+    driver: sqlserver
+    datasource: >-
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
+    collection_interval: 5m
+    queries:
+      # Each permission Veyra's queries need, 1 when the login lacks it, so a tab can say why it is empty and how to
+      # grant what is missing (VEY-58). A login without a user in msdb lacks every msdb object. It also says which
+      # platform the agent reads (VEY-57), so the screen leaves out what that platform does not have.
+      - sql: >-
+          /* veyra-agent: permissions */
+          SELECT p.permission, SUSER_NAME() AS login, '${env:SQLSERVER_PLATFORM:-sqlserver}' AS platform,
+                 CASE WHEN ISNULL(p.granted, 0) = 1 THEN 0 ELSE 1 END AS missing
+          FROM (VALUES
+            (N'VIEW SERVER STATE', HAS_PERMS_BY_NAME(NULL, NULL, 'VIEW SERVER STATE')),
+            (N'VIEW ANY DEFINITION', HAS_PERMS_BY_NAME(NULL, NULL, 'VIEW ANY DEFINITION')),
+            (N'CONNECT ANY DATABASE', HAS_PERMS_BY_NAME(NULL, NULL, 'CONNECT ANY DATABASE')),
+            (N'SELECT ON msdb.dbo.backupset', HAS_PERMS_BY_NAME('msdb.dbo.backupset', 'OBJECT', 'SELECT')),
+            (N'SELECT ON msdb.dbo.backupmediafamily',
+              HAS_PERMS_BY_NAME('msdb.dbo.backupmediafamily', 'OBJECT', 'SELECT')),
+            (N'SELECT ON msdb.dbo.suspect_pages', HAS_PERMS_BY_NAME('msdb.dbo.suspect_pages', 'OBJECT', 'SELECT')),
+            (N'SELECT ON msdb.dbo.sysjobs', HAS_PERMS_BY_NAME('msdb.dbo.sysjobs', 'OBJECT', 'SELECT')),
+            (N'SELECT ON msdb.dbo.sysjobhistory', HAS_PERMS_BY_NAME('msdb.dbo.sysjobhistory', 'OBJECT', 'SELECT')),
+            (N'EXECUTE ON msdb.dbo.agent_datetime', HAS_PERMS_BY_NAME('msdb.dbo.agent_datetime', 'OBJECT', 'EXECUTE')),
+            (N'SELECT ON msdb.dbo.sysjobsteps', HAS_PERMS_BY_NAME('msdb.dbo.sysjobsteps', 'OBJECT', 'SELECT')),
+            (N'SELECT ON msdb.dbo.sysjobactivity', HAS_PERMS_BY_NAME('msdb.dbo.sysjobactivity', 'OBJECT', 'SELECT')),
+            (N'SELECT ON msdb.dbo.sysjobschedules', HAS_PERMS_BY_NAME('msdb.dbo.sysjobschedules', 'OBJECT', 'SELECT')),
+            (N'SELECT ON msdb.dbo.sysschedules', HAS_PERMS_BY_NAME('msdb.dbo.sysschedules', 'OBJECT', 'SELECT')),
+            (N'SELECT ON msdb.dbo.log_shipping_monitor_primary',
+              HAS_PERMS_BY_NAME('msdb.dbo.log_shipping_monitor_primary', 'OBJECT', 'SELECT')),
+            (N'SELECT ON msdb.dbo.log_shipping_monitor_secondary',
+              HAS_PERMS_BY_NAME('msdb.dbo.log_shipping_monitor_secondary', 'OBJECT', 'SELECT'))
+          ) AS p(permission, granted)
+        metrics:
+          - metric_name: sqlserver.login.permission.missing
+            value_column: missing
+            attribute_columns: [permission, login, platform]
+            value_type: int
+            data_type: gauge
+      # Each database's state and the settings worth knowing; 1 when it is not online.
+      - sql: >-
+          /* veyra-agent: databases */
+          SELECT d.name AS database_name, d.state_desc AS state, d.recovery_model_desc AS recovery_model,
+                 CONVERT(varchar(10), d.compatibility_level) AS compatibility,
+                 d.page_verify_option_desc AS page_verify,
+                 CASE d.is_auto_close_on WHEN 1 THEN 'on' ELSE 'off' END AS auto_close,
+                 CASE d.is_auto_shrink_on WHEN 1 THEN 'on' ELSE 'off' END AS auto_shrink,
+                 CASE d.is_read_committed_snapshot_on WHEN 1 THEN 'on' ELSE 'off' END AS read_committed_snapshot,
+                 CASE d.is_encrypted WHEN 1 THEN 'on' ELSE 'off' END AS encrypted,
+                 d.log_reuse_wait_desc AS log_reuse_wait,
+                 CASE WHEN d.state = 0 THEN 0 ELSE 1 END AS offline
+          FROM sys.databases AS d
+        metrics:
+          - metric_name: sqlserver.database.offline
+            value_column: offline
+            attribute_columns: [database_name, state, recovery_model, compatibility, page_verify, auto_close,
+              auto_shrink, read_committed_snapshot, encrypted, log_reuse_wait]
+            value_type: int
+            data_type: gauge
+      # The share of each log in use and its virtual log files.
+      - sql: >-
+          /* veyra-agent: logs */
+          SELECT d.name AS database_name,
+                 CASE WHEN ls.total_log_size_mb > 0 THEN ls.active_log_size_mb / ls.total_log_size_mb ELSE 0 END
+                   AS log_used,
+                 ls.total_vlf_count AS vlfs
+          FROM sys.databases AS d
+          CROSS APPLY sys.dm_db_log_stats(d.database_id) AS ls
+          WHERE d.state = 0
+        metrics:
+          - metric_name: sqlserver.log.used.ratio
+            value_column: log_used
+            attribute_columns: [database_name]
+            value_type: double
+            data_type: gauge
+          - metric_name: sqlserver.log.vlf.count
+            value_column: vlfs
+            attribute_columns: [database_name]
+            value_type: int
+            data_type: gauge
+      # Every data and log file with its volume, growth setting, and maximum. Linux reports no mount point: the
+      # volume's ID names it then.
+      - sql: >-
+          /* veyra-agent: files */
+          SELECT DB_NAME(f.database_id) AS database_name, f.name AS file_name,
+                 CASE f.type WHEN 1 THEN 'log' ELSE 'data' END AS file_type,
+                 COALESCE(NULLIF(vs.volume_mount_point, N''), NULLIF(vs.volume_id, N''), N'unknown') AS volume,
+                 CASE WHEN f.growth = 0 THEN 'none'
+                      WHEN f.is_percent_growth = 1 THEN CONCAT(f.growth, '%')
+                      ELSE CONCAT(CAST(f.growth AS bigint) * 8 / 1024, ' MB') END AS growth,
+                 CASE WHEN f.max_size IN (-1, 268435456) THEN 'unlimited'
+                      ELSE CONCAT(CAST(f.max_size AS bigint) * 8 / 1024, ' MB') END AS max_size,
+                 CAST(f.size AS bigint) * 8192 AS bytes
+          FROM sys.master_files AS f
+          JOIN sys.databases AS d ON d.database_id = f.database_id AND d.state = 0
+          CROSS APPLY sys.dm_os_volume_stats(f.database_id, f.file_id) AS vs
+          WHERE f.type IN (0, 1)
+        metrics:
+          - metric_name: sqlserver.file.size
+            value_column: bytes
+            attribute_columns: [database_name, file_name, file_type, volume, growth, max_size]
+            unit: By
+            value_type: int
+            data_type: gauge
+      # Each volume that holds a database file.
+      - sql: >-
+          /* veyra-agent: volumes */
+          SELECT DISTINCT COALESCE(NULLIF(vs.volume_mount_point, N''), NULLIF(vs.volume_id, N''), N'unknown') AS volume,
+                 vs.total_bytes AS size, vs.available_bytes AS free,
+                 1.0 - CAST(vs.available_bytes AS float) / CAST(vs.total_bytes AS float) AS used
+          FROM sys.master_files AS f
+          JOIN sys.databases AS d ON d.database_id = f.database_id AND d.state = 0
+          CROSS APPLY sys.dm_os_volume_stats(f.database_id, f.file_id) AS vs
+          WHERE vs.total_bytes > 0
+        metrics:
+          - metric_name: sqlserver.volume.size
+            value_column: size
+            attribute_columns: [volume]
+            unit: By
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.volume.free
+            value_column: free
+            attribute_columns: [volume]
+            unit: By
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.volume.used.ratio
+            value_column: used
+            attribute_columns: [volume]
+            value_type: double
+            data_type: gauge
+      # Backups beyond the full one, the log chain, the last good CHECKDB, and damaged pages. A database in full or
+      # bulk-logged recovery that never had a log backup counts from its creation; one in simple recovery is -1. So
+      # does a database never checked. master and model carry a creation date of 2003 on every server, so creation is
+      # never earlier than msdb's, which is when SQL Server was installed.
+      - sql: >-
+          /* veyra-agent: recovery */
+          SELECT d.name AS database_name,
+                 CASE WHEN d.recovery_model = 3 THEN -1
+                      ELSE DATEDIFF_BIG(SECOND, ISNULL((SELECT MAX(b.backup_finish_date) FROM msdb.dbo.backupset AS b
+                        WHERE b.database_name = d.name AND b.type = 'L'), c.created), GETDATE()) END AS log_age,
+                 ISNULL(DATEDIFF_BIG(SECOND, (SELECT MAX(b.backup_finish_date) FROM msdb.dbo.backupset AS b
+                   WHERE b.database_name = d.name AND b.type = 'I'), GETDATE()), -1) AS diff_age,
+                 DATEDIFF_BIG(SECOND, CASE WHEN CONVERT(datetime, DATABASEPROPERTYEX(d.name, 'LastGoodCheckDbTime'))
+                   > '2000-01-01' THEN CONVERT(datetime, DATABASEPROPERTYEX(d.name, 'LastGoodCheckDbTime'))
+                   ELSE c.created END, GETDATE()) AS checkdb_age,
+                 (SELECT COUNT(*) FROM msdb.dbo.suspect_pages AS sp
+                   WHERE sp.database_id = d.database_id AND sp.event_type IN (1, 2, 3)) AS damaged,
+                 CASE WHEN EXISTS (
+                   SELECT 1 FROM (
+                     SELECT b.first_lsn, LAG(b.last_lsn) OVER (ORDER BY b.first_lsn) AS previous
+                     FROM msdb.dbo.backupset AS b
+                     WHERE b.database_name = d.name AND b.type = 'L'
+                       AND b.backup_finish_date > ISNULL((SELECT MAX(f.backup_finish_date) FROM msdb.dbo.backupset AS f
+                         WHERE f.database_name = d.name AND f.type = 'D' AND f.is_copy_only = 0), '1900-01-01')
+                   ) AS chain WHERE chain.previous IS NOT NULL AND chain.first_lsn > chain.previous)
+                   THEN 1 ELSE 0 END AS chain_broken,
+                 ISNULL((SELECT TOP (1) DATEDIFF_BIG(SECOND, b.backup_start_date, b.backup_finish_date)
+                   FROM msdb.dbo.backupset AS b WHERE b.database_name = d.name AND b.type = 'D'
+                   ORDER BY b.backup_finish_date DESC), -1) AS full_duration,
+                 ISNULL((SELECT TOP (1) b.backup_size FROM msdb.dbo.backupset AS b
+                   WHERE b.database_name = d.name AND b.type = 'D' ORDER BY b.backup_finish_date DESC), -1) AS full_size,
+                 ISNULL((SELECT TOP (1) LEFT(m.physical_device_name, 200) FROM msdb.dbo.backupset AS b
+                   JOIN msdb.dbo.backupmediafamily AS m ON m.media_set_id = b.media_set_id
+                   WHERE b.database_name = d.name AND b.type = 'D' ORDER BY b.backup_finish_date DESC), '') AS destination
+          FROM sys.databases AS d
+          CROSS APPLY (
+            SELECT CASE WHEN d.create_date > i.create_date THEN d.create_date ELSE i.create_date END AS created
+            FROM sys.databases AS i WHERE i.database_id = 4) AS c
+          WHERE d.database_id <> 2 AND d.state = 0
+        metrics:
+          - metric_name: sqlserver.database.log_backup.age
+            value_column: log_age
+            attribute_columns: [database_name]
+            unit: s
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.database.diff_backup.age
+            value_column: diff_age
+            attribute_columns: [database_name]
+            unit: s
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.database.checkdb.age
+            value_column: checkdb_age
+            attribute_columns: [database_name]
+            unit: s
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.database.suspect_pages
+            value_column: damaged
+            attribute_columns: [database_name]
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.database.log_chain.broken
+            value_column: chain_broken
+            attribute_columns: [database_name]
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.database.backup.duration
+            value_column: full_duration
+            attribute_columns: [database_name]
+            unit: s
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.database.backup.size
+            value_column: full_size
+            attribute_columns: [database_name, destination]
+            unit: By
+            value_type: double
+            data_type: gauge
+
+  # Indexes and statistics (ADR 0020, area 9): every hour, the missing indexes SQL Server noted, and per database the
+  # 300 largest indexes with their use since the server started, writes, size, keys, and lock escalations, and the
+  # statistics of tables over 100,000 rows with when they were last updated. One batch names each database; nothing
+  # reads table data. Veyra keeps each row once a day.
+  sqlquery/indexes:
+    driver: sqlserver
+    datasource: >-
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
+    collection_interval: 1h
+    queries:
+      - sql: >-
+          /* veyra-agent: indexes */
+          SET NOCOUNT ON;
+          DECLARE @sample varchar(30) = CONVERT(varchar(30), DATEDIFF_BIG(MILLISECOND, '1970-01-01', SYSUTCDATETIME()));
+          DECLARE @sql nvarchar(max) = N'SELECT TOP (200) ''sqlserver.index'' AS veyra_record, @sample AS sample,
+            CONCAT(''missing|'', d.index_handle) AS [key], ''missing'' AS row_type, DB_NAME(d.database_id) AS database_name,
+            d.statement AS table_name, '''' AS index_name, '''' AS index_type,
+            ISNULL(d.equality_columns, '''') AS key_columns, ISNULL(d.inequality_columns, '''') AS more_columns,
+            ISNULL(d.included_columns, '''') AS include_columns,
+            CAST(s.avg_user_impact AS float) AS impact, CAST(s.user_seeks + s.user_scans AS float) AS reads,
+            CAST(0 AS float) AS writes, CAST(0 AS float) AS size_bytes, CAST(0 AS float) AS table_rows,
+            CAST(0 AS float) AS escalations, 0 AS is_unique, ''0'' AS updated
+            FROM sys.dm_db_missing_index_details AS d
+            JOIN sys.dm_db_missing_index_groups AS g ON g.index_handle = d.index_handle
+            JOIN sys.dm_db_missing_index_group_stats AS s ON s.group_handle = g.index_group_handle
+            WHERE d.database_id > 4
+            ORDER BY s.avg_user_impact * (s.user_seeks + s.user_scans) DESC';
+          SELECT @sql = @sql + N' UNION ALL SELECT * FROM (SELECT TOP (300) ''sqlserver.index'' AS r, @sample AS s,
+            CONCAT(''usage|'', ' + QUOTENAME(name, '''') + N', ''|'', i.object_id, ''|'', i.index_id) AS k, ''usage'' AS t,
+            ' + QUOTENAME(name, '''') + N' AS db, CONCAT(OBJECT_SCHEMA_NAME(i.object_id, DB_ID(' + QUOTENAME(name, '''')
+            + N')), ''.'', o.name) AS tbl, ISNULL(i.name, '''') AS ix, i.type_desc AS ty,
+            ISNULL((SELECT STRING_AGG(c.name, '', '') WITHIN GROUP (ORDER BY ic.key_ordinal)
+              FROM ' + QUOTENAME(name) + N'.sys.index_columns AS ic JOIN ' + QUOTENAME(name) + N'.sys.columns AS c
+                ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+              WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.is_included_column = 0), '''') AS kc,
+            '''' AS mc,
+            ISNULL((SELECT STRING_AGG(c.name, '', '') FROM ' + QUOTENAME(name) + N'.sys.index_columns AS ic
+              JOIN ' + QUOTENAME(name) + N'.sys.columns AS c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+              WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.is_included_column = 1), '''') AS inc,
+            CAST(0 AS float) AS imp,
+            CAST(ISNULL(u.user_seeks + u.user_scans + u.user_lookups, 0) AS float) AS rd,
+            CAST(ISNULL(u.user_updates, 0) AS float) AS wr,
+            CAST(ISNULL((SELECT SUM(p.used_page_count) FROM ' + QUOTENAME(name) + N'.sys.dm_db_partition_stats AS p
+              WHERE p.object_id = i.object_id AND p.index_id = i.index_id), 0) * 8192 AS float) AS sz,
+            CAST(ISNULL((SELECT SUM(p.row_count) FROM ' + QUOTENAME(name) + N'.sys.dm_db_partition_stats AS p
+              WHERE p.object_id = i.object_id AND p.index_id = i.index_id), 0) AS float) AS rws,
+            CAST(ISNULL((SELECT SUM(os.index_lock_promotion_count)
+              FROM sys.dm_db_index_operational_stats(DB_ID(' + QUOTENAME(name, '''') + N'), i.object_id, i.index_id, NULL)
+              AS os), 0) AS float) AS esc,
+            CASE WHEN i.is_unique = 1 OR i.is_primary_key = 1 THEN 1 ELSE 0 END AS uq, ''0'' AS upd
+            FROM ' + QUOTENAME(name) + N'.sys.indexes AS i
+            JOIN ' + QUOTENAME(name) + N'.sys.objects AS o ON o.object_id = i.object_id AND o.is_ms_shipped = 0
+            LEFT JOIN sys.dm_db_index_usage_stats AS u ON u.database_id = DB_ID(' + QUOTENAME(name, '''') + N')
+              AND u.object_id = i.object_id AND u.index_id = i.index_id
+            ORDER BY sz DESC) AS ' + QUOTENAME(CONCAT('x', database_id))
+          + N' UNION ALL SELECT * FROM (SELECT TOP (100) ''sqlserver.index'' AS r, @sample AS s,
+            CONCAT(''stats|'', ' + QUOTENAME(name, '''') + N', ''|'', st.object_id, ''|'', st.stats_id) AS k, ''stats'' AS t,
+            ' + QUOTENAME(name, '''') + N' AS db, CONCAT(OBJECT_SCHEMA_NAME(st.object_id, DB_ID(' + QUOTENAME(name, '''')
+            + N')), ''.'', o.name) AS tbl, st.name AS ix, ''STATISTICS'' AS ty, '''' AS kc, '''' AS mc, '''' AS inc,
+            CAST(0 AS float) AS imp, CAST(0 AS float) AS rd, CAST(0 AS float) AS wr, CAST(0 AS float) AS sz,
+            CAST(r.row_count AS float) AS rws, CAST(0 AS float) AS esc, 0 AS uq,
+            ISNULL(CONVERT(varchar(30), DATEDIFF_BIG(SECOND, ''1970-01-01'', STATS_DATE(st.object_id, st.stats_id))),
+              ''0'') AS upd
+            FROM ' + QUOTENAME(name) + N'.sys.stats AS st
+            JOIN ' + QUOTENAME(name) + N'.sys.objects AS o ON o.object_id = st.object_id AND o.is_ms_shipped = 0
+            CROSS APPLY (SELECT SUM(p.row_count) AS row_count FROM ' + QUOTENAME(name) + N'.sys.dm_db_partition_stats AS p
+              WHERE p.object_id = st.object_id AND p.index_id IN (0, 1)) AS r
+            WHERE r.row_count > 100000
+            ORDER BY STATS_DATE(st.object_id, st.stats_id)) AS ' + QUOTENAME(CONCAT('y', database_id))
+          FROM sys.databases WHERE database_id > 4 AND state = 0;
+          EXEC sp_executesql @sql, N'@sample varchar(30)', @sample = @sample;
+        logs:
+          - body_column: key_columns
+            attribute_columns: [veyra_record, sample, key, row_type, database_name, table_name, index_name, index_type,
+              more_columns, include_columns, impact, reads, writes, size_bytes, table_rows, escalations, is_unique,
+              updated]
+
+  # The server itself (ADR 0020, areas 1 and 10): every minute, its version and edition, SQL Server's share of CPU and
+  # everything else's from the scheduler monitor ring buffer, runnable tasks, worker threads, memory, grants waiting,
+  # memory dumps of the last day, whether SQL Server Agent runs, and whether SQL Server restarted in the last 15 minutes.
+  # -1 means "not known", such as Agent on an edition without it. It also names the machine: its physical memory and its
+  # operating system (ADR 0025). An Azure SQL Database has neither DMV and does not run this read at all.
+  sqlquery/server:
+    driver: sqlserver
+    datasource: >-
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
+    collection_interval: 60s
+    queries:
+      - sql: >-
+          /* veyra-agent: server */
+          WITH cpu AS (
+            SELECT TOP (1)
+                   x.record.value('(./Record/SchedulerMonitorEvent/SystemHealth/ProcessUtilization)[1]', 'int') AS mine,
+                   x.record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS idle
+            FROM (SELECT CAST(record AS xml) AS record, timestamp FROM sys.dm_os_ring_buffers
+                  WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR' AND record LIKE N'%<SystemHealth>%') AS x
+            ORDER BY x.timestamp DESC
+          )
+          SELECT CONVERT(varchar(128), SERVERPROPERTY('ProductVersion')) AS version,
+                 ISNULL(CONVERT(varchar(128), SERVERPROPERTY('ProductUpdateLevel')), '') AS update_level,
+                 CONVERT(varchar(128), SERVERPROPERTY('Edition')) AS edition,
+                 ISNULL((SELECT mine FROM cpu), -100) / 100.0 AS sql_cpu,
+                 ISNULL((SELECT 100 - idle - mine FROM cpu), -100) / 100.0 AS other_cpu,
+                 (SELECT SUM(runnable_tasks_count) FROM sys.dm_os_schedulers WHERE status = 'VISIBLE ONLINE')
+                   AS runnable,
+                 CAST((SELECT COUNT(*) FROM sys.dm_os_workers) AS float)
+                   / (SELECT max_workers_count FROM sys.dm_os_sys_info) AS workers,
+                 (SELECT committed_target_kb FROM sys.dm_os_sys_info) * 1024 AS memory_target,
+                 (SELECT committed_kb FROM sys.dm_os_sys_info) * 1024 AS memory_committed,
+                 (SELECT CASE WHEN system_low_memory_signal_state = 1 THEN 1 ELSE 0 END FROM sys.dm_os_sys_memory)
+                   AS os_memory_low,
+                 (SELECT available_physical_memory_kb FROM sys.dm_os_sys_memory) * 1024 AS os_memory_free,
+                 (SELECT ISNULL(SUM(waiter_count), 0) FROM sys.dm_exec_query_resource_semaphores) AS grants_waiting,
+                 (SELECT COUNT(*) FROM sys.dm_server_memory_dumps
+                   WHERE creation_time > DATEADD(DAY, -1, SYSDATETIMEOFFSET())) AS dumps,
+                 ISNULL((SELECT TOP (1) CASE WHEN status = 4 THEN 0 ELSE 1 END FROM sys.dm_server_services
+                   WHERE servicename LIKE N'SQL Server Agent%'), -1) AS agent_stopped,
+                 CASE WHEN (SELECT sqlserver_start_time FROM sys.dm_os_sys_info) > DATEADD(MINUTE, -15, GETDATE())
+                      THEN 1 ELSE 0 END AS restarted,
+                 DATEDIFF_BIG(SECOND, (SELECT sqlserver_start_time FROM sys.dm_os_sys_info), GETDATE()) AS uptime,
+                 (SELECT physical_memory_kb FROM sys.dm_os_sys_info) * 1024 AS os_memory_total,
+                 ISNULL((SELECT TOP (1) host_distribution FROM sys.dm_os_host_info), '') AS os_name,
+                 ISNULL((SELECT TOP (1) host_release FROM sys.dm_os_host_info), '') AS os_release,
+                 CASE CONVERT(int, SERVERPROPERTY('ProductMajorVersion'))
+                   WHEN 13 THEN CASE WHEN GETDATE() > '2026-07-14' THEN 1 ELSE 0 END
+                   WHEN 14 THEN CASE WHEN GETDATE() > '2027-10-12' THEN 1 ELSE 0 END
+                   WHEN 15 THEN CASE WHEN GETDATE() > '2030-01-08' THEN 1 ELSE 0 END
+                   WHEN 16 THEN CASE WHEN GETDATE() > '2033-01-11' THEN 1 ELSE 0 END
+                   ELSE 0 END AS unsupported
+        metrics:
+          - metric_name: sqlserver.server.info
+            value_column: uptime
+            attribute_columns: [version, update_level, edition, os_name, os_release]
+            unit: s
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.cpu.sql.ratio
+            value_column: sql_cpu
+            value_type: double
+            data_type: gauge
+          - metric_name: sqlserver.cpu.other.ratio
+            value_column: other_cpu
+            value_type: double
+            data_type: gauge
+          - metric_name: sqlserver.schedulers.runnable
+            value_column: runnable
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.workers.ratio
+            value_column: workers
+            value_type: double
+            data_type: gauge
+          - metric_name: sqlserver.memory.target
+            value_column: memory_target
+            unit: By
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.memory.committed
+            value_column: memory_committed
+            unit: By
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.os.memory.low
+            value_column: os_memory_low
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.os.memory.free
+            value_column: os_memory_free
+            unit: By
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.os.memory.total
+            value_column: os_memory_total
+            unit: By
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.memory.grants.pending
+            value_column: grants_waiting
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.memory.dumps.day
+            value_column: dumps
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.agent.stopped
+            value_column: agent_stopped
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.server.restarted
+            value_column: restarted
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.server.unsupported
+            value_column: unsupported
+            value_type: int
+            data_type: gauge
+      # Availability (ADR 0020, area 12): each Availability Group replica's role and health, and whether it is the
+      # primary here; each database's send and redo queues, lag, and synchronization; log shipping's delay against its
+      # threshold; and which node of a failover cluster owns the instance. Servers without them send no rows.
+      - sql: >-
+          /* veyra-agent: availability replicas */
+          SELECT ag.name AS group_name, ar.replica_server_name AS replica, ISNULL(rs.role_desc, '') AS role,
+                 CASE WHEN ISNULL(rs.synchronization_health, 0) = 2 THEN 0 ELSE 1 END AS unhealthy,
+                 CASE WHEN rs.is_local = 1 AND rs.role = 1 THEN 1 ELSE 0 END AS primary_here
+          FROM sys.availability_groups AS ag
+          JOIN sys.availability_replicas AS ar ON ar.group_id = ag.group_id
+          LEFT JOIN sys.dm_hadr_availability_replica_states AS rs ON rs.replica_id = ar.replica_id
+        metrics:
+          - metric_name: sqlserver.ag.replica.unhealthy
+            value_column: unhealthy
+            attribute_columns: [group_name, replica, role]
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.ag.primary
+            value_column: primary_here
+            attribute_columns: [group_name, replica]
+            value_type: int
+            data_type: gauge
+      - sql: >-
+          /* veyra-agent: availability databases */
+          SELECT ag.name AS group_name, ar.replica_server_name AS replica, DB_NAME(drs.database_id) AS database_name,
+                 (ISNULL(drs.log_send_queue_size, 0) + ISNULL(drs.redo_queue_size, 0)) * 1024 AS queue,
+                 ISNULL(drs.secondary_lag_seconds, 0) AS lag,
+                 CASE WHEN drs.synchronization_state IN (1, 2) THEN 0 ELSE 1 END AS not_synchronizing
+          FROM sys.dm_hadr_database_replica_states AS drs
+          JOIN sys.availability_replicas AS ar ON ar.replica_id = drs.replica_id
+          JOIN sys.availability_groups AS ag ON ag.group_id = drs.group_id
+        metrics:
+          - metric_name: sqlserver.ag.queue
+            value_column: queue
+            attribute_columns: [group_name, replica, database_name]
+            unit: By
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.ag.lag
+            value_column: lag
+            attribute_columns: [group_name, replica, database_name]
+            unit: s
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.ag.not_synchronizing
+            value_column: not_synchronizing
+            attribute_columns: [group_name, replica, database_name]
+            value_type: int
+            data_type: gauge
+      - sql: >-
+          /* veyra-agent: log shipping */
+          SELECT p.primary_database AS database_name, 'primary' AS side,
+                 CASE WHEN ISNULL(DATEDIFF(MINUTE, p.last_backup_date, GETDATE()), 2147483647) > p.backup_threshold
+                      THEN 1 ELSE 0 END AS behind,
+                 ISNULL(DATEDIFF_BIG(SECOND, p.last_backup_date, GETDATE()), -1) AS delay
+          FROM msdb.dbo.log_shipping_monitor_primary AS p
+          UNION ALL
+          SELECT s.secondary_database, 'secondary',
+                 CASE WHEN ISNULL(DATEDIFF(MINUTE, s.last_restored_date, GETDATE()), 2147483647) > s.restore_threshold
+                      THEN 1 ELSE 0 END,
+                 ISNULL(DATEDIFF_BIG(SECOND, s.last_restored_date, GETDATE()), -1)
+          FROM msdb.dbo.log_shipping_monitor_secondary AS s
+        metrics:
+          - metric_name: sqlserver.logshipping.behind
+            value_column: behind
+            attribute_columns: [database_name, side]
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.logshipping.delay
+            value_column: delay
+            attribute_columns: [database_name, side]
+            unit: s
+            value_type: int
+            data_type: gauge
+      - sql: >-
+          /* veyra-agent: cluster nodes */
+          SELECT NodeName AS node, status_description AS state,
+                 CASE WHEN is_current_owner = 1 THEN 1 ELSE 0 END AS owner
+          FROM sys.dm_os_cluster_nodes
+        metrics:
+          - metric_name: sqlserver.cluster.node.owner
+            value_column: owner
+            attribute_columns: [node, state]
+            value_type: int
+            data_type: gauge
+
+  # SQL Server Agent in full (ADR 0020, area 10). Every minute each enabled job's state: how long it has run now, when
+  # it runs next, whether it is late, and its usual duration over its last 10 successful runs. -1 means "none".
+  sqlquery/jobs:
+    driver: sqlserver
+    datasource: >-
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
+    collection_interval: 60s
+    queries:
+      - sql: >-
+          /* veyra-agent: jobs */
+          WITH activity AS (
+            SELECT a.job_id, a.start_execution_date, a.stop_execution_date, a.next_scheduled_run_date,
+                   ROW_NUMBER() OVER (PARTITION BY a.job_id ORDER BY a.session_id DESC) AS pick
+            FROM msdb.dbo.sysjobactivity AS a
+          )
+          SELECT j.name AS job_name,
+                 CASE WHEN a.start_execution_date IS NOT NULL AND a.stop_execution_date IS NULL
+                      THEN DATEDIFF_BIG(SECOND, a.start_execution_date, GETDATE()) ELSE -1 END AS running,
+                 ISNULL(DATEDIFF_BIG(SECOND, '1970-01-01',
+                   DATEADD(MINUTE, -DATEDIFF(MINUTE, GETUTCDATE(), GETDATE()), a.next_scheduled_run_date)), -1) AS next_run,
+                 CASE WHEN a.next_scheduled_run_date < DATEADD(MINUTE, -15, GETDATE())
+                       AND (a.start_execution_date IS NULL OR a.stop_execution_date IS NOT NULL)
+                      THEN 1 ELSE 0 END AS late,
+                 ISNULL((SELECT AVG(CAST(h.run_duration / 10000 * 3600 + h.run_duration / 100 % 100 * 60
+                     + h.run_duration % 100 AS float))
+                   FROM (SELECT TOP (10) run_duration FROM msdb.dbo.sysjobhistory
+                         WHERE job_id = j.job_id AND step_id = 0 AND run_status = 1
+                         ORDER BY instance_id DESC) AS h), -1) AS usual
+          FROM msdb.dbo.sysjobs AS j
+          LEFT JOIN activity AS a ON a.job_id = j.job_id AND a.pick = 1
+          WHERE j.enabled = 1
+        metrics:
+          - metric_name: sqlserver.agent.job.running
+            value_column: running
+            attribute_columns: [job_name]
+            unit: s
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.agent.job.next_run
+            value_column: next_run
+            attribute_columns: [job_name]
+            unit: s
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.agent.job.late
+            value_column: late
+            attribute_columns: [job_name]
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.agent.job.usual_duration
+            value_column: usual
+            attribute_columns: [job_name]
+            unit: s
+            value_type: double
+            data_type: gauge
+      # Each run and step of the last 30 minutes, with its message, kept once by its history ID.
+      - sql: >-
+          /* veyra-agent: job history */
+          SELECT 'sqlserver.job' AS veyra_record,
+                 CONVERT(varchar(30), DATEDIFF_BIG(MILLISECOND, '1970-01-01',
+                   DATEADD(MINUTE, -DATEDIFF(MINUTE, GETUTCDATE(), GETDATE()),
+                     msdb.dbo.agent_datetime(h.run_date, h.run_time)))) AS sample,
+                 CONVERT(varchar(20), h.instance_id) AS [key],
+                 j.name AS job_name, CONVERT(varchar(10), h.step_id) AS step_id, ISNULL(h.step_name, '') AS step_name,
+                 CONVERT(varchar(10), h.run_status) AS run_status,
+                 CONVERT(varchar(20), h.run_duration / 10000 * 3600 + h.run_duration / 100 % 100 * 60
+                   + h.run_duration % 100) AS duration,
+                 LEFT(ISNULL(h.message, ''), 1000) AS message
+          FROM msdb.dbo.sysjobhistory AS h
+          JOIN msdb.dbo.sysjobs AS j ON j.job_id = h.job_id
+          WHERE msdb.dbo.agent_datetime(h.run_date, h.run_time) > DATEADD(MINUTE, -30, GETDATE())
+        logs:
+          - body_column: message
+            attribute_columns: [veyra_record, sample, key, job_name, step_id, step_name, run_status, duration]
+
+  # Backup history (ADR 0025): every 5 minutes, each full, differential, and log backup that finished in the last 15
+  # minutes, at most 500, newest first. Each row becomes a sqlserver.backup record keyed by its backup_set_id and sampled
+  # at the time the backup finished, so Veyra keeps each backup once although three reads see it. Times go out in Unix
+  # milliseconds in UTC; msdb keeps the server's local time. The device is the first of its media family. -1 stands for
+  # a size msdb did not record. Azure SQL Database and Managed Instance back up by themselves and do not run this read.
+  sqlquery/backups:
+    driver: sqlserver
+    datasource: >-
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
+    collection_interval: 5m
+    queries:
+      - sql: >-
+          /* veyra-agent: backups */
+          SELECT TOP (500) 'sqlserver.backup' AS veyra_record,
+                 CONVERT(varchar(30), DATEDIFF_BIG(MILLISECOND, '1970-01-01',
+                   DATEADD(MINUTE, -DATEDIFF(MINUTE, GETUTCDATE(), GETDATE()), b.backup_finish_date))) AS sample,
+                 CONVERT(varchar(20), b.backup_set_id) AS [key],
+                 ISNULL(b.database_name, N'') AS database_name,
+                 CASE b.type WHEN 'D' THEN 'full' WHEN 'I' THEN 'differential' ELSE 'log' END AS backup_type,
+                 CONVERT(varchar(30), DATEDIFF_BIG(MILLISECOND, '1970-01-01',
+                   DATEADD(MINUTE, -DATEDIFF(MINUTE, GETUTCDATE(), GETDATE()), b.backup_start_date))) AS started,
+                 CONVERT(varchar(30), CONVERT(bigint, ISNULL(b.backup_size, -1))) AS bytes,
+                 CONVERT(varchar(30), CONVERT(bigint, ISNULL(b.compressed_backup_size, -1))) AS compressed_bytes,
+                 CASE WHEN b.is_copy_only = 1 THEN '1' ELSE '0' END AS copy_only,
+                 ISNULL(LEFT(m.physical_device_name, 260), N'') AS device
+          FROM msdb.dbo.backupset AS b
+          OUTER APPLY (
+            SELECT TOP (1) f.physical_device_name
+            FROM msdb.dbo.backupmediafamily AS f
+            WHERE f.media_set_id = b.media_set_id
+            ORDER BY f.family_sequence_number, f.mirror
+          ) AS m
+          WHERE b.type IN ('D', 'I', 'L') AND b.backup_finish_date > DATEADD(MINUTE, -15, GETDATE())
+          ORDER BY b.backup_finish_date DESC
+        logs:
+          - body_column: device
+            attribute_columns: [veyra_record, sample, key, database_name, backup_type, started, bytes, compressed_bytes,
+              copy_only]
+
+  # Configuration and security (ADR 0020, area 13): every hour, each server setting and the security posture. The key
+  # holds the value, so Veyra keeps each value once a day and a change shows as a new value with its time.
+  sqlquery/config:
+    driver: sqlserver
+    datasource: >-
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
+    collection_interval: 1h
+    queries:
+      - sql: >-
+          /* veyra-agent: configuration */
+          WITH rows AS (
+            SELECT 'setting' AS row_type, CONVERT(nvarchar(128), name) AS item,
+                   CONVERT(nvarchar(400), CONVERT(varchar(50), value_in_use)) AS value
+            FROM sys.configurations
+            UNION ALL
+            SELECT 'security', N'sa enabled', CASE is_disabled WHEN 0 THEN N'1' ELSE N'0' END
+            FROM sys.server_principals WHERE sid = 0x01
+            UNION ALL
+            SELECT 'security', N'login without password policy', name
+            FROM sys.sql_logins WHERE is_policy_checked = 0 AND is_disabled = 0
+            UNION ALL
+            SELECT 'security', N'sysadmin', m.name
+            FROM sys.server_role_members AS rm
+            JOIN sys.server_principals AS r ON r.principal_id = rm.role_principal_id AND r.name = N'sysadmin'
+            JOIN sys.server_principals AS m ON m.principal_id = rm.member_principal_id
+            UNION ALL
+            SELECT 'security', N'trustworthy', name FROM sys.databases WHERE is_trustworthy_on = 1 AND name <> N'msdb'
+            UNION ALL
+            SELECT 'security', N'certificate',
+                   CONCAT(name, N'|', DATEDIFF_BIG(SECOND, '1970-01-01', expiry_date))
+            FROM master.sys.certificates WHERE name NOT LIKE N'##%'
+            UNION ALL
+            SELECT 'security', N'unencrypted connections', CONVERT(nvarchar(20), COUNT(*))
+            FROM sys.dm_exec_connections WHERE encrypt_option = 'FALSE'
+          )
+          SELECT 'sqlserver.snapshot' AS veyra_record,
+                 CONVERT(varchar(30), DATEDIFF_BIG(MILLISECOND, '1970-01-01', SYSUTCDATETIME())) AS sample,
+                 CONCAT(row_type, N'|', item, N'|', value) AS [key], row_type, item, value
+          FROM rows
+        logs:
+          - body_column: value
+            attribute_columns: [veyra_record, sample, key, row_type, item]
+
+processors:
+  # On Windows the sqlserver receiver also reads the local machine's performance counters, whatever server it is told
+  # to read. They arrive without service.instance.id, under the same names as what it reads over the connection, and
+  # would count twice, or belong to another machine. Only what comes over the connection stays.
+  filter/connection-only:
+    error_mode: ignore
+    metrics:
+      metric:
+        - 'resource.attributes["service.instance.id"] == nil'
+  # What each minute added to each statement's totals, so Veyra can add the minutes of any range (ADR 0010).
+  cumulativetodelta/statements:
+    include:
+      match_type: regexp
+      metrics:
+        - ^sqlserver\.statement\.
+  # Veyra files everything from this server under one database block: db.system.name and server.address name it,
+  # deployment.environment.name places it (ADR 0018).
+  resource:
+    attributes:
+      - key: db.system.name
+        value: microsoft.sql_server
+        action: upsert
+      - key: server.address
+        value: ${env:SQLSERVER_NAME}
+        action: upsert
+      - key: deployment.environment.name
+        value: ${env:VEYRA_ENVIRONMENT:-production}
+        action: upsert
+  # Keeps the Collector's own memory bounded when Veyra is unreachable for a while.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 128
+  batch:
+    timeout: 10s
+  # The live view is read every 10 seconds; its reads leave at once rather than after the usual batch time.
+  batch/live:
+    timeout: 1s
+
+exporters:
+  otlphttp:
+    endpoint: ${env:VEYRA_OTLP_ENDPOINT}
+    headers:
+      Authorization: Bearer ${env:VEYRA_INGESTION_KEY}
+    # Veyra answers 503 when a queue is full. The exporter retries and queues meanwhile.
+    retry_on_failure:
+      enabled: true
+      max_elapsed_time: 10m
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+
+service:
+  pipelines:
+    metrics:
+      receivers:
+        - sqlserver
+      processors:
+        - memory_limiter
+        - filter/connection-only
+        - resource
+        - batch
+      exporters:
+        - otlphttp
+    metrics/queries:
+      receivers:
+        - sqlquery
+        - sqlquery/storage
+        - sqlquery/server
+        - sqlquery/jobs
+      processors:
+        - memory_limiter
+        - cumulativetodelta/statements
+        - resource
+        - batch
+      exporters:
+        - otlphttp
+    logs/live:
+      receivers:
+        - sqlquery/live
+        - sqlquery/plans
+        - sqlquery/events
+        - sqlquery/querystore
+        - sqlquery/indexes
+        - sqlquery/jobs
+        - sqlquery/config
+        - sqlquery/backups
+      processors:
+        - memory_limiter
+        - resource
+        - batch/live
+      exporters:
+        - otlphttp

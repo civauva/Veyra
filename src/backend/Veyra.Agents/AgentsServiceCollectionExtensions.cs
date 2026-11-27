@@ -8,10 +8,13 @@ using Veyra.Agents.Agents;
 using Veyra.Agents.Api;
 using Veyra.Agents.Enrollment;
 using Veyra.Agents.Install;
+using Veyra.Agents.Integrations;
 using Veyra.Agents.OpAmp;
 using Veyra.Agents.PostgresServers;
+using Veyra.Agents.Probes;
 using Veyra.Agents.SqlServers;
 using Veyra.Core;
+using Veyra.Core.Agents;
 using Veyra.Core.Schema;
 
 namespace Veyra.Agents;
@@ -30,7 +33,10 @@ public static class AgentsServiceCollectionExtensions
     /// The module issues agent keys through <see cref="Veyra.Core.Security.IIngestionKeyIssuer"/> and checks them
     /// through <see cref="Veyra.Core.Security.IIngestionKeyValidator"/>, which the Access module registers. It reads
     /// the agents' own logs and the servers' figures through <see cref="Veyra.Core.Telemetry.ILogSearch"/> and
-    /// <see cref="Veyra.Core.Metrics.IMetricSearch"/>, which the Storage module registers.
+    /// <see cref="Veyra.Core.Metrics.IMetricSearch"/>, which the Storage module registers. The integration page reads
+    /// the saved settings through <see cref="Veyra.Core.Settings.ISavedSettings"/> (Access) and the notification
+    /// channels through <see cref="Veyra.Core.Alerts.INotificationChannels"/> (Alerting); it takes probe answers from
+    /// ingestion as <see cref="IAgentProbeReports"/> (ADR 0028).
     /// </remarks>
     /// <param name="services">The service collection to add the module to.</param>
     /// <param name="configuration">
@@ -65,11 +71,21 @@ public static class AgentsServiceCollectionExtensions
         services.AddSingleton<PostgresPasswordProtector>();
         services.AddSingleton<PostgresServerService>();
         services.AddSingleton<AgentsOverview>();
+        services.AddSingleton<IAgentStatuses, AgentStatuses>();
         services.AddSingleton<OpAmpServer>();
         services.AddSingleton<EnrollmentStore>();
         services.AddSingleton<EnrollThrottle>();
         services.AddSingleton<AgentEnrollment>();
         services.AddSingleton<AgentHostService>();
+
+        // Integrations (ADR 0028): connection probes through an agent, and the package page. Probe answers reach the
+        // module from ingestion through Core's IAgentProbeReports, which wins over ingestion's stand-in.
+        services.AddSingleton<ProbeStore>();
+        services.AddSingleton<ProbeService>();
+        services.AddSingleton<ProbeReports>();
+        services.AddSingleton<IAgentProbeReports>(provider => provider.GetRequiredService<ProbeReports>());
+        services.AddHostedService<ProbeWorker>();
+        services.AddSingleton<IntegrationService>();
 
         services.AddTransient(provider => new AgentsController(
             provider.GetRequiredService<AgentsOverview>(),
@@ -78,6 +94,11 @@ public static class AgentsServiceCollectionExtensions
         services.AddTransient(provider => new SqlServersController(
             provider.GetRequiredService<SqlServerService>(),
             provider.GetRequiredService<AgentsOverview>()));
+        services.AddTransient(provider => new IntegrationsController(
+            provider.GetRequiredService<IntegrationService>(),
+            provider.GetRequiredService<SqlServerService>(),
+            provider.GetRequiredService<ProbeService>(),
+            provider.GetRequiredService<TimeProvider>()));
         services.AddTransient(provider => new PostgresServersController(
             provider.GetRequiredService<PostgresServerService>(),
             provider.GetRequiredService<AgentsOverview>()));

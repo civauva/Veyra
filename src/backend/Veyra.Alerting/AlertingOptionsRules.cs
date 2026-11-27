@@ -1,3 +1,4 @@
+using Veyra.Alerting.Alerts;
 using Veyra.Alerting.Catalog;
 using Veyra.Core.Settings;
 
@@ -149,6 +150,23 @@ public sealed class AlertingOptionsRules : OptionsRules<AlertingOptions>
                 key + (rule.LowerIsWorse
                     ? ":Warning must not be above the caution level."
                     : ":Warning must not be below the caution level."));
+        }
+
+        yield return (
+            options.Incidents.GroupingMinutes >= 1,
+            _prefix + "Incidents:GroupingMinutes must be at least 1.");
+
+        // A runbook opens in the browser of whoever views the incident, so only web addresses are links.
+        foreach (var (rule, link) in options.Runbooks)
+        {
+            var key = $"{_prefix}Runbooks:{rule}";
+
+            yield return (AlertRules.All.Contains(rule), key + " names no rule.");
+            yield return (
+                string.IsNullOrWhiteSpace(link)
+                    || (Uri.TryCreate(link.Trim(), UriKind.Absolute, out var runbook)
+                        && (runbook.Scheme == Uri.UriSchemeHttps || runbook.Scheme == Uri.UriSchemeHttp)),
+                key + " must be a full http or https address, for example https://wiki.example.com/runbooks/disk.");
         }
 
         var notifications = options.Notifications;

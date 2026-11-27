@@ -42,7 +42,20 @@ internal static class SqlServerStatuses
         ("i/o timeout", SqlServerState.Unreachable),
         ("unable to open tcp connection", SqlServerState.Unreachable),
         ("network is unreachable", SqlServerState.Unreachable),
+
+        // A named instance the SQL Server Browser does not know, or a Browser that does not answer on UDP 1434.
+        ("no instance matching", SqlServerState.Unreachable),
+        ("unable to get instances from sql server browser", SqlServerState.Unreachable),
     ];
+
+    /// <summary>Tells what a reader error of a SQL Server means, from its words.</summary>
+    /// <param name="message">The error as the Collector logged it.</param>
+    /// <returns>The state it means; <see cref="SqlServerState.Failing"/> for words Veyra does not know.</returns>
+    public static SqlServerState ReasonOf(string message) =>
+        _reasons
+            .Where(reason => message.Contains(reason.Words, StringComparison.OrdinalIgnoreCase))
+            .Select(reason => (SqlServerState?)reason.State)
+            .FirstOrDefault() ?? SqlServerState.Failing;
 
     /// <summary>Tells one server's state.</summary>
     /// <param name="server">The server.</param>

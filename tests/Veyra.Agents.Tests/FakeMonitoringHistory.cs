@@ -8,7 +8,10 @@ internal sealed class FakeMonitoringHistory : IMonitoringHistory
 {
     /// <summary>The signed-in Admin the tests make changes as.</summary>
     public static ClaimsPrincipal Admin { get; } = new(new ClaimsIdentity(
-        [new Claim(ClaimTypes.NameIdentifier, "0193f7a4-6f8e-7c1a-9d2b-3c4d5e6f7a8b")],
+        [
+            new Claim(ClaimTypes.NameIdentifier, "0193f7a4-6f8e-7c1a-9d2b-3c4d5e6f7a8b"),
+            new Claim(ClaimTypes.Name, "Lena Adler"),
+        ],
         "Test"));
 
     /// <summary>The changes reported, oldest first, with who made them.</summary>
@@ -21,4 +24,23 @@ internal sealed class FakeMonitoringHistory : IMonitoringHistory
 
         return Task.CompletedTask;
     }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<MonitoringHistoryEntry>> ListAsync(
+        MonitoringSubject subject,
+        string name,
+        int limit,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<MonitoringHistoryEntry>>(Changes
+            .Where(entry => entry.Change.Subject == subject && entry.Change.Name == name)
+            .Reverse()
+            .Take(limit)
+            .Select(entry => new MonitoringHistoryEntry(
+                DateTimeOffset.UnixEpoch,
+                entry.By.Identity?.Name,
+                entry.Change.Kind,
+                entry.Change.Fields,
+                entry.Change.From,
+                entry.Change.To))
+            .ToList());
 }

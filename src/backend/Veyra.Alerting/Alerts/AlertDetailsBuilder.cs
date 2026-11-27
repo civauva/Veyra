@@ -40,6 +40,13 @@ internal sealed class AlertDetailsBuilder(
     private static readonly TimeSpan _diskBefore = TimeSpan.FromDays(7);
     private static readonly TimeSpan _diskAfter = TimeSpan.FromDays(1);
 
+    // The catalog rules that count a server's errors, whose details list the errors they counted (VEY-61).
+    private static readonly HashSet<string> _errorRules =
+        new(StringComparer.Ordinal) { "db-severe-error", "db-memory-error", "db-login-failures" };
+
+    // They count over the last 15 minutes (ADR 0020).
+    private static readonly TimeSpan _errorWindow = TimeSpan.FromMinutes(15);
+
     // Long alerts get wider buckets, so the chart never has more points than this.
     private const int _maxPoints = 240;
 
@@ -58,6 +65,7 @@ internal sealed class AlertDetailsBuilder(
         var events = await alerts.ListEventsAsync(id, cancellationToken);
         var sent = await deliveries.ListForAlertAsync(id, cancellationToken);
         var peakAt = await alerts.GetPeakAtAsync(id, cancellationToken);
+        var incident = await alerts.GetIncidentOfAsync(id, cancellationToken);
         var rules = RuleSettings.For(alert.Rule, options.CurrentValue);
         var worst = events.Select(e => e.Severity).Append(alert.Severity).Max();
 
@@ -65,9 +73,21 @@ internal sealed class AlertDetailsBuilder(
         IReadOnlyList<LogMessageGroup> topErrors = [];
         DiskDetailsResponse? disk = null;
         LatencyDetailsResponse? latency = null;
+        IReadOnlyList<ServerErrorResponse>? serverErrors = null;
 
         switch (alert.Rule)
         {
+            case var rule when _errorRules.Contains(rule) && RuleCatalog.Find(rule) is { } errorRule:
+                // From the start of the 15 minutes the rule counts over: the errors that opened it count too.
+                serverErrors = (await metrics.ListServerErrorsAsync(
+                        alert.Subject.Name,
+                        errorRule.Measure,
+                        alert.OpenedAt - _errorWindow,
+                        alert.ResolvedAt ?? now,
+                        cancellationToken))
+                    .Select(error => new ServerErrorResponse(error.At, error.Error, error.Severity, error.Message))
+                    .ToList();
+                break;
             case AlertRules.DiskSpace or AlertRules.DiskFilling:
                 disk = await DiskAsync(alert, now, cancellationToken);
                 break;
@@ -133,7 +153,10 @@ internal sealed class AlertDetailsBuilder(
             Series: series,
             TopErrors: topErrors,
             Disk: disk,
-            Latency: latency);
+            Latency: latency,
+            ServerErrors: serverErrors,
+            IncidentId: incident?.Id,
+            IncidentKey: incident is { } member ? IncidentState.KeyOf(member.Number) : null);
     }
 
     private async Task<DiskDetailsResponse> DiskAsync(
@@ -256,7 +279,10 @@ internal sealed class AlertDetailsBuilder(
         After: null,
         Environments: alert.Environment is null ? null : [alert.Environment]);
 
-    private static DeliveryResponse Delivery(Delivery delivery) => new(
+    /// <summary>A delivery as the alert's and the incident's timelines show it.</summary>
+    /// <param name="delivery">The stored delivery.</param>
+    /// <returns>The answer, with the next try only while one is due.</returns>
+    public static DeliveryResponse Delivery(Delivery delivery) => new(
         delivery.ChannelId,
         delivery.ChannelName,
         delivery.ChannelKind,

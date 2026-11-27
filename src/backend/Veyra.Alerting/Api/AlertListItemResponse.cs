@@ -1,4 +1,5 @@
 using Veyra.Alerting.Alerts;
+using Veyra.Alerting.Catalog;
 using Veyra.Core.Alerts;
 
 namespace Veyra.Alerting.Api;
@@ -18,6 +19,12 @@ namespace Veyra.Alerting.Api;
 /// <param name="OpenedAt">When it opened.</param>
 /// <param name="UpdatedAt">When it was last measured.</param>
 /// <param name="ResolvedAt">When it resolved; <see langword="null"/> while open.</param>
+/// <param name="Area">
+/// For a database server, the area of its screen the alert belongs to, such as <c>blocking</c> (VEY-68); otherwise
+/// <see langword="null"/>.
+/// </param>
+/// <param name="IncidentId">The incident the alert belongs to (ADR 0026); <see langword="null"/> for none.</param>
+/// <param name="IncidentKey">That incident's key, such as <c>INC-42</c>.</param>
 public sealed record AlertListItemResponse(
     Guid Id,
     string Rule,
@@ -32,7 +39,10 @@ public sealed record AlertListItemResponse(
     int WindowSeconds,
     DateTimeOffset OpenedAt,
     DateTimeOffset UpdatedAt,
-    DateTimeOffset? ResolvedAt)
+    DateTimeOffset? ResolvedAt,
+    string? Area,
+    Guid? IncidentId = null,
+    string? IncidentKey = null)
 {
     /// <summary>The list entry of a stored alert.</summary>
     /// <param name="entry">The alert with its worst severity and peak time.</param>
@@ -55,6 +65,9 @@ public sealed record AlertListItemResponse(
             (int)alert.Window.TotalSeconds,
             alert.OpenedAt,
             alert.UpdatedAt,
-            alert.ResolvedAt);
+            alert.ResolvedAt,
+            alert.Subject.Kind == AlertBlockKind.Database ? RuleAreas.Of(alert.Rule) : null,
+            entry.IncidentId,
+            entry.IncidentNumber is { } number ? IncidentState.KeyOf(number) : null);
     }
 }

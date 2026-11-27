@@ -2,6 +2,8 @@ using System.Globalization;
 using Veyra.Core.Metrics;
 using Veyra.Core.Telemetry;
 using Veyra.Query.Metrics.Api;
+using Veyra.Query.Systems;
+using Veyra.Query.Systems.Api;
 
 namespace Veyra.Query.Metrics;
 
@@ -16,17 +18,6 @@ internal static class DatabaseView
 
     // The receiver reports every request of one scrape at nearly the same time; this is how near.
     private static readonly TimeSpan _oneScrape = TimeSpan.FromSeconds(5);
-
-    // Waits of sessions with nothing to do: background tasks sleeping, queues waiting for work, WAITFOR. They grow
-    // all the time on an idle server and say nothing about its load, so the waits chart leaves them out.
-    private static readonly string[] _idleWaitPrefixes =
-    [
-        "SLEEP_", "WAITFOR", "BROKER_", "XE_", "SQLTRACE_", "FT_IFTS", "HADR_", "PWAIT_", "QDS_",
-        "SP_SERVER_DIAGNOSTICS",
-        "LAZYWRITER_", "CHECKPOINT_", "DIRTY_PAGE_POLL", "REQUEST_FOR_DEADLOCK_SEARCH", "LOGMGR_QUEUE",
-        "ONDEMAND_TASK_QUEUE", "CLR_AUTO_EVENT", "CLR_MANUAL_EVENT", "DISPATCHER_QUEUE_SEMAPHORE", "STARTUP_",
-        "AZURE_", "KSOURCE_WAKEUP", "RESOURCE_QUEUE", "SOS_WORK_DISPATCHER", "MEMORY_ALLOCATION_EXT",
-    ];
 
     // The most lines of the waits chart; the rest of the categories are left out.
     private const int _maxWaitLines = 6;
@@ -89,6 +80,9 @@ internal static class DatabaseView
     /// <param name="day">The database size series over the last day, for growth.</param>
     /// <param name="samples">The server's query samples of the last minute, newest first.</param>
     /// <param name="statements">The server's statements and what each added over the window.</param>
+    /// <param name="system">
+    /// Whether the server's own databases, jobs, and statements are listed (VEY-66); left out before any cut when not.
+    /// </param>
     /// <returns>The screen.</returns>
     public static DatabaseMetricsResponse Detail(
         TelemetryBlock block,
@@ -97,13 +91,20 @@ internal static class DatabaseView
         SeriesData quarter,
         SeriesData day,
         IReadOnlyList<LogRecord> samples,
-        StatementTotals statements)
+        StatementTotals statements,
+        bool system)
     {
         ArgumentNullException.ThrowIfNull(window);
         ArgumentNullException.ThrowIfNull(statements);
 
         var lines = window.Window;
-        var (top, agent) = TopQueries(statements);
+        var (top, hiddenTop, agent) = TopQueries(statements, system);
+        var (databases, hiddenDatabases) = SystemRows.Keep(
+            Databases(window, recent, day),
+            system,
+            database => database.System,
+            database => database.Name);
+        var (jobs, hiddenJobs) = SystemRows.Keep(Jobs(recent), system, job => job.System, job => job.Name);
 
         return new DatabaseMetricsResponse(
             Card(block, window, recent, quarter),
@@ -116,12 +117,17 @@ internal static class DatabaseView
             lines.Line("page life", Levels(window, SqlServerNames.PageLife)),
             lines.Line("longest query", Longest(window, SqlServerNames.LongestQuery)),
             Waits(window),
-            Databases(window, recent, day),
-            Jobs(recent),
+            databases,
+            jobs,
             Running(samples),
             top)
         {
+            From = lines.From,
+            To = lines.End,
             AgentWork = agent,
+            HiddenDatabases = hiddenDatabases,
+            HiddenJobs = hiddenJobs,
+            HiddenTopQueries = hiddenTop,
         };
     }
 
@@ -194,9 +200,9 @@ internal static class DatabaseView
             .ToDictionary(group => group.Key, group => group.Max(pair => pair.Value));
 
     // Seconds waited per second for each category of wait, the largest categories first.
-    private static List<ChartLineResponse> Waits(SeriesData data) =>
+    internal static List<ChartLineResponse> Waits(SeriesData data) =>
         data.Named(SqlServerNames.WaitTime)
-            .Where(series => !IsIdle(MetricNames.Attribute(series, "wait.type")))
+            .Where(series => !SystemObjects.IsIdleWait(MetricNames.Attribute(series, "wait.type")))
             .GroupBy(series => MetricNames.Attribute(series, "wait.category") ?? "Other", StringComparer.Ordinal)
             .Select(group => (Category: group.Key, Rates: data.Rates(group)))
             .Where(category => category.Rates.Values.Sum() > 0)
@@ -205,10 +211,6 @@ internal static class DatabaseView
             .Take(_maxWaitLines)
             .Select(category => data.Window.Line(category.Category, category.Rates))
             .ToList();
-
-    private static bool IsIdle(string? waitType) =>
-        waitType is not null
-        && _idleWaitPrefixes.Any(prefix => waitType.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
 
     // The names of the server's databases, from whichever metric names them.
     private static HashSet<string> DatabaseNames(SeriesData data) =>
@@ -219,7 +221,12 @@ internal static class DatabaseView
             .OfType<string>()
             .ToHashSet(StringComparer.Ordinal);
 
-    private static List<DatabasePartResponse> Databases(SeriesData window, SeriesData recent, SeriesData day)
+    /// <summary>A SQL Server's databases, with their sizes, growth, backups, I/O, and longest queries.</summary>
+    /// <param name="window">The server's series over the window, for the I/O latency.</param>
+    /// <param name="recent">The same series over the last five minutes, for the figures that say now.</param>
+    /// <param name="day">The database size series over the last day, for growth.</param>
+    /// <returns>The databases, the largest first, the server's own marked <c>System</c>.</returns>
+    public static List<DatabasePartResponse> Databases(SeriesData window, SeriesData recent, SeriesData day)
     {
         var sizes = recent.Named(SqlServerNames.DatabaseSize).ToList();
         var backups = LatestBy(recent, SqlServerNames.BackupAge, SqlServerNames.DatabaseAttribute);
@@ -242,16 +249,27 @@ internal static class DatabaseView
                     Growth(day, name),
                     backups.TryGetValue(name, out var backup) ? backup : null,
                     IoLatency(window, name),
-                    longest.TryGetValue(name, out var query) ? query : null);
+                    longest.TryGetValue(name, out var query) ? query : null)
+                {
+                    System = SystemObjects.IsSystemDatabase(SqlServerNames.Engine, name),
+                };
             })
             .OrderByDescending(database => database.SizeBytes ?? 0)
             .ThenBy(database => database.Name, StringComparer.Ordinal)
             .ToList();
     }
 
-    // How much a database grew per day, from its first and last size within the day read.
-    private static double? Growth(SeriesData day, string name)
+    /// <summary>
+    /// How much a database grew per day, from its first and last size within the day read. The server's Overview uses
+    /// it too (ADR 0025), so its inventory agrees with the database screen.
+    /// </summary>
+    /// <param name="day">The database size series over the last day, in hourly buckets.</param>
+    /// <param name="name">The database.</param>
+    /// <returns>Bytes per day, or null with fewer than two sizes.</returns>
+    public static double? Growth(SeriesData day, string name)
     {
+        ArgumentNullException.ThrowIfNull(day);
+
         var sizes = day.Levels(day.Named(SqlServerNames.DatabaseSize)
             .Where(series => MetricNames.Attribute(series, SqlServerNames.DatabaseAttribute) == name));
 
@@ -292,7 +310,10 @@ internal static class DatabaseView
                 job,
                 failed.GetValueOrDefault(job) >= 1,
                 started.TryGetValue(job, out var at) ? DateTimeOffset.FromUnixTimeSeconds((long)at) : null,
-                took.TryGetValue(job, out var seconds) ? seconds : null))
+                took.TryGetValue(job, out var seconds) ? seconds : null)
+            {
+                System = SystemObjects.IsSystemJob(job),
+            })
             .OrderByDescending(job => job.Failed)
             .ThenBy(job => job.Name, StringComparer.Ordinal)
             .ToList();
@@ -328,8 +349,11 @@ internal static class DatabaseView
     }
 
     // The statements with the most time over the window, from what each minute added (VEY-43). The agent's own
-    // statements are left out of the ranking, so the server's own work is what the list shows, and summed apart.
-    private static (List<TopQueryResponse> Top, AgentWorkResponse? Agent) TopQueries(StatementTotals statements)
+    // statements are left out of the ranking, so the server's own work is what the list shows, and summed apart. The
+    // server's own statements are left out unless asked for, and ranked apart when they are (VEY-64, VEY-66).
+    private static (List<TopQueryResponse> Top, HiddenRowsResponse Hidden, AgentWorkResponse? Agent) TopQueries(
+        StatementTotals statements,
+        bool system)
     {
         var added = statements.Buckets
             .GroupBy(bucket => bucket.SeriesId)
@@ -358,10 +382,15 @@ internal static class DatabaseView
             .Where(statement => statement.Seconds > 0 || statement.Runs > 0)
             .ToList();
 
-        var top = all
-            .Where(statement => !statement.Agent)
+        var (listed, hidden) = SystemRows.Keep(
+            all.Where(statement => !statement.Agent),
+            system,
+            statement => SystemObjects.IsSystemStatement(statement.Database, statement.Text),
+            statement => SystemRows.SystemDatabase(SqlServerNames.Engine, statement.Database));
+        var top = listed
+            .GroupBy(statement => SystemObjects.IsSystemStatement(statement.Database, statement.Text))
+            .SelectMany(group => group.OrderByDescending(statement => statement.Seconds).Take(_maxTopQueries))
             .OrderByDescending(statement => statement.Seconds)
-            .Take(_maxTopQueries)
             .Select(statement => new TopQueryResponse(
                 statement.Text,
                 statement.Seconds,
@@ -370,12 +399,16 @@ internal static class DatabaseView
                 statement.Reads)
             {
                 Database = statement.Database.Length > 0 ? statement.Database : null,
+                System = SystemObjects.IsSystemStatement(statement.Database, statement.Text),
             })
             .ToList();
 
         var agent = all.Where(statement => statement.Agent).ToList();
 
-        return (top, agent.Count == 0 ? null : new AgentWorkResponse(agent.Count, agent.Sum(one => one.Seconds)));
+        return (
+            top,
+            hidden,
+            agent.Count == 0 ? null : new AgentWorkResponse(agent.Count, agent.Sum(one => one.Seconds)));
     }
 
     private static string? Text(LogRecord record, string key) =>

@@ -8,8 +8,14 @@ namespace Veyra.Core.Settings;
 /// <param name="Name">Its name, as the Settings screen shows it.</param>
 /// <param name="Kind">Whether it was added, changed, or removed.</param>
 /// <param name="Fields">For a change, the fields it touched, in words such as <c>port</c> or <c>password</c>.</param>
+/// <param name="From">
+/// The value before, only for a field whose value tells nothing secret, such as a template version (ADR 0028).
+/// </param>
+/// <param name="To">The value after, under the same rule as <paramref name="From"/>.</param>
 public sealed record MonitoringChange(
     MonitoringSubject Subject,
     string Name,
     MonitoringChangeKind Kind,
-    IReadOnlyList<string> Fields);
+    IReadOnlyList<string> Fields,
+    string? From = null,
+    string? To = null);

@@ -2,7 +2,8 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router";
 
 import type { LogEntry } from "../api/types";
-import { useShell } from "../app/shellContext";
+import { ScreenBar } from "../ui/ScreenBar";
+import { useShell, useTimeInBar } from "../app/shellContext";
 import { FilterPanel } from "./FilterPanel";
 import { formatCount } from "./format";
 import { Histogram } from "./Histogram";
@@ -12,7 +13,7 @@ import { LogList } from "./LogList";
 import { severityLabels } from "./SeverityBadge";
 import { useLogSearch } from "./useLogSearch";
 import "./logs.css";
-import { useViewMode, ViewToggle } from "../app/ViewToggle";
+import { useViewMode } from "../ui/ViewToggle";
 
 /**
  * The Log Explorer (VEY-14 mockups): filters on the left, search, histogram, and results in the middle, the selected
@@ -27,7 +28,8 @@ export function LogExplorer() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const { status } = useShell();
   const search = useLogSearch(filters, following && !filters.around, status.environment);
-  const total = search.summary?.buckets.reduce((sum, bucket) => sum + bucket.total, 0) ?? null;
+  // The server adds up the window (VEY-68).
+  const total = search.summary?.total ?? null;
 
   function applyFilters(next: LogFilters) {
     setSearchParams(filtersToUrl(next));
@@ -61,6 +63,7 @@ export function LogExplorer() {
 
   return (
     <main className={selected ? "explorer has-detail" : "explorer"}>
+      <ScreenBar trail={[{ label: "Logs" }]} view />
       <h1 className="visually-hidden">Logs</h1>
 
       <FilterPanel
@@ -106,7 +109,6 @@ export function LogExplorer() {
               Export
             </button>
           )}
-          <ViewToggle className="toolbar-view" />
         </div>
 
         <FilterSummary filters={filters} />
@@ -220,11 +222,15 @@ interface FilterSummaryProps {
   filters: LogFilters;
 }
 
-/** The active filters as small labels above the list. Shown on phones, where the filter panel is hidden. */
+/**
+ * The active filters as small labels above the list. Shown on phones, where the filter panel is hidden. The range is
+ * left to the shell's top bar where the top bar chooses it.
+ */
 function FilterSummary({ filters }: FilterSummaryProps) {
+  const inBar = useTimeInBar();
   const labels = [
     filters.minimumSeverity && `≥ ${severityLabels[filters.minimumSeverity]}`,
-    filters.around ? "± 1 min" : filters.range,
+    filters.around ? "± 1 min" : !inBar && filters.range,
     filters.services.length === 1
       ? filters.services[0]
       : filters.services.length > 1 && `${filters.services.length} services`,

@@ -39,4 +39,21 @@ public sealed class HomeController : ControllerBase
 
         return Ok(await _homes.GetAsync(scope, cancellationToken));
     }
+
+    /// <summary>
+    /// Lists the environments for the switcher, with the choice of every environment together, as its find box asks
+    /// (VEY-67).
+    /// </summary>
+    /// <param name="search">Text a name must hold, in any case; every environment when omitted.</param>
+    /// <param name="cancellationToken">Cancels the reads when the client goes away.</param>
+    /// <returns>The lines of the list.</returns>
+    /// <response code="200">The list.</response>
+    [HttpGet("environments")]
+    [ProducesResponseType<EnvironmentChoicesResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> EnvironmentsAsync([FromQuery] string? search, CancellationToken cancellationToken)
+    {
+        var home = await _homes.GetAsync(null, cancellationToken);
+
+        return Ok(EnvironmentChoices.Build(home.Environments, search));
+    }
 }

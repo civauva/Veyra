@@ -1,4 +1,5 @@
 import type { HomeSnapshot } from "../../api/types";
+import { HelpTip } from "../../ui/HelpTip";
 import { formatClock } from "../../logs/format";
 import { formatLoad, formatRatio } from "../homeFormat";
 import { observedIcon } from "../hourWeather";
@@ -25,9 +26,8 @@ const labelEvery = 3;
 export function DayChart({ snapshot }: DayChartProps) {
   const { observed, expected, daysOfHistory } = snapshot.hourly;
   const last = observed.length - 1;
-  // The current hour is still filling, so the average leaves it out when there is anything else.
-  const past = observed.length > 1 ? observed.slice(0, -1) : observed;
-  const average = past.reduce((sum, bucket) => sum + bucket.total, 0) / Math.max(past.length, 1);
+  // The server averages the hours past, without the one still filling (VEY-68).
+  const average = snapshot.hourly.averageRecords;
   const top = niceTop(
     Math.max(1, ...observed.map((bucket) => bucket.total), ...expected.map((hour) => (hour.load ?? 0) * average)),
   );
@@ -36,7 +36,13 @@ export function DayChart({ snapshot }: DayChartProps) {
   return (
     <section className="glass lg-panel lg-day" aria-label="Last 24 hours">
       <div className="lg-head">
-        <h2 className="cap">Last 24 hours · records and errors</h2>
+        <div className="home-name">
+          <h2 className="cap">Last 24 hours · records and errors</h2>
+          <HelpTip label="Last 24 hours">
+            Log records an hour over the last 24 hours, with their errors in red, then the next six hours as the load
+            expected from the same hours on earlier days. A bar shows showers from 1% errors and a storm from 5%.
+          </HelpTip>
+        </div>
         <span className="lg-legend" aria-hidden="true">
           <i className="records" />
           records an hour
@@ -108,8 +114,7 @@ export function DayChart({ snapshot }: DayChartProps) {
 /** What the day says: its records and errors, then what the coming hours hold. */
 function sentence(snapshot: HomeSnapshot, daysOfHistory: number): string {
   const { observed, expected } = snapshot.hourly;
-  const records = observed.reduce((sum, bucket) => sum + bucket.total, 0);
-  const errors = observed.reduce((sum, bucket) => sum + bucket.errors, 0);
+  const { records, errors } = snapshot.hourly;
   const day =
     records === 0
       ? `No records in the last ${observed.length} hours`

@@ -2,8 +2,10 @@ import { api } from "../../api/client";
 import { unreadText } from "./unread";
 import { formatAmount } from "../metricFormat";
 import { useMetricData } from "../useMetricData";
+import { PanelHead } from "./helpNames";
 import { shortCount } from "./liveFormat";
 import { FindingItem } from "./StorageTab";
+import { SystemHidden, useSystemShown } from "./SystemFilter";
 
 /** Props for {@link IndexesSection}. */
 export interface IndexesSectionProps {
@@ -23,8 +25,13 @@ export interface IndexesSectionProps {
  * their use.
  */
 export function IndexesSection({ engine, server, advanced, blind = false }: IndexesSectionProps) {
-  const { data } = useMetricData(`indexes-${engine}-${server}`, (signal) =>
-    api.databaseIndexes(engine, server, signal),
+  const [systemShown] = useSystemShown();
+  // The server leaves the system databases out of the advice and the list unless System is on (VEY-66), and keeps the
+  // Simple view to the five worst findings (VEY-67).
+  const { data } = useMetricData(
+    `indexes-${engine}-${server}`,
+    (signal) => api.databaseIndexes(engine, server, systemShown, !advanced, signal),
+    { choices: `${systemShown}-${advanced}` },
   );
 
   if (!data) {
@@ -33,17 +40,26 @@ export function IndexesSection({ engine, server, advanced, blind = false }: Inde
 
   return (
     <section className="metric-panel" aria-labelledby="indexes-head">
-      <div className="metric-panel-head">
-        <h2 id="indexes-head">Indexes and statistics</h2>
+      <PanelHead
+        id="indexes-head"
+        name="Indexes and statistics"
+        help={
+          "Advice read every hour from the missing index views, " +
+          "sys.dm_db_index_usage_stats, and the statistics of tables over 100,000 rows: " +
+          "indexes worth adding, unused or duplicate ones that only cost writes, heaps, " +
+          "stale statistics, and lock escalations, each with the statement to run. Use " +
+          "counts start when SQL Server starts, so judge them after it has run a while."
+        }
+      >
         <span>read every hour</span>
-      </div>
+      </PanelHead>
       {data.findings.length === 0 ? (
         <p className="metrics-empty">
           {blind ? unreadText : "No index or statistics advice: nothing missing, unused, or stale stands out."}
         </p>
       ) : (
         <ul className="live-findings">
-          {(advanced ? data.findings : data.findings.slice(0, 5)).map((finding, index) => (
+          {data.findings.map((finding, index) => (
             <FindingItem key={`${finding.kind}-${index}`} finding={finding} />
           ))}
         </ul>
@@ -100,6 +116,7 @@ export function IndexesSection({ engine, server, advanced, blind = false }: Inde
           </table>
         </div>
       )}
+      {advanced && <SystemHidden hidden={data.hiddenIndexes} noun="index" plural="indexes" />}
     </section>
   );
 }

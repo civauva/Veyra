@@ -1,20 +1,18 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
+import { HelpTip } from "../ui/HelpTip";
+import { ScreenBar } from "../ui/ScreenBar";
 import { useShell } from "../app/shellContext";
 import { formatClock, formatCount } from "../logs/format";
 import "../logs/logs.css";
 import { DurationChart, type PickedWindow } from "./DurationChart";
 import { TraceFilterPanel } from "./TraceFilterPanel";
-import { filtersFromSearch, filtersToSearch, traceWindow, type TraceFilters } from "./traceFilters";
+import { filtersFromSearch, filtersToSearch, isTraceId, traceWindow, type TraceFilters } from "./traceFilters";
 import { formatDuration } from "./traceMath";
 import "./traces.css";
 import { TraceTable } from "./TraceTable";
 import { useTraceList } from "./useTraceList";
-import { ViewToggle } from "../app/ViewToggle";
-
-/** A trace ID as people paste it: 32 hexadecimal characters. */
-const traceIdPattern = /^[0-9a-f]{32}$/i;
 
 /**
  * The trace list (ADR 0014, VEY-27 mockups): a chart of every trace of the window by duration, and the traces one row
@@ -65,13 +63,14 @@ export function TracesScreen() {
 
   return (
     <main className="traces">
+      <ScreenBar trail={[{ label: "Traces" }]} view />
       <h1 className="visually-hidden">Traces</h1>
       <TraceFilterPanel
         filters={filters}
         onChange={apply}
         services={list.services}
-        failedCount={list.durations ? points.filter((point) => point.failed).length : null}
-        slowCount={p95 === null ? null : points.filter((point) => !point.failed && point.durationMs >= p95).length}
+        failedCount={list.durations?.failed ?? null}
+        slowCount={p95 === null ? null : (list.durations?.slow ?? null)}
         from={from}
         to={to}
         open={filtersOpen}
@@ -98,7 +97,6 @@ export function TracesScreen() {
           >
             Filters{active > 0 && ` · ${active}`}
           </button>
-          <ViewToggle className="traces-view" />
         </header>
 
         {list.error && (
@@ -109,9 +107,17 @@ export function TracesScreen() {
 
         <section className="traces-chart" aria-labelledby="traces-chart-title">
           <div className="traces-chart-top">
-            <h3 id="traces-chart-title" className="section-title">
-              Duration of each trace
-            </h3>
+            <div className="traces-chart-title">
+              <h3 id="traces-chart-title" className="section-title">
+                Duration of each trace
+              </h3>
+              <HelpTip label="Duration of each trace">
+                Each dot is a trace of the window: when it started, and how long it took on a logarithmic scale. Red
+                ones failed and amber ones are slower than the 95th percentile, the slowest 5%; all of those are drawn,
+                with up to 1,500 of the rest. Drag a box to pick traces by time and duration, or click a dot to open
+                one.
+              </HelpTip>
+            </div>
             {picked ? (
               <span className="trace-picked">
                 {formatClock(picked.from)} – {formatClock(picked.to)} · {formatDuration(picked.minMs)} –{" "}
@@ -145,6 +151,9 @@ export function TracesScreen() {
           <DurationChart
             points={points}
             p95Ms={p95}
+            read={list.durations?.read ?? 0}
+            failed={list.durations?.failed ?? 0}
+            slow={list.durations?.slow ?? 0}
             from={from}
             to={to}
             picked={picked}
@@ -171,7 +180,9 @@ export function TracesScreen() {
 
         <footer className="explorer-footer">
           <span>
-            {list.items === null ? "Loading traces…" : `${formatCount(list.items.length)} traces · newest first`}
+            {list.items === null
+              ? "Loading traces…"
+              : `${formatCount(list.items.length)} traces · ${filters.order === "worst" ? "worst first" : "newest first"}`}
           </span>
           {list.hasOlder && (
             <button type="button" className="link-button" onClick={list.loadOlder} disabled={list.loading}>
@@ -202,7 +213,7 @@ function TraceSearch({ name, onName, onTrace }: TraceSearchProps) {
     event.preventDefault();
     const text = draft.trim();
 
-    if (traceIdPattern.test(text)) {
+    if (isTraceId(text)) {
       onTrace(text);
     } else {
       onName(text);

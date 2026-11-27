@@ -1,4 +1,5 @@
 using Veyra.Core.Alerts;
+using Veyra.Core.Telemetry;
 
 namespace Veyra.Storage.Logs;
 
@@ -9,10 +10,12 @@ namespace Veyra.Storage.Logs;
 /// <param name="Total">The records.</param>
 /// <param name="Errors">The records at Error or worse.</param>
 /// <param name="Kind">The kind of block (ADR 0018).</param>
+/// <param name="Severity">The severity of the records, so the chart can stack each level (ADR 0024).</param>
 internal sealed record LogCountRow(
     DateTimeOffset? Bucket,
     string? Environment,
     string ServiceName,
     long Total,
     long Errors,
-    AlertBlockKind Kind = AlertBlockKind.Service);
+    AlertBlockKind Kind = AlertBlockKind.Service,
+    LogSeverity Severity = LogSeverity.Unspecified);

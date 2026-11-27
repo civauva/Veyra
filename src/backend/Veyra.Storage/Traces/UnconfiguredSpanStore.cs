@@ -27,6 +27,10 @@ internal sealed class UnconfiguredSpanStore : ISpanWriter, ITraceSearch
         throw new InvalidOperationException(StorageHealthCheck.NotConfiguredMessage);
 
     /// <inheritdoc />
+    public Task<TraceFigures> FiguresAsync(TraceQuery query, CancellationToken cancellationToken) =>
+        throw new InvalidOperationException(StorageHealthCheck.NotConfiguredMessage);
+
+    /// <inheritdoc />
     public Task<IReadOnlyList<Span>> GetTraceAsync(
         string traceId,
         DateTimeOffset? around,

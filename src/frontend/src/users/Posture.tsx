@@ -1,42 +1,59 @@
 import { useId } from "react";
 
-import type { SecondFactorPolicy, UserSummary } from "../api/types";
-import { daysSince } from "./userFormat";
+import type { SecondFactorPolicy, UserPosture } from "../api/types";
+import { HelpTip } from "../ui/HelpTip";
 
 /** Props for {@link Posture}. */
 interface PostureProps {
-  /** Everyone. */
-  people: UserSummary[];
+  /** The counts over everyone, made by the server (VEY-67). */
+  posture: UserPosture;
   /** Who must use a second factor, or null while it loads. */
   policy: SecondFactorPolicy | null;
   /** Sets who must use a second factor. */
   onPolicy(policy: SecondFactorPolicy): void;
-  /** The current time, for what counts as recent. */
-  now: Date;
 }
 
 /**
  * How well the accounts are protected, at a glance: rings for second factors, recent sign-ins, and Admins with a
  * second factor, next to the rule for who must use one (ADR 0011).
  */
-export function Posture({ people, policy, onPolicy, now }: PostureProps) {
+export function Posture({ posture, policy, onPolicy }: PostureProps) {
   const policyName = useId();
-  const withFactor = people.filter((person) => person.secondFactorSince).length;
-  const recent = people.filter((person) => (daysSince(person.lastSignInAt, now) ?? Infinity) <= 30).length;
-  const admins = people.filter((person) => person.role === "Admin" && !person.disabled);
-  const adminsWithFactor = admins.filter((person) => person.secondFactorSince).length;
-  const missing = people.filter((person) => !person.disabled && !person.secondFactorSince);
-  const missingAdmins = missing.filter((person) => person.role === "Admin");
 
   return (
     <section className="posture" aria-label="Security">
-      <Gauge count={withFactor} total={people.length} color="var(--ok-fg)" text="use a second factor" />
-      <Gauge count={recent} total={people.length} color="var(--accent)" text="signed in within 30 days" />
       <Gauge
-        count={adminsWithFactor}
-        total={admins.length}
+        count={posture.withSecondFactor}
+        total={posture.people}
+        color="var(--ok-fg)"
+        text="use a second factor"
+        name="Second factors"
+        help={
+          "Everyone who signs in with a code from an authenticator app as well as their " +
+          "password. A stolen password alone does not open their account."
+        }
+      />
+      <Gauge
+        count={posture.recentSignIns}
+        total={posture.people}
+        color="var(--accent)"
+        text="signed in within 30 days"
+        name="Recent sign-ins"
+        help={
+          "Everyone who signed in within the last 30 days. An account nobody uses is still " +
+          "a way in; switch it off when its person has left."
+        }
+      />
+      <Gauge
+        count={posture.adminsWithSecondFactor}
+        total={posture.admins}
         color="var(--metric-violet)"
         text="Admins with a second factor"
+        name="Admins with a second factor"
+        help={
+          "Admins who can sign in and use a second factor, of all such Admins. Admins reach " +
+          "furthest, so each of them should have one."
+        }
       />
       <fieldset className="posture-policy">
         <legend>Second factor required for</legend>
@@ -54,7 +71,7 @@ export function Posture({ people, policy, onPolicy, now }: PostureProps) {
             </label>
           ))}
         </div>
-        <p>{policyNote(policy, missing.length, missingAdmins.length)}</p>
+        <p>{policyNote(policy, posture.missing, posture.missingAdmins)}</p>
       </fieldset>
     </section>
   );
@@ -90,10 +107,14 @@ interface GaugeProps {
   color: string;
   /** What the count is of. */
   text: string;
+  /** The ring's name for its question mark, such as "Second factors". */
+  name: string;
+  /** What the ring counts, behind the question mark. */
+  help: string;
 }
 
-/** One ring with its count, like the rings on the Metrics cards. */
-function Gauge({ count, total, color, text }: GaugeProps) {
+/** One ring with its count, like the rings on the Metrics cards, and a question mark that explains it (VEY-60). */
+function Gauge({ count, total, color, text, name, help }: GaugeProps) {
   const radius = 22;
   const length = 2 * Math.PI * radius;
   const share = total === 0 ? 0 : count / total;
@@ -118,7 +139,10 @@ function Gauge({ count, total, color, text }: GaugeProps) {
           {count}
           <small> of {total}</small>
         </b>
-        <span>{text}</span>
+        <span>
+          {text}
+          <HelpTip label={name}>{help}</HelpTip>
+        </span>
       </div>
     </div>
   );

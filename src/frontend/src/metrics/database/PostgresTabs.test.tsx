@@ -34,6 +34,7 @@ const viewer = {
   displayName: "Dana Kim",
   role: "Viewer" as const,
   timeZone: null,
+  look: { chosen: null, default: "forecast", mayChoose: true },
 };
 
 const path = "/metrics/databases/postgresql/pg-main";
@@ -63,17 +64,17 @@ describe("PostgreSQL server screen", () => {
     const user = userEvent.setup();
     renderAt("/metrics");
 
-    const databases = await screen.findByRole("region", { name: "Databases" });
+    const databases = await screen.findByRole("region", { name: "Database servers" });
     const card = within(databases).getByRole("article", { name: "pg-main" });
     expect(card).toHaveTextContent("PostgreSQL · production · 3 databases");
     expect(card).toHaveTextContent("86 of 100");
-    expect(card).toHaveTextContent("Transactions, last 6h");
+    expect(card).toHaveTextContent("Transactions, the last 24 hours");
     expect(card).toHaveTextContent("Wraparound 52%");
 
     await user.click(within(card).getByRole("link"));
 
     expect(await screen.findByRole("heading", { level: 1, name: "pg-main" })).toBeVisible();
-    expect(api.databaseMetrics).toHaveBeenCalledWith("postgresql", "pg-main", "6h", expect.anything());
+    expect(api.databaseMetrics).toHaveBeenCalledWith("postgresql", "pg-main", "24h", false, expect.anything());
   });
 
   it("opens on its Overview, offers only its own tabs, and never asks SQL Server's agent", async () => {

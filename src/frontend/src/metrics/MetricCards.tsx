@@ -15,6 +15,7 @@ import {
   shareTone,
 } from "./metricFormat";
 import { connectionsRatio, connectionsTone, isPostgres, wraparoundTone } from "./database/postgres";
+import { rangeSearch, rangeWords } from "./metricRange";
 import { Ring } from "./Ring";
 import { Sparkline } from "./Sparkline";
 
@@ -141,10 +142,10 @@ export function ContainerCardView({ container, range, now }: ContainerCardViewPr
       </dl>
       <Sparkline line={container.cpu} color="var(--metric-pink)" />
       <div className="metric-card-foot">
-        <span>CPU, last {range}</span>
+        <span>CPU, {rangeWords(range)}</span>
         {restarting ? (
           <b className="warn">
-            Restarted {container.restarts === 1 ? "once" : `${container.restarts} times`} in {range}
+            Restarted {container.restarts === 1 ? "once" : `${container.restarts} times`} {rangeWords(range, "in")}
           </b>
         ) : (
           <span>{container.uptimeSeconds === null ? "Running" : `Up ${formatSpan(container.uptimeSeconds)}`}</span>
@@ -153,12 +154,14 @@ export function ContainerCardView({ container, range, now }: ContainerCardViewPr
     </>
   );
 
+  const row = containerAnchor(container.name);
+
   return (
     <article className={containerIsHot(container) ? "metric-card hot" : "metric-card"} aria-labelledby={id}>
       {container.host ? (
         <Link
           className="metric-card-link"
-          to={`/metrics/hosts/${encodeURIComponent(container.host)}?range=${range}#${containerAnchor(container.name)}`}
+          to={`/metrics/hosts/${encodeURIComponent(container.host)}?${rangeSearch(range)}#${row}`}
         >
           {body}
         </Link>
@@ -203,12 +206,11 @@ export function DatabaseCardView({ database, range, now }: DatabaseCardViewProps
   const wrapping = wraparoundTone(database.wraparoundRatio) !== "ok";
   const hot = blocked || longQuery || lateBackup || database.failedJobs > 0 || crowded || wrapping;
 
+  const page = `/metrics/databases/${encodeURIComponent(database.engine)}/${encodeURIComponent(database.server)}`;
+
   return (
     <article className={hot ? "metric-card hot" : "metric-card"} aria-labelledby={id}>
-      <Link
-        className="metric-card-link"
-        to={`/metrics/databases/${encodeURIComponent(database.engine)}/${encodeURIComponent(database.server)}?range=${range}`}
-      >
+      <Link className="metric-card-link" to={`${page}?${rangeSearch(range)}`}>
         <div className="metric-card-head">
           <span className="metric-icon database">
             <DatabaseIcon />
@@ -251,7 +253,7 @@ export function DatabaseCardView({ database, range, now }: DatabaseCardViewProps
         <Sparkline line={database.requests} color="var(--metric-teal)" />
         <div className="metric-card-foot">
           <span>
-            {postgres ? "Transactions" : "Batch requests"}, last {range}
+            {postgres ? "Transactions" : "Batch requests"}, {rangeWords(range)}
           </span>
           {postgres ? (
             <Wraparound ratio={database.wraparoundRatio} />
@@ -310,7 +312,7 @@ export function HostCardView({ host, range, now }: HostCardViewProps) {
 
   return (
     <article className={host.fillingDisk ? "metric-card hot" : "metric-card"} aria-labelledby={`host-${host.name}`}>
-      <Link className="metric-card-link" to={`/metrics/hosts/${encodeURIComponent(host.name)}?range=${range}`}>
+      <Link className="metric-card-link" to={`/metrics/hosts/${encodeURIComponent(host.name)}?${rangeSearch(range)}`}>
         <div className="metric-card-head">
           <span className="metric-icon">
             <HostIcon />
@@ -340,7 +342,7 @@ export function HostCardView({ host, range, now }: HostCardViewProps) {
         </div>
         <Sparkline line={host.cpu} color="var(--accent)" max={1} />
         <div className="metric-card-foot">
-          <span>CPU, last {range}</span>
+          <span>CPU, {rangeWords(range)}</span>
           {host.fillingDisk ? (
             <b className="warn">
               Disk {host.fillingDisk.mountpoint} {formatFull(host.fillingDisk.daysUntilFull)}
@@ -369,7 +371,7 @@ interface ServiceCardViewProps {
  * whole card leads to the service's page.
  */
 export function ServiceCardView({ service, range, now }: ServiceCardViewProps) {
-  const params = new URLSearchParams({ range });
+  const params = new URLSearchParams(rangeSearch(range));
 
   if (service.environment) {
     params.set("environment", service.environment);
@@ -420,7 +422,7 @@ export function ServiceCardView({ service, range, now }: ServiceCardViewProps) {
         </dl>
         <Sparkline line={service.latency} color="var(--metric-violet)" />
         <div className="metric-card-foot">
-          <span>p95 latency, last {range}</span>
+          <span>p95 latency, {rangeWords(range)}</span>
           <span>
             {[
               service.cpuRatio === null ? null : `CPU ${formatShare(service.cpuRatio)}`,

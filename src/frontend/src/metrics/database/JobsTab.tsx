@@ -3,7 +3,9 @@ import { unreadText } from "./unread";
 import type { AgentJobView } from "../../api/types";
 import { formatClockTime, formatSpan } from "../metricFormat";
 import { useMetricData } from "../useMetricData";
+import { PanelHead } from "./helpNames";
 import { clock } from "./liveFormat";
+import { SystemHidden, useSystemShown } from "./SystemFilter";
 
 /** Props for {@link JobsTab}. */
 export interface JobsTabProps {
@@ -22,8 +24,13 @@ export interface JobsTabProps {
  * running long, with when each runs next; the Advanced view lists every job with its runs and steps of the last week.
  */
 export function JobsTab({ engine, server, advanced, blind = false }: JobsTabProps) {
-  const { data, error } = useMetricData(`jobs-${engine}-${server}`, (signal) =>
-    api.databaseJobs(engine, server, signal),
+  const [systemShown] = useSystemShown();
+  // The server leaves out the jobs SQL Server set up for itself, such as syspolicy_purge_history, unless System is
+  // on (VEY-64, VEY-66), and keeps the Simple view to the jobs that need a look (VEY-67).
+  const { data, error } = useMetricData(
+    `jobs-${engine}-${server}`,
+    (signal) => api.databaseJobs(engine, server, systemShown, !advanced, signal),
+    { choices: `${systemShown}-${advanced}` },
   );
 
   if (!data) {
@@ -34,15 +41,23 @@ export function JobsTab({ engine, server, advanced, blind = false }: JobsTabProp
     ) : null;
   }
 
-  const shown = advanced ? data : data.filter(needsLook);
+  const shown = data.jobs;
 
   return (
     <section className="metric-panel" aria-labelledby="jobs-head">
-      <div className="metric-panel-head">
-        <h2 id="jobs-head">SQL Agent jobs</h2>
+      <PanelHead
+        id="jobs-head"
+        name="SQL Agent jobs"
+        help={
+          "SQL Server Agent's enabled jobs, read every minute from msdb's job tables. A job " +
+          "needs a look when its last run failed, it did not start when scheduled, or it " +
+          "runs at least twice its usual time, the average of its last 10 successful runs. " +
+          "Backups and maintenance usually run as jobs, so fix a failed one first."
+        }
+      >
         <span>{advanced ? "every job, the ones that need a look first" : "the ones that need a look"}</span>
-      </div>
-      {data.length === 0 ? (
+      </PanelHead>
+      {data.enabled === 0 && data.hiddenJobs.count === 0 ? (
         <p className="metrics-empty">{blind ? unreadText : "The server has no enabled SQL Agent job."}</p>
       ) : shown.length === 0 ? (
         <p className="metrics-empty">
@@ -53,7 +68,7 @@ export function JobsTab({ engine, server, advanced, blind = false }: JobsTabProp
           {shown.map((job) => (
             <li
               key={job.name}
-              className={`live-finding ${needsLook(job) ? (job.failed ? "warning" : "caution") : "ok"}`}
+              className={`live-finding ${job.needsLook ? (job.failed ? "warning" : "caution") : "ok"}`}
             >
               <i aria-hidden="true" />
               <div>
@@ -88,19 +103,8 @@ export function JobsTab({ engine, server, advanced, blind = false }: JobsTabProp
           ))}
         </ul>
       )}
+      <SystemHidden hidden={data.hiddenJobs} noun="job" />
     </section>
-  );
-}
-
-/** Whether a job needs a look: failed, late, or running at least twice its usual time. */
-function needsLook(job: AgentJobView): boolean {
-  return (
-    job.failed ||
-    job.late ||
-    (job.runningSeconds !== null &&
-      job.runningSeconds >= 300 &&
-      job.usualSeconds !== null &&
-      job.runningSeconds >= 2 * job.usualSeconds)
   );
 }
 

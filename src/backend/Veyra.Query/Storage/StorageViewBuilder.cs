@@ -4,6 +4,7 @@ using Veyra.Core.Telemetry;
 using Veyra.Query.Metrics;
 using Veyra.Query.Queries.Api;
 using Veyra.Query.Storage.Api;
+using Veyra.Query.Systems;
 
 namespace Veyra.Query.Storage;
 
@@ -39,9 +40,14 @@ internal sealed class StorageViewBuilder(IMetricSearch search, TimeProvider cloc
     /// <summary>Builds the databases and volumes of a server.</summary>
     /// <param name="engine">The engine.</param>
     /// <param name="server">The server.</param>
+    /// <param name="system">Whether the server's own databases and their findings are listed (VEY-66).</param>
     /// <param name="cancellationToken">Cancels the reads.</param>
     /// <returns>The databases and volumes, or <see langword="null"/> when the server sent no storage read.</returns>
-    public async Task<StorageResponse?> StorageAsync(string engine, string server, CancellationToken cancellationToken)
+    public async Task<StorageResponse?> StorageAsync(
+        string engine,
+        string server,
+        bool system,
+        CancellationToken cancellationToken)
     {
         var now = clock.GetUtcNow();
         var block = TelemetryBlock.Database(engine, server);
@@ -65,15 +71,20 @@ internal sealed class StorageViewBuilder(IMetricSearch search, TimeProvider cloc
 
         await Task.WhenAll(recentReading, weekReading);
 
-        return Build(series, await recentReading, await weekReading);
+        return Build(series, await recentReading, await weekReading, system);
     }
 
     /// <summary>Turns the metrics into the response. Pure; tested without a database.</summary>
     /// <param name="series">The series seen in the last week.</param>
     /// <param name="recent">The last half hour.</param>
     /// <param name="week">The volumes' free space over the last week.</param>
+    /// <param name="system">Whether the server's own databases and their findings are listed.</param>
     /// <returns>The databases and volumes.</returns>
-    public static StorageResponse Build(IReadOnlyList<MetricSeries> series, SeriesData recent, SeriesData week)
+    public static StorageResponse Build(
+        IReadOnlyList<MetricSeries> series,
+        SeriesData recent,
+        SeriesData week,
+        bool system)
     {
         ArgumentNullException.ThrowIfNull(series);
         ArgumentNullException.ThrowIfNull(recent);
@@ -147,16 +158,62 @@ internal sealed class StorageViewBuilder(IMetricSearch search, TimeProvider cloc
                     Value(damaged, name) ?? 0,
                     []);
 
-                return database with { Findings = Findings(database) };
+                return database with
+                {
+                    Findings = Findings(database),
+                    System = SystemObjects.IsSystemDatabase(SqlServerNames.Engine, name),
+                };
             })
             .OrderBy(database => database.Findings.Count == 0)
             .ThenBy(database => database.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var volumes = Latest("sqlserver.volume.size", "volume")
+        var volumes = Volumes(recent, week);
+
+        // The server's findings read every database, tempdb's files among them; the list leaves out the server's own
+        // databases, and their findings with them, unless asked for (VEY-66).
+        var (listed, hidden) = SystemRows.Keep(
+            databases,
+            system,
+            database => database.System,
+            database => database.Name);
+        var hiddenFindings = SystemRows.Keep(
+            databases.SelectMany(database => database.Findings.Select(_ => database)),
+            system,
+            database => database.System,
+            database => database.Name).Hidden;
+
+        var serverFindings = ServerFindings(databases, volumes);
+
+        return new StorageResponse(listed, volumes, serverFindings)
+        {
+            HiddenDatabases = hidden,
+            HiddenFindings = hiddenFindings,
+            NeedsDoing = NeedsDoing(
+                serverFindings,
+                [.. listed.SelectMany(database => database.Findings.Select(finding => (database.Name, finding)))]),
+        };
+    }
+
+    /// <summary>
+    /// Each volume that holds a database file, with its size and free space now and the days until it is full at the
+    /// pace of the last week. The Storage tab and the server's Overview (ADR 0025) share it, so they never disagree.
+    /// Pure.
+    /// </summary>
+    /// <param name="recent">The volumes' size and free space over a recent window; the latest of each counts.</param>
+    /// <param name="week">The volumes' free space over the last week.</param>
+    /// <returns>The volumes by name.</returns>
+    public static List<VolumeResponse> Volumes(SeriesData recent, SeriesData week)
+    {
+        ArgumentNullException.ThrowIfNull(recent);
+        ArgumentNullException.ThrowIfNull(week);
+
+        var frees = DatabaseView.LatestBy(recent, "sqlserver.volume.free", "volume");
+
+        return DatabaseView.LatestBy(recent, "sqlserver.volume.size", "volume")
             .Select(pair =>
             {
-                var free = Latest("sqlserver.volume.free", "volume").GetValueOrDefault(pair.Key);
+                var free = frees.GetValueOrDefault(pair.Key);
                 var levels = week.Where(one => Attribute(one, "volume") == pair.Key);
                 var points = levels.Levels(levels.Named("sqlserver.volume.free")).OrderBy(point => point.Key).ToList();
                 double? days = null;
@@ -177,8 +234,30 @@ internal sealed class StorageViewBuilder(IMetricSearch search, TimeProvider cloc
             })
             .OrderBy(volume => volume.Volume, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
 
-        return new StorageResponse(databases, volumes, ServerFindings(databases, volumes));
+    /// <summary>
+    /// The Needs doing list (VEY-68): the server's findings and each listed database's in one list, the warnings
+    /// first, each with the database it is about. Alike findings keep their order: the server's, then by database.
+    /// Pure.
+    /// </summary>
+    /// <param name="server">The server's own findings.</param>
+    /// <param name="databases">Each listed database's findings, with its name.</param>
+    /// <returns>The list.</returns>
+    public static IReadOnlyList<StorageFindingResponse> NeedsDoing(
+        IReadOnlyList<PlanWarningResponse> server,
+        IReadOnlyList<(string Database, PlanWarningResponse Finding)> databases)
+    {
+        ArgumentNullException.ThrowIfNull(server);
+        ArgumentNullException.ThrowIfNull(databases);
+
+        return
+        [
+            .. server
+                .Select(finding => new StorageFindingResponse(finding, null))
+                .Concat(databases.Select(pair => new StorageFindingResponse(pair.Finding, pair.Database)))
+                .OrderBy(item => item.Finding.Severity == "warning" ? 0 : 1),
+        ];
     }
 
     /// <summary>What Veyra makes of one database, the worst first. Pure; tested without a database.</summary>

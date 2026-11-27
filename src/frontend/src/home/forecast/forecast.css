@@ -6,7 +6,7 @@
 .forecast {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: min(16px, var(--gap-panel));
   min-width: 0;
 }
 
@@ -47,7 +47,7 @@
 
 .fc-hero h1 {
   margin: 0;
-  font-size: 34px;
+  font-size: calc(var(--size-heading) + 4px);
   font-weight: 500;
   letter-spacing: -0.015em;
   line-height: 1.05;
@@ -72,7 +72,7 @@
 .fc-row {
   display: grid;
   grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
-  gap: 16px;
+  gap: min(16px, var(--gap-panel));
   align-items: start;
 }
 
@@ -143,7 +143,7 @@
 }
 
 .fc-tile-value {
-  font-size: 30px;
+  font-size: var(--size-figure);
   font-weight: 300;
   letter-spacing: -0.03em;
   line-height: 1;
@@ -225,7 +225,7 @@
   align-items: center;
   gap: 7px;
   padding: 10px 0;
-  border-radius: 12px;
+  border-radius: min(12px, var(--radius-tile));
 }
 
 .fc-hour-time {
@@ -280,7 +280,7 @@
   padding-bottom: 8px;
 }
 
-.fc-outlook-head .cap {
+.fc-outlook-head .home-name {
   grid-column: 1 / span 3;
 }
 
@@ -368,7 +368,7 @@
   }
 
   .fc-hero h1 {
-    font-size: 26px;
+    font-size: min(26px, var(--size-heading));
   }
 
   .fc-metrics {

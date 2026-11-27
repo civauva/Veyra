@@ -55,6 +55,25 @@ describe("KeysScreen", () => {
     expect(within(revoked).queryByRole("button", { name: /Revoke/ })).not.toBeInTheDocument();
   });
 
+  it("has the bar with its name and no view toggle, since it has no views", async () => {
+    render(<KeysScreen />);
+
+    const trail = await screen.findByRole("navigation", { name: "Where you are" });
+    expect(within(trail).getByText("Ingestion keys")).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("group", { name: "View" })).not.toBeInTheDocument();
+  });
+
+  it("explains the key, its environments, its last use, and its state with a question mark", async () => {
+    const user = userEvent.setup();
+    render(<KeysScreen />);
+
+    expect(await screen.findByRole("button", { name: "What Key means" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "What Environments means" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "What State means" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "What Last used means" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/Never/);
+  });
+
   it("creates a key and shows its secret once", async () => {
     vi.mocked(api.createKey).mockResolvedValue({
       id: "k3",
@@ -66,7 +85,7 @@ describe("KeysScreen", () => {
     render(<KeysScreen />);
 
     await user.type(await screen.findByLabelText("Name"), "db-01 collector");
-    await user.type(screen.getByLabelText(/Environments/), "production, staging");
+    await user.type(screen.getByRole("textbox", { name: /Environments/ }), "production, staging");
     await user.click(screen.getByRole("button", { name: "Create key" }));
 
     expect(api.createKey).toHaveBeenCalledWith({

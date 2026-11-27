@@ -17,7 +17,7 @@ public class TraceRetentionTests(PostgresFixture postgres)
     public async Task ApplyAsync_DaysOlderThanRetention_AreDropped()
     {
         await using var database = await CreateAsync(_now.AddDays(-9), _now);
-        await new SpanStore(database).WriteAsync([Root(1, _now.AddDays(-9)), Root(2, _now)], default);
+        await TestStores.Spans(database).WriteAsync([Root(1, _now.AddDays(-9)), Root(2, _now)], default);
 
         var result = await Retention(database, new StorageOptions()).ApplyAsync(_now, default);
 
@@ -30,7 +30,7 @@ public class TraceRetentionTests(PostgresFixture postgres)
     public async Task ApplyAsync_OldSpansInTheDefaultPartition_AreDeletedButFutureOnesKept()
     {
         await using var database = await CreateAsync(_now);
-        await new SpanStore(database).WriteAsync([Root(1, _now.AddDays(-60)), Root(2, _now.AddDays(30))], default);
+        await TestStores.Spans(database).WriteAsync([Root(1, _now.AddDays(-60)), Root(2, _now.AddDays(30))], default);
 
         var result = await Retention(database, new StorageOptions()).ApplyAsync(_now, default);
 
@@ -42,7 +42,7 @@ public class TraceRetentionTests(PostgresFixture postgres)
     public async Task ApplyAsync_OverTheSizeBudget_DropsTheOldestDaysButKeepsToday()
     {
         await using var database = await CreateAsync(_now.AddDays(-3), _now);
-        await new SpanStore(database).WriteAsync(
+        await TestStores.Spans(database).WriteAsync(
             [Root(1, _now.AddDays(-3)), Root(2, _now.AddDays(-1)), Root(3, _now)],
             default);
 

@@ -89,7 +89,16 @@ cannot watch a host.
 **History** on the Settings screen lists every agent, SQL Server, and PostgreSQL server added, changed, or removed,
 under **Agents** and **Database monitoring**: who did it, when, and which fields changed, such as "Changed port,
 password". A new code and a change to what an agent watches count as changes. Values are never kept there, so no
-password or address appears, and these changes cannot be reverted from the history.
+password or address appears, and these changes cannot be reverted from the history. The one exception is a SQL
+Server's template version, which is kept before and after, since Update and Roll back are told by it (ADR 0028).
+
+### Probes and uptime
+
+A connection probe (Test connection, Validate now; ADR 0028) is a short-lived read Veyra adds to the chosen agent's
+configuration, named after the probe, and removes once the answer arrives or after 2 minutes. The agent picks it up
+with its next poll; its Collector restarts with the probe and again without it, pausing its other reads for a few
+seconds each time. Veyra keeps the Collector's start time from its OpAMP health, which the integration page shows as
+uptime.
 
 ## States
 

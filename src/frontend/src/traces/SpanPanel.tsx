@@ -2,11 +2,12 @@ import { useState } from "react";
 import { Link } from "react-router";
 
 import type { LogEntry, TraceSpan } from "../api/types";
+import { HelpTip } from "../ui/HelpTip";
 import { formatTime } from "../logs/format";
 import { SeverityBadge } from "../logs/SeverityBadge";
 import { serviceColor } from "./serviceColors";
 import { formatDuration, startOf } from "./traceMath";
-import { useViewMode } from "../app/ViewToggle";
+import { useViewMode } from "../ui/ViewToggle";
 
 /** How many attributes show before "All attributes". */
 const collapsedAttributeCount = 8;
@@ -38,7 +39,8 @@ export function SpanPanel({ span, traceId, traceStart, traceDurationMs, logs, on
   const [fullStack, setFullStack] = useState(false);
   const exception = span.events.find((event) => event.name === "exception");
   const otherEvents = span.events.filter((event) => event !== exception);
-  const attributes = Object.entries(span.attributes).sort(([a], [b]) => a.localeCompare(b));
+  // The server sends the attributes sorted by key (VEY-68).
+  const attributes = Object.entries(span.attributes);
   const shown = allAttributes ? attributes : attributes.slice(0, collapsedAttributeCount);
   const stack = exception?.attributes["exception.stacktrace"] ?? "";
   const share = traceDurationMs > 0 ? Math.round((span.durationMs / traceDurationMs) * 100) : 100;
@@ -108,9 +110,15 @@ export function SpanPanel({ span, traceId, traceStart, traceDurationMs, logs, on
       )}
 
       <section aria-labelledby="span-attributes">
-        <h3 id="span-attributes" className="section-title">
-          Attributes
-        </h3>
+        <div className="span-section-title">
+          <h3 id="span-attributes" className="section-title">
+            Attributes
+          </h3>
+          <HelpTip label="Attributes">
+            What the instrumentation recorded about this step, such as the HTTP route, the status code, or the database
+            statement. The OpenTelemetry SDK of the service sets them.
+          </HelpTip>
+        </div>
         {attributes.length === 0 ? (
           <p className="filter-note">This span has no attributes.</p>
         ) : (
@@ -138,9 +146,15 @@ export function SpanPanel({ span, traceId, traceStart, traceDurationMs, logs, on
 
       {mode === "advanced" && otherEvents.length > 0 && (
         <section aria-labelledby="span-events">
-          <h3 id="span-events" className="section-title">
-            Events
-          </h3>
+          <div className="span-section-title">
+            <h3 id="span-events" className="section-title">
+              Events
+            </h3>
+            <HelpTip label="Events">
+              Moments the span marked while it ran, each at its time from the start of the trace. An exception shows
+              above, with its message and stack.
+            </HelpTip>
+          </div>
           <ul className="span-events">
             {otherEvents.map((event) => (
               <li key={`${event.timestamp}-${event.name}`}>
@@ -154,9 +168,15 @@ export function SpanPanel({ span, traceId, traceStart, traceDurationMs, logs, on
 
       <section aria-labelledby="span-logs">
         <div className="span-section-head">
-          <h3 id="span-logs" className="section-title">
-            Logs of this span{logs !== null && ` · ${logs.length}`}
-          </h3>
+          <div className="span-section-title">
+            <h3 id="span-logs" className="section-title">
+              Logs of this span{logs !== null && ` · ${logs.length}`}
+            </h3>
+            <HelpTip label="Logs of this span">
+              The trace&apos;s log records that carry this span ID: the ones written while this step ran. Open in Log
+              Explorer shows every record of the trace.
+            </HelpTip>
+          </div>
           <Link
             className="link-button"
             to={`/logs?traceId=${traceId}&around=${encodeURIComponent(new Date(traceStart).toISOString())}`}

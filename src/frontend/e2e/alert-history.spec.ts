@@ -19,7 +19,7 @@ test.describe("Alerts screen", () => {
   test("lays out the counts, the weather log, the list, and the rules for the screen size", async ({
     page,
   }, testInfo) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/alerts");
 
     await expect(page.getByRole("heading", { level: 1, name: "Alerts" })).toBeVisible();
@@ -46,7 +46,7 @@ test.describe("Alerts screen", () => {
     page,
   }, testInfo) => {
     test.skip(testInfo.project.name === "phone", "Phones leave the span out of the row.");
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/alerts");
     await expect(page.getByRole("region", { name: "Today" }).getByRole("link")).toHaveCount(3);
     // The spans are drawn after the rows; read them only once they are there.
@@ -75,7 +75,7 @@ test.describe("Alerts screen", () => {
   });
 
   test("keeps the filters in the address", async ({ page }) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/alerts");
     await expect(page.getByRole("region", { name: "Today" })).toBeVisible();
 
@@ -87,19 +87,19 @@ test.describe("Alerts screen", () => {
   });
 
   test("leads from a row to the alert's details and back", async ({ page }) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/alerts");
 
     await page.getByRole("link", { name: /Disk \/ on web-01 is full in 9 days/ }).click();
 
     await expect(page.getByRole("heading", { level: 1, name: "Disk / on web-01 is full in 9 days" })).toBeVisible();
-    await page.getByRole("link", { name: "← Alerts" }).click();
+    await page.getByRole("navigation", { name: "Where you are" }).getByRole("link", { name: "Alerts" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Alerts" })).toBeVisible();
   });
 
   test("is reached from the main navigation with the keyboard", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name === "phone", "On phones the main navigation waits in the drawer.");
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/");
 
     await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Alerts" }).focus();
@@ -110,7 +110,7 @@ test.describe("Alerts screen", () => {
 
   test("works in the dark theme", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "dark" });
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/alerts");
     await expect(page.getByRole("region", { name: "Today" })).toBeVisible();
 
@@ -122,7 +122,7 @@ test.describe("Alerts screen", () => {
 
 test.describe("Metric alert details", () => {
   test("shows a disk alert's forecast and the host's disks without scrolling sideways", async ({ page }) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto(`/alerts/${openDiskFilling.id}`);
 
     await expect(page.getByRole("heading", { level: 1, name: "Disk / on web-01 is full in 9 days" })).toBeVisible();
@@ -136,7 +136,7 @@ test.describe("Metric alert details", () => {
   });
 
   test("shows a latency alert's durations and its slowest routes in clear skies", async ({ page }) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto(`/alerts/${resolvedLatency.id}`);
 
     await expect(page.getByRole("heading", { level: 1, name: "checkout-web is back to p95 420 ms" })).toBeVisible();

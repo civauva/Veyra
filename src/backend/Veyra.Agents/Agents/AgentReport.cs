@@ -13,6 +13,9 @@ namespace Veyra.Agents.Agents;
 /// <param name="ConfigState">What it said about that configuration.</param>
 /// <param name="ConfigError">Why the Collector refused it, when it did.</param>
 /// <param name="LastSeenAt">When the agent last connected.</param>
+/// <param name="StartedAt">
+/// When its Collector last started, from OpAMP health (ADR 0028), for its uptime; <see langword="null"/> until it says.
+/// </param>
 internal sealed record AgentReport(
     byte[]? InstanceUid,
     string? Version,
@@ -23,7 +26,8 @@ internal sealed record AgentReport(
     byte[]? ConfigHash,
     AgentConfigState ConfigState,
     string? ConfigError,
-    DateTimeOffset? LastSeenAt)
+    DateTimeOffset? LastSeenAt,
+    DateTimeOffset? StartedAt = null)
 {
     /// <summary>The report of an agent that has never connected.</summary>
     public static AgentReport None { get; } =

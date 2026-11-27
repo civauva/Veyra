@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { resolvedCaution } from "../src/alerts/testAlerts";
+import { openIntegrity, resolvedCaution } from "../src/alerts/testAlerts";
 import { answerApi } from "./api";
 
 const path = "/alerts/0193a2b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b";
@@ -19,7 +19,7 @@ async function scrollsSideways(page: Page): Promise<boolean> {
 
 test.describe("Alert details", () => {
   test("lays out the alert for the screen size", async ({ page }, testInfo) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto(path);
 
     const title = page.getByRole("heading", { level: 1, name: "payments-gateway logs 21.6% errors" });
@@ -47,7 +47,7 @@ test.describe("Alert details", () => {
   });
 
   test("leads into the logs of a frequent error", async ({ page }) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto(path);
 
     await page.getByRole("link", { name: "Logs with “Payment authorisation failed: upstream returned 503”" }).click();
@@ -58,7 +58,7 @@ test.describe("Alert details", () => {
 
   test("is reached from Needs you with the keyboard", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name === "phone", "Phones have no keyboard to tab with.");
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/");
 
     const details = page.getByRole("region", { name: "Needs you" }).getByRole("link", { name: "Details" });
@@ -70,7 +70,7 @@ test.describe("Alert details", () => {
 
   test("paints the storm in the dark theme", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "dark" });
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto(path);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 
@@ -83,7 +83,7 @@ test.describe("Alert details", () => {
 
   test("shows clear skies for a resolved alert in the light theme", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "light" });
-    await answerApi(page, { alert: resolvedCaution });
+    await answerApi(page, { look: "forecast", alert: resolvedCaution });
     await page.goto(path);
 
     await expect(page.getByRole("heading", { level: 1, name: "orders-api is back to 0.4% errors" })).toBeVisible();
@@ -93,4 +93,46 @@ test.describe("Alert details", () => {
     expect(scene).toContain("rgb(169, 211, 255)");
     expect(await scrollsSideways(page)).toBe(false);
   });
+});
+
+test.describe("Alert guidance (VEY-60)", () => {
+  for (const scheme of ["light", "dark"] as const) {
+    test(`says how to fix an integrity alert and explains every tile, in the ${scheme} theme`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: scheme });
+      await answerApi(page, { look: "forecast", alert: openIntegrity });
+      await page.goto(`/alerts/${openIntegrity.id}`);
+
+      const guide = page.getByRole("region", { name: "What it means and how to fix it" });
+      await expect(guide).toBeVisible();
+      await expect(guide.getByLabel("Run the check now, outside busy hours.", { exact: true })).toContainText(
+        "DBCC CHECKDB (N'VPower_2.P')",
+      );
+      expect(await scrollsSideways(page)).toBe(false);
+
+      // Each tile's question mark opens its explanation inside the window, readable in the theme.
+      const help = page.getByRole("button", { name: /^What .* means$/ });
+      expect(await help.count()).toBeGreaterThanOrEqual(5);
+
+      for (const button of await help.all()) {
+        await button.click();
+        const tip = page.getByRole("tooltip");
+        await expect(tip).toBeVisible();
+
+        const box = await tip.boundingBox();
+        const width = page.viewportSize()?.width ?? 0;
+        expect(box?.x ?? -1).toBeGreaterThanOrEqual(0);
+        expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(width);
+
+        const [colour, background] = await tip.evaluate((element) => {
+          const style = getComputedStyle(element);
+
+          return [style.color, style.backgroundColor];
+        });
+        expect(colour).not.toBe(background);
+
+        await page.keyboard.press("Escape");
+        await expect(tip).toBeHidden();
+      }
+    });
+  }
 });

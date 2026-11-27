@@ -39,6 +39,12 @@ namespace Veyra.Alerting.Api;
 /// </param>
 /// <param name="Disk">For the disk rules, the disk's use and the host's other disks; otherwise null.</param>
 /// <param name="Latency">For the latency rule, the request durations and the slowest routes; otherwise null.</param>
+/// <param name="ServerErrors">
+/// For a database server's severe error, memory error, and failed login rules, the errors they counted from 15
+/// minutes before the alert opened to its end, newest first; otherwise null (VEY-61).
+/// </param>
+/// <param name="IncidentId">The incident the alert belongs to (ADR 0026); <see langword="null"/> for none.</param>
+/// <param name="IncidentKey">That incident's key, such as <c>INC-42</c>.</param>
 public sealed record AlertDetailsResponse(
     Guid Id,
     string Rule,
@@ -65,4 +71,20 @@ public sealed record AlertDetailsResponse(
     AlertSeriesResponse? Series,
     IReadOnlyList<LogMessageGroup> TopErrors,
     DiskDetailsResponse? Disk,
-    LatencyDetailsResponse? Latency);
+    LatencyDetailsResponse? Latency,
+    IReadOnlyList<ServerErrorResponse>? ServerErrors = null,
+    Guid? IncidentId = null,
+    string? IncidentKey = null)
+{
+    /// <summary>
+    /// The channels the alert told, each once, in the order they were first told, for its facts and its timeline
+    /// (VEY-68).
+    /// </summary>
+    public IReadOnlyList<ToldChannelResponse> Told =>
+    [
+        .. Events
+            .SelectMany(change => change.Deliveries)
+            .DistinctBy(delivery => delivery.ChannelId)
+            .Select(delivery => new ToldChannelResponse(delivery.ChannelId, delivery.ChannelName)),
+    ];
+}

@@ -33,6 +33,7 @@ const lena = {
   displayName: "Lena Hoffmann",
   role: "Editor" as const,
   timeZone: null,
+  look: { chosen: null, default: "forecast", mayChoose: true },
 };
 const codes = ["K7QF-29XM", "8D3N-PW4R", "TJ6V-1HQZ", "5MB2-C9LE", "R4XW-7GKA"];
 

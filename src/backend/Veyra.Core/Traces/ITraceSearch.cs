@@ -3,8 +3,8 @@ namespace Veyra.Core.Traces;
 /// <summary>Reads traces (ADR 0014). The Storage module implements it; the Query module reads through it.</summary>
 public interface ITraceSearch
 {
-    /// <summary>Lists traces by their root spans, newest first, a page at a time.</summary>
-    /// <param name="query">The window, the filters, and the page.</param>
+    /// <summary>Lists traces by their root spans, newest or worst first, a page at a time.</summary>
+    /// <param name="query">The window, the filters, the order, and the page.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
     /// <returns>The page, with each trace's span count, failures, and services.</returns>
     Task<TracePage> ListAsync(TraceQuery query, CancellationToken cancellationToken);
@@ -22,8 +22,19 @@ public interface ITraceSearch
     /// </summary>
     /// <param name="query">The window and the filters, except the services; the page is ignored.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
-    /// <returns>The services, most traces first.</returns>
+    /// <returns>
+    /// The services with their traces, failures, and 95th percentile, most traces first, then by name.
+    /// </returns>
     Task<IReadOnlyList<TraceServiceCount>> ServicesAsync(TraceQuery query, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Works out the figures of a window under a query's filters (ADR 0029): its traces, failures, slow traces,
+    /// percentiles, services, and the traces of the period before.
+    /// </summary>
+    /// <param name="query">The window and the filters; the order and the page are ignored.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The figures.</returns>
+    Task<TraceFigures> FiguresAsync(TraceQuery query, CancellationToken cancellationToken);
 
     /// <summary>Reads every span of a trace.</summary>
     /// <param name="traceId">The trace ID, 32 hex characters.</param>

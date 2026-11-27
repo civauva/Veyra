@@ -2,10 +2,11 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import type { Agent } from "../api/types";
+import { HelpTip } from "../ui/HelpTip";
 import { HostIcon } from "../metrics/MetricCards";
 import { AddAgentCard } from "./AddAgentCard";
 import { BuiltInAgentGuide } from "./BuiltInAgentGuide";
-import { CommandBlock } from "./CommandBlock";
+import { CommandBlock } from "../ui/CommandBlock";
 import { HostWatchForm } from "./HostWatchForm";
 import { InstallBox } from "./InstallBox";
 import { agentStateWords, ago, uninstallCommand, type StateWords } from "./monitoringFormat";
@@ -70,6 +71,34 @@ function agentLine(agent: Agent, now: Date): string {
  */
 function wordsOf(agent: Agent): StateWords {
   return agent.installed ? agentStateWords(agent.state) : { label: "Not installed yet", tone: "wait" };
+}
+
+/** What each state of an installed agent means, behind the question mark beside its chip (VEY-60). */
+const stateMeanings: Record<Agent["state"], string> = {
+  Online:
+    "It polls Veyra every 30 seconds and runs the settings Veyra sent it, so a change " +
+    "made here reaches it within that time.",
+  NotConnected:
+    "It is installed, or built in, but has never reached Veyra. Once it runs, it connects within half a minute.",
+  Offline:
+    "It has not polled Veyra for two minutes. Check that its container or service " +
+    "runs; it reads and sends again once it does.",
+  ConfigurationFailed:
+    "Its Collector refused the settings Veyra sent and keeps running with its last ones. The card says why.",
+  Unhealthy: "Its Collector reports a part that does not run, so some figures may be missing. The card says why.",
+};
+
+/**
+ * What an agent's state means, for its question mark.
+ *
+ * @param agent - The agent.
+ * @returns A sentence or two.
+ */
+function meaningOf(agent: Agent): string {
+  return agent.installed
+    ? stateMeanings[agent.state]
+    : "It was added here, but no installer has used its code yet. Install it on a " +
+        "machine in its network with a one-time code.";
 }
 
 /**
@@ -194,7 +223,10 @@ export function AgentsPanel() {
                 )}
               </div>
               <div className="monitor-actions">
-                <StateChip label={words.label} tone={words.tone} />
+                <span className="monitor-state-help">
+                  <StateChip label={words.label} tone={words.tone} />
+                  <HelpTip label={words.label}>{meaningOf(agent)}</HelpTip>
+                </span>
                 {remote && (!agent.installed || agent.state === "NotConnected" || agent.state === "Offline") && (
                   <button type="button" className="button small" onClick={() => void newCode(agent)}>
                     New code

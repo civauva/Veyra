@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 
 import { api } from "../api/client";
 import type { CreatedIngestionKey, IngestionKey } from "../api/types";
+import { HelpTip } from "../ui/HelpTip";
+import { ScreenBar } from "../ui/ScreenBar";
 import { endOfLocalDay, localDay } from "../time/zone";
 import "./keys.css";
 
@@ -62,6 +64,7 @@ export function KeysScreen() {
 
   return (
     <main className="keys">
+      <ScreenBar trail={[{ label: "Ingestion keys" }]} />
       <h1>Ingestion keys</h1>
       <p className="keys-intro">
         Every sender, such as an OpenTelemetry Collector or an application, presents a key in the{" "}
@@ -93,16 +96,46 @@ export function KeysScreen() {
 
       {keys && keys.length === 0 && <p className="keys-empty">No keys yet. Create one for your first sender.</p>}
       {keys && keys.length > 0 && (
+        // Phones show each key as a card without the table's headings, so one question mark explains its fields.
+        <p className="keys-phone-help">
+          <ColumnName name="a key's fields">
+            Key: its first characters, to tell keys apart; Veyra keeps only a hash of the whole key. Environments: the
+            environments it may send, others are refused. Last used: the day a sender last presented it; an old date may
+            mean a key nobody needs. State: active keys work, revoked and expired ones never work again.
+          </ColumnName>
+        </p>
+      )}
+      {keys && keys.length > 0 && (
         <table className="keys-table">
           <thead>
             <tr>
               <th scope="col">Name</th>
-              <th scope="col">Key</th>
-              <th scope="col">Environments</th>
+              <th scope="col">
+                <ColumnName name="Key">
+                  The first characters of the key, to tell keys apart and to find one in a sender&apos;s settings. Veyra
+                  keeps only a hash of the whole key, so it cannot show it again.
+                </ColumnName>
+              </th>
+              <th scope="col">
+                <ColumnName name="Environments">
+                  The environments whose telemetry the key may send, by deployment.environment.name. Records of any
+                  other are refused, and the sender is told. All means any environment.
+                </ColumnName>
+              </th>
               <th scope="col">Created</th>
-              <th scope="col">Last used</th>
+              <th scope="col">
+                <ColumnName name="Last used">
+                  The day a sender last presented the key. Never means no sender has used it yet; an old date may mean a
+                  sender stopped, or a key nobody needs that you can revoke.
+                </ColumnName>
+              </th>
               <th scope="col">Expires</th>
-              <th scope="col">State</th>
+              <th scope="col">
+                <ColumnName name="State">
+                  Active keys work. A revoked key stops within 30 seconds, and an expired one after its last day; both
+                  stay listed and cannot work again, so give the sender a new key.
+                </ColumnName>
+              </th>
               <th scope="col">
                 <span className="visually-hidden">Actions</span>
               </th>
@@ -155,6 +188,24 @@ export function KeysScreen() {
         </table>
       )}
     </main>
+  );
+}
+
+/** Props for {@link ColumnName}. */
+interface ColumnNameProps {
+  /** The column's name, such as "Last used". */
+  name: string;
+  /** What the column means, behind the question mark. */
+  children: ReactNode;
+}
+
+/** A column's name with a question mark that explains it (VEY-60). */
+function ColumnName({ name, children }: ColumnNameProps) {
+  return (
+    <span className="keys-column">
+      {name}
+      <HelpTip label={name}>{children}</HelpTip>
+    </span>
   );
 }
 

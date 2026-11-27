@@ -19,4 +19,11 @@ public sealed record MetricChartResponse(
     string? Split,
     IReadOnlyList<string> SplitKeys,
     int BucketSeconds,
-    IReadOnlyList<ChartLineResponse> Lines);
+    IReadOnlyList<ChartLineResponse> Lines)
+{
+    /// <summary>The start of the period the answer covers (ADR 0022).</summary>
+    public DateTimeOffset From { get; init; }
+
+    /// <summary>The end of the period the answer covers: now, or the <c>to</c> asked for (ADR 0022).</summary>
+    public DateTimeOffset To { get; init; }
+}

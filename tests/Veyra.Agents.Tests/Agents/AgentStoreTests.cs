@@ -41,7 +41,8 @@ public class AgentStoreTests(PostgresFixture postgres)
             ConfigHash: [9, 9],
             ConfigState: AgentConfigState.Failed,
             ConfigError: "unknown receiver",
-            LastSeenAt: _noon);
+            LastSeenAt: _noon,
+            StartedAt: _noon.AddHours(-3));
 
         await store.SaveReportAsync(agent.Id, report, CancellationToken.None);
 

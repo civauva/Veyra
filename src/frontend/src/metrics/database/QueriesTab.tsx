@@ -2,10 +2,13 @@ import { useState } from "react";
 import { Link } from "react-router";
 
 import { api } from "../../api/client";
-import type { MetricRange, QueryRow, QueryStoreState } from "../../api/types";
+import type { MetricRange, QueryRow, QuerySort, QueryStoreState } from "../../api/types";
 import { formatSeconds } from "../metricFormat";
+import { rangeSearch, rangeWords } from "../metricRange";
 import { useMetricData } from "../useMetricData";
+import { PanelHead } from "./helpNames";
 import { copyText, shortCount } from "./liveFormat";
+import { SystemHidden, SystemTag, useSystemShown } from "./SystemFilter";
 
 /** Props for {@link QueriesTab}. */
 export interface QueriesTabProps {
@@ -19,15 +22,13 @@ export interface QueriesTabProps {
   advanced: boolean;
 }
 
-/** What the Advanced view ranks the statements by. */
-type SortKey = "totalSeconds" | "cpuSeconds" | "reads" | "executions" | "perRunSeconds";
-
-const sorts: { key: SortKey; label: string }[] = [
-  { key: "totalSeconds", label: "Total time" },
-  { key: "cpuSeconds", label: "CPU" },
+/** What the Advanced view can rank the statements by; the server ranks them before it keeps the top 100 (VEY-66). */
+const sorts: { key: QuerySort; label: string }[] = [
+  { key: "totalTime", label: "Total time" },
+  { key: "cpu", label: "CPU" },
   { key: "reads", label: "Reads" },
-  { key: "executions", label: "Runs" },
-  { key: "perRunSeconds", label: "Time per run" },
+  { key: "runs", label: "Runs" },
+  { key: "timePerRun", label: "Time per run" },
 ];
 
 /**
@@ -36,10 +37,15 @@ const sorts: { key: SortKey; label: string }[] = [
  * A statement opens its page.
  */
 export function QueriesTab({ engine, server, range, advanced }: QueriesTabProps) {
-  const { data, error } = useMetricData(`queries-${engine}-${server}-${range}`, (signal) =>
-    api.databaseQueries(engine, server, range, signal),
+  const [chosen, setSort] = useState<QuerySort>("totalTime");
+  const [systemShown] = useSystemShown();
+  // The Simple view leads with the busiest statements; only the Advanced view ranks by another measure.
+  const sort = advanced ? chosen : "totalTime";
+  const { data, error } = useMetricData(
+    `queries-${engine}-${server}-${range}`,
+    (signal) => api.databaseQueries(engine, server, range, systemShown, sort, !advanced, signal),
+    { choices: `${systemShown}-${sort}-${advanced}` },
   );
-  const [sort, setSort] = useState<SortKey>("totalSeconds");
 
   if (!data) {
     return error ? (
@@ -51,27 +57,40 @@ export function QueriesTab({ engine, server, range, advanced }: QueriesTabProps)
     );
   }
 
-  const off = data.queryStore.filter((state) => !state.on);
+  const off = data.queryStoreOff;
   const base = `/metrics/databases/${encodeURIComponent(engine)}/${encodeURIComponent(server)}/queries/`;
-  const link = (row: QueryRow) => `${base}${encodeURIComponent(row.queryHash)}?range=${range}`;
+  const link = (row: QueryRow) => `${base}${encodeURIComponent(row.queryHash)}?${rangeSearch(range)}`;
 
   const store = off.length > 0 && <QueryStoreOff states={off} />;
+  // The server leaves out its own statements, such as SSMS reading the catalog, unless asked (VEY-64, VEY-66).
+  const statements = data.statements;
+  const hidden = <SystemHidden hidden={data.hiddenStatements} noun="statement" />;
 
   if (!advanced) {
-    const worth = data.statements.filter((row) => row.findings.length > 0);
+    // The server keeps the Simple view to the statements with a finding, read before its cut to 100 (VEY-67).
+    const worth = statements;
+    const busiest = data.busiest;
 
     return (
       <>
         {store}
         <section className="metric-panel" aria-labelledby="queries-findings">
-          <div className="metric-panel-head">
-            <h2 id="queries-findings">Queries worth a look</h2>
-            <span>over the last {data.range}</span>
-          </div>
+          <PanelHead
+            id="queries-findings"
+            name="Queries worth a look"
+            help={
+              "The statements in which Veyra found a problem over the range: a plan that got " +
+              "slower, a missing index, a parameter of the wrong type, a spill to tempdb. Read " +
+              "every minute from sys.dm_exec_query_stats, and every 15 minutes from the busiest " +
+              "statements' plans. Each leads to how to fix it."
+            }
+          >
+            <span>{rangeWords(range, "over")}</span>
+          </PanelHead>
           {worth.length === 0 ? (
             <p className="metrics-empty">
-              No statement shows a problem over the last {data.range}. The busiest was{" "}
-              {data.statements[0] ? <Link to={link(data.statements[0])}>{data.statements[0].name}</Link> : "nothing"}.
+              No statement shows a problem {rangeWords(range, "over")}. The busiest was{" "}
+              {busiest ? <Link to={link(busiest)}>{busiest.name}</Link> : "nothing"}.
             </p>
           ) : (
             <ul className="live-findings">
@@ -92,21 +111,31 @@ export function QueriesTab({ engine, server, range, advanced }: QueriesTabProps)
               ))}
             </ul>
           )}
+          {hidden}
         </section>
       </>
     );
   }
 
-  const rows = [...data.statements].sort((a, b) => b[sort] - a[sort]);
+  // Ranked by the server, so a statement outside the 100 slowest still shows when it reads or runs the most.
+  const rows = statements;
 
   return (
     <>
       {store}
       <section className="metric-panel" aria-labelledby="queries-ranking">
-        <div className="metric-panel-head">
-          <h2 id="queries-ranking">Statements</h2>
-          <span>over the last {data.range}</span>
-        </div>
+        <PanelHead
+          id="queries-ranking"
+          name="Statements"
+          help={
+            "Every statement that ran over the range, ranked by the measure chosen, from " +
+            "sys.dm_exec_query_stats, read every minute. Total is all runs together, Per run " +
+            "the average, Reads the logical reads: 8 KB pages read from memory or disk. A " +
+            "statement counts only while its plan stays in the cache."
+          }
+        >
+          <span>{rangeWords(range, "over")}</span>
+        </PanelHead>
         <div className="live-filters" role="group" aria-label="Rank by">
           {sorts.map((one) => (
             <button
@@ -152,6 +181,7 @@ export function QueriesTab({ engine, server, range, advanced }: QueriesTabProps)
                   <tr key={row.queryHash}>
                     <th scope="row">
                       <Link to={link(row)}>{row.name}</Link>
+                      {row.system && <SystemTag />}
                       <small className="live-text">{row.text}</small>
                     </th>
                     <td data-label="Database">{row.database ?? "–"}</td>
@@ -186,6 +216,7 @@ export function QueriesTab({ engine, server, range, advanced }: QueriesTabProps)
             </table>
           </div>
         )}
+        {hidden}
         {data.agentStatements > 0 && (
           <p className="database-agent-work">
             Not ranked: Veyra&apos;s agent, {data.agentStatements} statements, {formatSeconds(data.agentSeconds)} in
@@ -203,12 +234,20 @@ function QueryStoreOff({ states }: { states: QueryStoreState[] }) {
 
   return (
     <section className="metric-panel" aria-labelledby="queries-store">
-      <div className="metric-panel-head">
-        <h2 id="queries-store">Query Store is off</h2>
+      <PanelHead
+        id="queries-store"
+        name="Query Store is off"
+        help={
+          "Query Store keeps each statement's figures and plans inside its database, over " +
+          "restarts; Veyra reads it every 15 minutes. These databases have it off, so a " +
+          "statement's history ends once SQL Server drops its plan from the cache. A DBA " +
+          "turns it on with the statement below."
+        }
+      >
         <span>
           {states.length === 1 ? "1 database" : `${states.length} databases`} keep no history of their statements
         </span>
-      </div>
+      </PanelHead>
       <p className="metrics-empty">
         Without it, a statement&apos;s history ends when SQL Server forgets its plan. Veyra never changes a server; a
         DBA turns it on with one statement.

@@ -138,6 +138,147 @@ public class ActivityStoreTests(PostgresFixture postgres)
         Assert.NotNull(await store.GetSessionsAsync(_server, _now, TimeSpan.FromMinutes(1), default));
     }
 
+    [Fact]
+    public async Task ListRecordsMatchingAsync_MatchPastTheLimitOfNewerRecords_ReturnsIt()
+    {
+        await using var database = await CreateAsync();
+        var store = new ActivityStore(database);
+        var newer = Enumerable.Range(1, 5)
+            .Select(index => Event($"ok-{index}", "connectivity_ring_buffer_recorded", _now.AddMinutes(-index)))
+            .ToList<DatabaseActivity>();
+        await store.WriteAsync(
+            [
+                .. newer,
+                Event("damage", "error_reported", _now.AddHours(-1)),
+                Event("stuck", "scheduler_non_yielding_rm", _now.AddHours(-2)),
+            ],
+            default);
+        var match = new ActivityAttributeMatch("event_name", ["error_reported"], ["non_yielding"]);
+
+        var records = await store.ListRecordsMatchingAsync(
+            _server,
+            "sqlserver.event",
+            _now.AddDays(-1),
+            _now,
+            match,
+            3,
+            default);
+
+        Assert.Equal(["damage", "stuck"], records.Select(record => record.Key));
+    }
+
+    [Fact]
+    public async Task WriteAsync_SameBackupInThreeReads_IsKeptOnce()
+    {
+        await using var database = await CreateAsync();
+        var store = new ActivityStore(database);
+        var finished = _now.AddMinutes(-2);
+
+        // The agent reads the last 15 minutes every 5 minutes, so a backup arrives in three reads, always with the time
+        // it finished as its time.
+        for (var read = 0; read < 3; read++)
+        {
+            await store.WriteAsync([Backup("48213", "shop", "log", finished, seconds: 4)], default);
+        }
+
+        var records = await store.ListRecordsAsync(
+            _server,
+            "sqlserver.backup",
+            _now.AddDays(-1),
+            _now,
+            null,
+            10,
+            default);
+
+        Assert.Equal(finished, Assert.Single(records).SampledAt);
+    }
+
+    [Fact]
+    public async Task ListDaysAsync_Backups_AreCountedPerDayDatabaseAndTypeWithTheirTime()
+    {
+        await using var database = await CreateAsync();
+        var store = new ActivityStore(database);
+        await store.WriteAsync(
+            [
+                Backup("1", "shop", "full", _now.AddHours(-11), seconds: 1_800),
+                Backup("2", "shop", "log", _now.AddHours(-2), seconds: 10),
+                Backup("3", "shop", "log", _now.AddHours(-1), seconds: 20),
+                Backup("4", "reporting", "differential", _now.AddHours(-1), seconds: 300),
+                Backup("5", "shop", "log", _now.AddHours(-13), seconds: 30),
+                Event("not-a-backup", "error_reported", _now.AddHours(-1)),
+            ],
+            default);
+
+        var days = await store.ListDaysAsync(_server, _now.AddDays(-1), _now, default);
+
+        var today = DateOnly.FromDateTime(_now.UtcDateTime);
+        Assert.Equal(
+            [
+                new BackupDay(today, "reporting", "differential", 1, 300),
+                new BackupDay(today, "shop", "full", 1, 1_800),
+                new BackupDay(today, "shop", "log", 2, 30),
+                new BackupDay(today.AddDays(-1), "shop", "log", 1, 30),
+            ],
+            days.OrderByDescending(day => day.Day).ThenBy(day => day.Database).ThenBy(day => day.Type));
+    }
+
+    [Fact]
+    public async Task ListDaysCommand_LastWeek_ReadsOnlyThePartitionsOfThoseDaysByTheKindIndex()
+    {
+        await using var database = await postgres.CreateMigratedDatabaseAsync(new StorageMigrations());
+        var partitions = new ActivityPartitions(database, TimeProvider.System, NullLogger<ActivityPartitions>.Instance);
+
+        for (var day = -30; day <= 0; day += 3)
+        {
+            await partitions.EnsureAsync(_now.AddDays(day), default);
+        }
+
+        await using var command = ActivityStore.ListDaysCommand(_server, _now.AddDays(-7), _now);
+
+        var plan = await QueryPlan.ExplainAsync(database, command, [("enable_seqscan", "off")]);
+
+        Assert.All(plan.Relations, relation => Assert.StartsWith("db_record_202611", relation));
+        Assert.DoesNotContain("db_record_default", plan.Relations);
+        Assert.InRange(plan.Relations.Distinct().Count(), 1, 9);
+        Assert.All(plan.Indexes, index => Assert.Contains("kind", index, StringComparison.Ordinal));
+        Assert.NotEmpty(plan.Indexes);
+    }
+
+    private static ActivityRecord Backup(
+        string key,
+        string database,
+        string type,
+        DateTimeOffset finished,
+        int seconds) =>
+        new(
+            _server,
+            "production",
+            finished,
+            "sqlserver.backup",
+            key,
+            new Dictionary<string, string>
+            {
+                ["database_name"] = database,
+                ["backup_type"] = type,
+                ["started"] = finished.AddSeconds(-seconds)
+                    .ToUnixTimeMilliseconds()
+                    .ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ["bytes"] = "1048576",
+                ["compressed_bytes"] = "-1",
+                ["copy_only"] = "0",
+            },
+            "/var/opt/mssql/backup/" + key + ".bak");
+
+    private static ActivityRecord Event(string key, string name, DateTimeOffset at) =>
+        new(
+            _server,
+            "production",
+            at,
+            "sqlserver.event",
+            key,
+            new Dictionary<string, string> { ["event_name"] = name },
+            "");
+
     private static ServerSample Server(DateTimeOffset at, long free = 60_000) =>
         new(_server, "production", at, TempdbSizeKilobytes: 65_536, TempdbFreeKilobytes: free, GrantsWaiting: 0);
 

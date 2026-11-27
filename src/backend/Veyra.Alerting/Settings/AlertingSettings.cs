@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.Extensions.Options;
+using Veyra.Alerting.Alerts;
 using Veyra.Alerting.Catalog;
 using Veyra.Alerting.Notifications;
 using Veyra.Core;
@@ -17,7 +18,28 @@ internal sealed class AlertingSettings(IEnumerable<IValidateOptions<AlertingOpti
 {
     private const string _prefix = VeyraOptionNames.Alerting + ":";
 
+    // Every rule's runbook link sits under this, by the rule's name (ADR 0026).
+    private const string _runbooks = _prefix + "Runbooks:";
+
     private static readonly AlertingOptions _defaults = new();
+
+    // The built-in rules' names on the Runbooks card, by the rule; catalog rules bring their own.
+    private static readonly Dictionary<string, string> _ruleLabels = new(StringComparer.Ordinal)
+    {
+        [AlertRules.ErrorRate] = "Error rate",
+        [AlertRules.LatencyP95] = "Latency",
+        [AlertRules.DiskSpace] = "Disk space",
+        [AlertRules.DiskFilling] = "Disk filling",
+        [AlertRules.ContainerRestarts] = "Container restarts",
+        [AlertRules.ContainerMemory] = "Container memory",
+        [AlertRules.DatabaseBlocking] = "Database blocking",
+        [AlertRules.DatabaseDeadlocks] = "Deadlocks",
+        [AlertRules.DatabaseLongQuery] = "Long query",
+        [AlertRules.DatabaseBackupAge] = "Backup age",
+        [AlertRules.DatabaseAgentJob] = "SQL Agent jobs",
+        [AlertRules.DatabaseConnections] = "Database connections",
+        [AlertRules.DatabaseWraparound] = "Transaction ID wraparound",
+    };
 
     // What the Simple view leaves out: each rule keeps its switch and its two levels; how it measures and clears,
     // how often rules run, and how queued messages are sent are for the Advanced view.
@@ -38,6 +60,7 @@ internal sealed class AlertingSettings(IEnumerable<IValidateOptions<AlertingOpti
         _prefix + "Notifications:DispatchInterval",
         _prefix + "Notifications:SendTimeout",
         _prefix + "Notifications:BatchSize",
+        _prefix + "Incidents:GroupingMinutes",
     ];
 
     // The rule names people see, by the section of each rule's settings.
@@ -60,7 +83,12 @@ internal sealed class AlertingSettings(IEnumerable<IValidateOptions<AlertingOpti
 
     /// <inheritdoc />
     public override IReadOnlyList<SettingDefinition> Definitions { get; } = Build()
-        .Select(definition => definition with { Advanced = _advanced.Contains(definition.Key) })
+        .Select(definition => definition with
+        {
+            // Runbook links are set once, when an installation writes its runbooks, not tuned like a rule.
+            Advanced = _advanced.Contains(definition.Key)
+                || definition.Key.StartsWith(_runbooks, StringComparison.Ordinal),
+        })
         .ToList();
 
     /// <inheritdoc />
@@ -422,6 +450,18 @@ internal sealed class AlertingSettings(IEnumerable<IValidateOptions<AlertingOpti
                 _defaults.HistoryDays,
                 "days") with { Effect = SettingEffect.DeletesData, Maximum = 3650 },
 
+            Whole(
+                SettingSection.Rules,
+                "Incidents:GroupingMinutes",
+                "Incidents",
+                "Group alerts within",
+                "An alert joins an open incident when a related block, the same one, its host, or what runs on it, "
+                + "had an alert open this close before. Otherwise it opens an incident of its own.",
+                _defaults.Incidents.GroupingMinutes,
+                "min") with { Maximum = 1440 },
+
+            .. AlertRules.All.Select(Runbook),
+
             Text(
                 SettingSection.Email,
                 "Notifications:Smtp:Host",
@@ -513,6 +553,20 @@ internal sealed class AlertingSettings(IEnumerable<IValidateOptions<AlertingOpti
                 "messages"),
         ];
     }
+
+    // A rule's runbook link: empty until the installation sets one, then opened by the incident's View runbook.
+    private static SettingDefinition Runbook(string rule) => new(
+        _runbooks + rule,
+        SettingSection.Rules,
+        "Runbooks",
+        _ruleLabels.GetValueOrDefault(rule) ?? RuleCatalog.Find(rule)?.Name ?? rule,
+        $"Your runbook for {rule} alerts, such as https://wiki.example.com/runbooks/{rule}. Without one, incidents "
+        + "show Veyra's own guidance for the rule.",
+        SettingKind.Text,
+        null)
+    {
+        Optional = true,
+    };
 
     // A built-in rule's name in sentences, by the section of its settings; catalog rules sit under Catalog.
     private static string? RuleName(string section) =>

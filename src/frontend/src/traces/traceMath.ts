@@ -23,97 +23,29 @@ export function endOf(span: TraceSpan): number {
 }
 
 /**
- * Orders spans for the waterfall: depth first from each root, children by start time. Spans whose parent has not
- * arrived become roots of their own, marked, so a gap in the trace is visible where it is.
+ * The waterfall's rows: the spans in the tree order the server sends (VEY-68), without the spans under a collapsed
+ * one. Hiding them is the only thing done here; the order, depths, and gaps come from the server.
  *
- * @param spans - Every span of the trace, in any order.
+ * @param spans - The spans in the server's tree order, each with its depth.
  * @param collapsed - Span IDs whose children are hidden.
  * @returns The rows, top to bottom.
  */
 export function waterfallRows(spans: TraceSpan[], collapsed: ReadonlySet<string> = new Set()): WaterfallRow[] {
-  const ids = new Set(spans.map((span) => span.spanId));
-  const children = new Map<string, TraceSpan[]>();
-  const tops: TraceSpan[] = [];
+  const rows: WaterfallRow[] = [];
+
+  // The depth of the collapsed span whose subtree is being passed over, or null when none is.
+  let hiddenBelow: number | null = null;
 
   for (const span of spans) {
-    if (span.parentSpanId !== null && ids.has(span.parentSpanId)) {
-      const siblings = children.get(span.parentSpanId) ?? [];
-      siblings.push(span);
-      children.set(span.parentSpanId, siblings);
-    } else {
-      tops.push(span);
+    if (hiddenBelow !== null && span.depth > hiddenBelow) {
+      continue;
     }
+
+    hiddenBelow = collapsed.has(span.spanId) ? span.depth : null;
+    rows.push({ span, depth: span.depth, children: span.children, missingParent: span.missingParent });
   }
-
-  const byStart = (a: TraceSpan, b: TraceSpan) => startOf(a) - startOf(b) || a.spanId.localeCompare(b.spanId);
-  const rows: WaterfallRow[] = [];
-  const visit = (span: TraceSpan, depth: number) => {
-    const own = (children.get(span.spanId) ?? []).sort(byStart);
-    rows.push({
-      span,
-      depth,
-      children: own.length,
-      missingParent: depth === 0 && span.parentSpanId !== null,
-    });
-
-    if (!collapsed.has(span.spanId)) {
-      own.forEach((child) => visit(child, depth + 1));
-    }
-  };
-
-  // The real root first, then the spans that lost their parent, each by start.
-  tops
-    .sort((a, b) => Number(a.parentSpanId !== null) - Number(b.parentSpanId !== null) || byStart(a, b))
-    .forEach((top) => visit(top, 0));
 
   return rows;
-}
-
-/**
- * The critical path: the chain of spans that decided how long the request took. From the end of each span on the path,
- * it walks back through the children that finished before the time reached so far, newest first, and continues from
- * where each started. Children that overlap work on the path are left out: making them faster would not have helped.
- *
- * @param spans - Every span of the trace.
- * @returns The span IDs on the path.
- */
-export function criticalPath(spans: TraceSpan[]): Set<string> {
-  const path = new Set<string>();
-  const children = new Map<string, TraceSpan[]>();
-
-  for (const span of spans) {
-    if (span.parentSpanId !== null) {
-      children.set(span.parentSpanId, [...(children.get(span.parentSpanId) ?? []), span]);
-    }
-  }
-
-  const walk = (span: TraceSpan) => {
-    path.add(span.spanId);
-    let reached = endOf(span);
-
-    for (const child of [...(children.get(span.spanId) ?? [])].sort((a, b) => endOf(b) - endOf(a))) {
-      if (endOf(child) <= reached) {
-        walk(child);
-        reached = startOf(child);
-      }
-    }
-  };
-
-  const root = spans.find((span) => span.parentSpanId === null) ?? spans[0];
-
-  if (root !== undefined) {
-    walk(root);
-  }
-
-  return path;
-}
-
-/** Where a trace begins and how long it lasts, over every span that arrived. */
-export function traceBounds(spans: TraceSpan[]): { start: number; durationMs: number } {
-  const start = Math.min(...spans.map(startOf));
-  const end = Math.max(...spans.map(endOf));
-
-  return { start, durationMs: end - start };
 }
 
 /**

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net.Mail;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Veyra.Access.History;
 using Veyra.Access.Sessions;
 using Veyra.Core.Security;
@@ -17,6 +18,7 @@ namespace Veyra.Access.Users;
 /// <param name="sessions">The sessions that changes end.</param>
 /// <param name="hasher">The PBKDF2 password hasher from ASP.NET Core Identity.</param>
 /// <param name="policy">The password rules.</param>
+/// <param name="options">The Access settings, for whether people may pick their own look.</param>
 /// <param name="clock">The clock for creation and change times.</param>
 /// <param name="logger">Receives the security events of ADR 0008.</param>
 internal sealed partial class UserService(
@@ -25,6 +27,7 @@ internal sealed partial class UserService(
     SessionStore sessions,
     IPasswordHasher<AccessUser> hasher,
     PasswordPolicy policy,
+    IOptionsMonitor<AccessOptions> options,
     TimeProvider clock,
     ILogger<UserService> logger)
 {
@@ -47,6 +50,29 @@ internal sealed partial class UserService(
         }
 
         return await store.SetTimeZoneAsync(id, timeZone, cancellationToken);
+    }
+
+    /// <summary>
+    /// Sets the look of the app a person picked (ADR 0021), unless an Admin set one look for everyone.
+    /// </summary>
+    /// <param name="id">The person's ID.</param>
+    /// <param name="look">One of the <see cref="Looks"/>, or <see langword="null"/> to use the default again.</param>
+    /// <param name="cancellationToken">Cancels the update.</param>
+    /// <returns>Whether the look was kept, and why not.</returns>
+    public async Task<LookChange> SetLookAsync(Guid id, string? look, CancellationToken cancellationToken)
+    {
+        // Read now, not at startup: an Admin can switch choosing off on the Settings screen at any time (ADR 0017).
+        if (!options.CurrentValue.PeopleChooseLook)
+        {
+            return LookChange.NotAllowed;
+        }
+
+        if (look is not null && !Looks.IsKnown(look))
+        {
+            return LookChange.UnknownLook;
+        }
+
+        return await store.SetLookAsync(id, look, cancellationToken) ? LookChange.Kept : LookChange.NoAccount;
     }
 
     /// <summary>Creates a local user.</summary>

@@ -52,6 +52,16 @@ public sealed class SettingChecksTests
         Assert.Null(problem.Key);
     }
 
+    [Fact]
+    public void Check_KeyNamesARuleWithHyphens_ReturnsTheProblemForTheWholeKey()
+    {
+        var candidate = Configuration(("Veyra:Test:Links:error-rate", "ftp://example.com"));
+
+        var problem = Assert.Single(SettingChecks.Check("Veyra:Test", candidate, [new LinkValidator()]));
+
+        Assert.Equal("Veyra:Test:Links:error-rate", problem.Key);
+    }
+
     private static IConfiguration Configuration(params (string Key, string Value)[] values) =>
         new ConfigurationBuilder()
             .AddInMemoryCollection(values.Select(value => KeyValuePair.Create(value.Key, (string?)value.Value)))
@@ -79,6 +89,26 @@ public sealed class SettingChecksTests
             return options.WarningDays > options.CautionDays
                 ? ValidateOptionsResult.Fail("Veyra:Test:WarningDays must not be above CautionDays.")
                 : ValidateOptionsResult.Success;
+        }
+    }
+
+    /// <summary>Options keyed by rule names, which hold hyphens, as runbook links are (ADR 0026).</summary>
+    public sealed class LinkOptions
+    {
+        /// <summary>A link per rule.</summary>
+        public Dictionary<string, string> Links { get; set; } = [];
+    }
+
+    private sealed class LinkValidator : IValidateOptions<LinkOptions>
+    {
+        public ValidateOptionsResult Validate(string? name, LinkOptions options)
+        {
+            var wrong = options.Links
+                .Where(link => !link.Value.StartsWith("http", StringComparison.Ordinal))
+                .Select(link => $"Veyra:Test:Links:{link.Key} must be an http or https address.")
+                .ToList();
+
+            return wrong.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(wrong);
         }
     }
 }

@@ -110,6 +110,22 @@ expect(
   requests.every((request) => request.record.timeUnixNano && request.record.timeUnixNano !== "0"),
   "an IIS request without its time",
 );
+expect(
+  requests.some(
+    (request) =>
+      request.attributes["http.response.body.size"] !== undefined &&
+      request.attributes["http.request.body.size"] !== undefined,
+  ),
+  "no IIS request with the bytes it sent and received",
+);
+expect(
+  requests.every((request) =>
+    ["http.response.body.size", "http.request.body.size", "sent", "received"].every((name) =>
+      /^\d+$/.test(request.attributes[name] ?? "0"),
+    ),
+  ),
+  "an IIS request with empty byte counts, as from a site that does not log them",
+);
 
 if (iis) {
   expect([...metrics].some((name) => name.startsWith("iis.")), "IIS's own metrics never arrived");
@@ -125,6 +141,10 @@ if (iis) {
   expect(byStatus["200"] === 9, `the 200 is not info: ${byStatus["200"]}`);
   expect(byStatus["404"] === 13, `the 404 is not a warning: ${byStatus["404"]}`);
   expect(byStatus["500"] === 17, `the 500 is not an error: ${byStatus["500"]}`);
+  expect(
+    requests.some((request) => request.resource["service.name"] === "W3SVC2"),
+    "the site that logs no byte counts sent nothing",
+  );
 }
 
 if (failures.length > 0) {

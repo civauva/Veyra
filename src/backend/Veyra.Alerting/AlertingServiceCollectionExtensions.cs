@@ -1,10 +1,13 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Npgsql;
 using Veyra.Alerting.Alerts;
 using Veyra.Alerting.Api;
 using Veyra.Alerting.ErrorRates;
+using Veyra.Alerting.Incidents;
 using Veyra.Alerting.MetricRules;
 using Veyra.Alerting.Notifications;
 using Veyra.Alerting.Settings;
@@ -27,7 +30,9 @@ public static class AlertingServiceCollectionExtensions
     /// <remarks>
     /// The module reads log rates through <see cref="Veyra.Core.Telemetry.ILogRates"/>, which the Storage module
     /// registers, and disk and latency figures through <see cref="Veyra.Core.Metrics.Health.IMetricHealth"/>, which
-    /// the Query module registers. It offers its alerts to other modules as <see cref="IAlertStates"/>.
+    /// the Query module registers. It offers its alerts to other modules as <see cref="IAlertStates"/>, one alert as
+    /// <see cref="IAlertReader"/>, their history as <see cref="IAlertHistory"/>, and the backup rules' thresholds as
+    /// <see cref="IBackupThresholds"/>.
     /// </remarks>
     /// <param name="services">The service collection to add the module to.</param>
     /// <param name="configuration">
@@ -50,9 +55,22 @@ public static class AlertingServiceCollectionExtensions
 
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<ISchemaMigrationSource, AlertingMigrations>();
-        services.AddSingleton<AlertStore>();
+        // Relations between blocks come from the Query module, when it is registered (ADR 0026).
+        services.AddSingleton(provider => new IncidentGrouping(
+            provider.GetService<IBlockRelations>(),
+            provider.GetRequiredService<IOptionsMonitor<AlertingOptions>>(),
+            provider.GetRequiredService<ILogger<IncidentGrouping>>()));
+        services.AddSingleton(provider => new AlertStore(
+            provider.GetRequiredService<NpgsqlDataSource>(),
+            provider.GetRequiredService<IncidentGrouping>()));
+        services.AddSingleton<IncidentStore>();
+        services.AddSingleton<IIncidentReader>(provider => provider.GetRequiredService<IncidentStore>());
+        services.AddSingleton<IncidentDetailsBuilder>();
         services.AddSingleton<ITelemetryClearer, AlertClearer>();
         services.AddSingleton<IAlertStates>(provider => provider.GetRequiredService<AlertStore>());
+        services.AddSingleton<IAlertReader>(provider => provider.GetRequiredService<AlertStore>());
+        services.AddSingleton<IAlertHistory>(provider => provider.GetRequiredService<AlertStore>());
+        services.AddSingleton<IBackupThresholds, BackupRuleThresholds>();
         services.AddSingleton<AlertTransitions>();
         services.AddSingleton<ErrorRateEvaluator>();
         services.AddSingleton<MetricRuleEvaluator>();
@@ -82,6 +100,7 @@ public static class AlertingServiceCollectionExtensions
             });
 
         services.AddSingleton<ChannelStore>();
+        services.AddSingleton<INotificationChannels>(provider => provider.GetRequiredService<ChannelStore>());
         services.AddSingleton<DeliveryStore>();
         services.AddSingleton<WebhookUrlProtector>();
         services.AddSingleton<WebhookSender>();
@@ -100,6 +119,11 @@ public static class AlertingServiceCollectionExtensions
         services.AddTransient(provider => new AlertsController(
             provider.GetRequiredService<AlertDetailsBuilder>(),
             provider.GetRequiredService<AlertStore>(),
+            provider.GetRequiredService<IOptionsMonitor<AlertingOptions>>(),
+            provider.GetRequiredService<TimeProvider>()));
+        services.AddTransient(provider => new IncidentsController(
+            provider.GetRequiredService<IncidentStore>(),
+            provider.GetRequiredService<IncidentDetailsBuilder>(),
             provider.GetRequiredService<IOptionsMonitor<AlertingOptions>>(),
             provider.GetRequiredService<TimeProvider>()));
         services.AddTransient(provider => new NotificationChannelsController(

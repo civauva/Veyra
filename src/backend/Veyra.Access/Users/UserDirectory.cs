@@ -4,6 +4,7 @@ using Veyra.Access.SecondFactor;
 using Veyra.Access.Sessions;
 using Veyra.Access.Settings;
 using Veyra.Core.Security;
+using Veyra.Core.Time;
 
 namespace Veyra.Access.Users;
 
@@ -31,6 +32,9 @@ internal sealed class UserDirectory(
 {
     /// <summary>How many sign-in attempts the detail lists.</summary>
     public const int SignInsShown = 50;
+
+    /// <summary>How many days the person panel's chart of sign-ins covers.</summary>
+    public const int SignInDaysShown = 14;
 
     /// <summary>Lists everyone with what their badge shows, ordered by email.</summary>
     /// <param name="cancellationToken">Cancels the queries.</param>
@@ -85,6 +89,39 @@ internal sealed class UserDirectory(
             signedIn,
             failed,
             history);
+    }
+
+    /// <summary>
+    /// Counts a person's sign-in attempts per day over the last two weeks, on the calendar of a time zone, so the
+    /// chart counts every attempt and not only those the detail lists (VEY-68).
+    /// </summary>
+    /// <param name="userId">The person.</param>
+    /// <param name="zone">The time zone whose midnight starts each day.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    /// <returns>Fourteen days, the oldest first, today last.</returns>
+    public async Task<IReadOnlyList<SignInDay>> SignInDaysAsync(
+        Guid userId,
+        TimeZoneInfo zone,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(zone);
+
+        var now = clock.GetUtcNow();
+
+        // Fifteen midnights bound fourteen days; the last is tomorrow's.
+        var starts = Enumerable.Range(-1, SignInDaysShown + 1)
+            .Reverse()
+            .Select(daysBack => TimeZones.LocalMidnight(now, zone, daysBack))
+            .ToList();
+        var counts = await signIns.CountByPeriodAsync(userId, starts, cancellationToken);
+
+        return
+        [
+            .. counts.Select((count, index) => new SignInDay(
+                TimeZones.LocalDay(starts[index], zone),
+                count.SignedIn,
+                count.Failed)),
+        ];
     }
 
     private DateTimeOffset ActiveSince() => clock.GetUtcNow() - options.CurrentValue.SessionIdleTimeout;

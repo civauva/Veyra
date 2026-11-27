@@ -1,0 +1,208 @@
+/*
+ * Console's incidents (VEY-76, reference screenshot 7): the list, and an incident with its execution path, timeline,
+ * charts, logs, and investigation context. Colours come from the tokens, so light and dark both apply.
+ */
+
+.in .cn-card > footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: auto;
+  padding: 8px 14px;
+  border-top: 1px solid var(--line);
+  color: var(--faint);
+  font-size: 11.5px;
+}
+
+.in-states {
+  margin-left: auto;
+}
+
+.in .cn-card > header a.cn-meta {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.cn-pill.info {
+  background: color-mix(in srgb, var(--info-fg) 16%, transparent);
+  color: var(--info-fg);
+}
+
+.in-figures {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+/* ---- Execution path ---- */
+
+.in-path {
+  display: flex;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.in-path li {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  font-size: 12px;
+  text-align: center;
+}
+
+.in-path li + li::before {
+  content: "→";
+  position: absolute;
+  top: 50%;
+  left: -10px;
+  color: var(--faint);
+  transform: translate(-50%, -50%);
+}
+
+.in-path b {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.in-path small {
+  color: var(--faint);
+}
+
+.in-path .ok b {
+  color: var(--ok-fg);
+}
+
+.in-path .bad {
+  border-color: color-mix(in srgb, var(--error-fg) 50%, transparent);
+  background: var(--error-bg);
+}
+
+.in-path .bad b {
+  color: var(--error-fg);
+}
+
+/* ---- Timeline ---- */
+
+.in-timeline {
+  display: grid;
+  gap: 12px;
+  max-height: 420px;
+  margin: 0;
+  padding: 12px 14px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.in-timeline li {
+  display: grid;
+  grid-template-columns: 58px 10px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  font-size: 12.5px;
+}
+
+.in-timeline .mono {
+  color: var(--muted);
+}
+
+.in-timeline i {
+  width: 9px;
+  height: 9px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--info-fg);
+}
+
+.in-timeline i.bad {
+  background: var(--error-fg);
+}
+
+.in-timeline i.warn {
+  background: var(--warning-fg);
+}
+
+.in-timeline i.ok {
+  background: var(--ok-fg);
+}
+
+.in-timeline small,
+.in-guidance small,
+.in-components small {
+  display: block;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+/* ---- Charts, logs, investigation ---- */
+
+.in-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.in-message {
+  max-width: 460px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.in-guidance {
+  display: grid;
+  gap: 3px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+}
+
+.in-guidance ol {
+  display: grid;
+  gap: 4px;
+  margin: 4px 0 0;
+  padding-left: 18px;
+  color: var(--fg);
+}
+
+.in-components {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.in-components > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.in-components dd {
+  margin: 0;
+}
+
+@media (max-width: 1279px) {
+  .in-figures {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 719px) {
+  .in-figures {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .in-path {
+    flex-direction: column;
+  }
+
+  .in-path li + li::before {
+    display: none;
+  }
+}

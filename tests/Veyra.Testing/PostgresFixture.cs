@@ -52,6 +52,17 @@ public sealed class PostgresFixture : IAsyncLifetime
     }
 
     /// <summary>
+    /// Applies migrations to a database that may already hold some, with the real migrator, so a test can store rows
+    /// as an older version left them and then see what a newer migration makes of them.
+    /// </summary>
+    /// <param name="database">The database.</param>
+    /// <param name="sources">The migration sources to apply.</param>
+    /// <returns>A task that completes when the migrations are applied.</returns>
+    public static Task MigrateAsync(NpgsqlDataSource database, params ISchemaMigrationSource[] sources) =>
+        new SchemaMigrator(database, sources, TimeProvider.System, NullLogger<SchemaMigrator>.Instance)
+            .MigrateAsync(CancellationToken.None);
+
+    /// <summary>
     /// Creates a new database, applies the given modules' migrations, and returns its connection string, for code that
     /// opens its own connections, such as a configuration source.
     /// </summary>

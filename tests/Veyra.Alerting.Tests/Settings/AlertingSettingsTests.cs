@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Configuration;
+using Veyra.Alerting.Alerts;
 using Veyra.Alerting.Settings;
 using Veyra.Core.Settings;
 
@@ -55,6 +56,52 @@ public sealed class AlertingSettingsTests
 
         Assert.False(note.Risky);
         Assert.Contains("opens no new alerts", note.Text, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Veyra:Alerting:Runbooks:error-rate", "ftp://wiki.example.com/error-rate")]
+    [InlineData("Veyra:Alerting:Runbooks:db-head-blocker", "wiki/head-blocker")]
+    [InlineData("Veyra:Alerting:Runbooks:planet", "https://wiki.example.com/planet")]
+    [InlineData("Veyra:Alerting:Incidents:GroupingMinutes", "0")]
+    public void Validate_BrokenIncidentSetting_NamesItsKey(string key, string value)
+    {
+        var problems = Settings().Validate(Configuration((key, value)));
+
+        Assert.Contains(key, problems.Select(problem => problem.Key));
+    }
+
+    [Fact]
+    public void Validate_RunbookLinksOverHttpOrHttps_HaveNoProblems()
+    {
+        var problems = Settings().Validate(Configuration(
+            ("Veyra:Alerting:Runbooks:error-rate", "https://wiki.example.com/runbooks/error-rate"),
+            ("Veyra:Alerting:Runbooks:db-head-blocker", "http://wiki.local/head-blocker"),
+            ("Veyra:Alerting:Runbooks:disk-space", "")));
+
+        Assert.Empty(problems);
+    }
+
+    [Fact]
+    public void Definitions_Runbooks_OneOptionalLinkPerRuleUnderAlertRules()
+    {
+        var runbooks = Settings().Definitions.Where(definition => definition.Group == "Runbooks").ToList();
+
+        Assert.Equal(
+            AlertRules.All.Select(rule => $"Veyra:Alerting:Runbooks:{rule}"),
+            runbooks.Select(definition => definition.Key));
+        Assert.All(runbooks, definition =>
+        {
+            Assert.Equal((SettingSection.Rules, SettingKind.Text, true), (definition.Section, definition.Kind, definition.Optional));
+            Assert.Null(definition.Default);
+        });
+    }
+
+    [Fact]
+    public void Definitions_GroupingWindow_IsFifteenMinutesUnderIncidents()
+    {
+        var grouping = Settings().Definitions.Single(definition => definition.Key == "Veyra:Alerting:Incidents:GroupingMinutes");
+
+        Assert.Equal(("Incidents", SettingSection.Rules, SettingKind.WholeNumber, "15"), (grouping.Group, grouping.Section, grouping.Kind, grouping.Default));
     }
 
     private static AlertingSettings Settings() => new([new AlertingOptionsRules()]);

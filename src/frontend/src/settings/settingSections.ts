@@ -1,5 +1,4 @@
-import type { Agent, PostgresServer, Setting, SettingSection, SqlServer } from "../api/types";
-import { serverStateWords } from "./monitoringFormat";
+import type { AgentsSummary, SettingSection, SettingsPage } from "../api/types";
 import { describeValue } from "./settingsFormat";
 
 /**
@@ -11,15 +10,8 @@ export type SectionId = SettingSection | "Databases" | "Agents" | "System";
 /** The sections that hold no settings but pages of their own, shown in either view. */
 export const pageSections: SectionId[] = ["Databases", "Agents"];
 
-/** What the Database monitoring and Agents sections summarise. */
-export interface Watched {
-  /** The SQL Servers agents read. */
-  servers: SqlServer[];
-  /** The PostgreSQL servers agents read; left out where only SQL Servers are counted. */
-  postgres?: PostgresServer[];
-  /** The agents. */
-  agents: Agent[];
-}
+/** What the Database monitoring and Agents sections summarise: the server's counts of servers and agents. */
+export type Watched = AgentsSummary;
 
 /** A section's name and the sentence that says what it holds. */
 export interface SectionInfo {
@@ -41,6 +33,12 @@ const data: SectionInfo = {
 /** The sections in screen order, with their titles and a sentence that says what they hold. */
 export const sections: SectionInfo[] = [
   data,
+  {
+    id: "Appearance",
+    title: "Look and feel",
+    intro:
+      "How the app looks: your own look, the look for everyone who has not picked one, and whether people may pick.",
+  },
   {
     id: "Rules",
     title: "Alert rules",
@@ -109,12 +107,12 @@ export function sectionFrom(value: string | null): SectionId {
  * A short line under a section's name that says what it is set to now, so the list reads as a summary.
  *
  * @param id - The section.
- * @param settings - Every setting, with the values in effect.
- * @param watched - The servers and agents, once loaded.
+ * @param page - Every setting, with the values in effect and the server's counts of them.
+ * @param watched - The server's counts of servers and agents, once loaded.
  * @returns The line.
  */
-export function sectionSummary(id: SectionId, settings: Setting[], watched: Watched | null = null): string {
-  const value = (key: string) => settings.find((setting) => setting.key === key);
+export function sectionSummary(id: SectionId, page: SettingsPage, watched: Watched | null = null): string {
+  const value = (key: string) => page.settings.find((setting) => setting.key === key);
   const shown = (key: string) => {
     const setting = value(key);
 
@@ -127,36 +125,29 @@ export function sectionSummary(id: SectionId, settings: Setting[], watched: Watc
 
       return `Logs ${days("Veyra:Storage:LogRetentionDays")} · metrics ${days("Veyra:Storage:MetricRetentionDays")} · traces ${days("Veyra:Storage:TraceRetentionDays")} days`;
     }
-    case "Rules": {
-      const on = settings.filter((setting) => setting.section === "Rules" && setting.label === "On");
-
-      return `${on.filter((setting) => setting.value === "true").length} of ${on.length} rules on`;
-    }
+    case "Rules":
+      // The server counts the rules (VEY-68).
+      return `${page.rulesOn} of ${page.rules} rules on`;
     case "Databases": {
       if (!watched) {
         return "SQL Server and PostgreSQL";
       }
 
-      const postgres = watched.postgres ?? [];
-      const all = [...watched.servers, ...postgres];
-      const look = all.filter((server) => serverStateWords(server.state).tone === "bad").length;
-      const sql = watched.servers.length;
+      const { sqlServers: sql, postgresServers: postgres, needLook: look } = watched;
       const kinds = [
         sql === 0 ? null : sql === 1 ? "1 SQL Server" : `${sql} SQL Servers`,
-        postgres.length === 0 ? null : `${postgres.length} PostgreSQL`,
+        postgres === 0 ? null : `${postgres} PostgreSQL`,
       ].filter((kind) => kind !== null);
       const servers = kinds.join(" · ");
 
-      return all.length === 0 ? "No server yet" : look > 0 ? `${servers} · ${look} needs a look` : servers;
+      return sql + postgres === 0 ? "No server yet" : look > 0 ? `${servers} · ${look} needs a look` : servers;
     }
     case "Agents": {
       if (!watched) {
         return "Built-in agent";
       }
 
-      const online = watched.agents.filter((agent) => agent.state === "Online").length;
-
-      return watched.agents.length === 0 ? "No agent yet" : `${online} of ${watched.agents.length} online`;
+      return watched.agents === 0 ? "No agent yet" : `${watched.agentsOnline} of ${watched.agents} online`;
     }
     case "Email":
       return value("Veyra:Alerting:Notifications:Smtp:Host")?.value || "No email server";

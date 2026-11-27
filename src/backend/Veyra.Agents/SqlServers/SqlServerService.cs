@@ -2,13 +2,14 @@ using System.Security.Claims;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Veyra.Agents.Agents;
+using Veyra.Agents.Integrations;
 using Veyra.Core.Settings;
 
 namespace Veyra.Agents.SqlServers;
 
 /// <summary>
-/// Adds, changes, and removes the SQL Servers agents read, as the Settings screen asks. A change reaches the agent
-/// with its next poll, because its configuration is built from what is stored here.
+/// Adds, changes, and removes the SQL Servers agents read, as the Settings screen and the setup wizard ask. A change
+/// reaches the agent with its next poll, because its configuration is built from what is stored here.
 /// </summary>
 /// <param name="servers">Where servers are stored.</param>
 /// <param name="agents">Checks the agent a server is given to.</param>
@@ -24,13 +25,36 @@ internal sealed partial class SqlServerService(
     IMonitoringHistory history,
     ILogger<SqlServerService> logger)
 {
+    /// <summary>The field a template version change touches, in the history.</summary>
+    public const string VersionField = "version";
+
     /// <summary>Lists every server, by name, without passwords.</summary>
     /// <param name="cancellationToken">Cancels the query.</param>
     /// <returns>The servers.</returns>
     public async Task<IReadOnlyList<SqlServer>> ListAsync(CancellationToken cancellationToken) =>
         (await servers.ListAsync(cancellationToken)).Select(entry => entry.Server).ToList();
 
-    /// <summary>Adds a server.</summary>
+    /// <summary>Finds a server, without its password.</summary>
+    /// <param name="id">The server's ID.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    /// <returns>The server, or <see langword="null"/> when no server has the ID.</returns>
+    public async Task<SqlServer?> FindAsync(Guid id, CancellationToken cancellationToken) =>
+        (await servers.FindAsync(id, cancellationToken))?.Server;
+
+    /// <summary>Finds a server with its decrypted password, for a probe of its stored connection.</summary>
+    /// <param name="id">The server's ID.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    /// <returns>
+    /// The server and its password; <see langword="null"/> when no server has the ID or its password can no longer
+    /// be decrypted.
+    /// </returns>
+    public async Task<SqlServerTarget?> FindTargetAsync(Guid id, CancellationToken cancellationToken) =>
+        await servers.FindAsync(id, cancellationToken) is { } stored
+        && passwords.Unprotect(stored.ProtectedPassword) is { } password
+            ? new SqlServerTarget(stored.Server, password)
+            : null;
+
+    /// <summary>Adds a server. It takes the current template version.</summary>
     /// <param name="input">The server, with its password.</param>
     /// <param name="by">Who adds it, for the settings history.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
@@ -40,18 +64,33 @@ internal sealed partial class SqlServerService(
     public async Task<SqlServer> AddAsync(SqlServerInput input, ClaimsPrincipal by, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(input);
+        ArgumentNullException.ThrowIfNull(by);
 
-        if (string.IsNullOrEmpty(input.Password))
+        if (SqlServerConnectionRules.NeedsPassword(input.Authentication) && string.IsNullOrEmpty(input.Password))
         {
             throw new AgentsValidationException("Enter the login's password.");
         }
 
         var now = clock.GetUtcNow();
-        var server = await ToServerAsync(Guid.CreateVersion7(), input, now, now, cancellationToken);
+        var server = await ToServerAsync(
+            Guid.CreateVersion7(),
+            input,
+            now,
+            now,
+            SqlServerModules.Defaults(),
+            cancellationToken) with
+        {
+            TemplateVersion = SqlServerTemplates.Current.Version,
+            TemplateSetAt = now,
+            TemplateSetBy = by.Identity?.Name,
+        };
 
-        await servers.InsertAsync(server, passwords.Protect(input.Password), cancellationToken);
+        await servers.InsertAsync(server, passwords.Protect(input.Password ?? ""), cancellationToken);
         LogAdded(server.Id, server.Name, server.AgentId);
-        await RecordAsync(server.Name, MonitoringChangeKind.Added, [], by, cancellationToken);
+        await RecordAsync(
+            new MonitoringChange(MonitoringSubject.SqlServer, server.Name, MonitoringChangeKind.Added, []),
+            by,
+            cancellationToken);
 
         return server;
     }
@@ -77,8 +116,30 @@ internal sealed partial class SqlServerService(
             return null;
         }
 
-        var server = await ToServerAsync(id, input, stored.Server.CreatedAt, clock.GetUtcNow(), cancellationToken);
-        var password = string.IsNullOrEmpty(input.Password) ? null : passwords.Protect(input.Password);
+        // A server that signed in as the agent's service account has no password to keep.
+        if (SqlServerConnectionRules.NeedsPassword(input.Authentication)
+            && !SqlServerConnectionRules.NeedsPassword(stored.Server.Authentication)
+            && string.IsNullOrEmpty(input.Password))
+        {
+            throw new AgentsValidationException("Enter the login's password.");
+        }
+
+        var server = await ToServerAsync(
+            id,
+            input,
+            stored.Server.CreatedAt,
+            clock.GetUtcNow(),
+            stored.Server.Choices,
+            cancellationToken) with
+        {
+            TemplateVersion = stored.Server.TemplateVersion,
+            TemplateSetAt = stored.Server.TemplateSetAt,
+            TemplateSetBy = stored.Server.TemplateSetBy,
+        };
+
+        var password = input.Authentication == SqlServerAuthentication.Integrated
+            ? passwords.Protect("")
+            : string.IsNullOrEmpty(input.Password) ? null : passwords.Protect(input.Password);
 
         if (!await servers.UpdateAsync(server, password, cancellationToken))
         {
@@ -87,10 +148,77 @@ internal sealed partial class SqlServerService(
 
         LogChanged(server.Id, server.Name, password is not null);
 
-        if (ChangedFields(stored.Server, server, password is not null) is { Count: > 0 } fields)
+        if (ChangedFields(stored.Server, server, !string.IsNullOrEmpty(input.Password)) is { Count: > 0 } fields)
         {
-            await RecordAsync(server.Name, MonitoringChangeKind.Changed, fields, by, cancellationToken);
+            await RecordAsync(
+                new MonitoringChange(MonitoringSubject.SqlServer, server.Name, MonitoringChangeKind.Changed, fields),
+                by,
+                cancellationToken);
         }
+
+        return server;
+    }
+
+    /// <summary>
+    /// Moves a server to a shipped template version: Update to the current one, Roll back to the previous one
+    /// (ADR 0028). Its agent reads with it from its next poll.
+    /// </summary>
+    /// <param name="id">The server's ID.</param>
+    /// <param name="version">The version.</param>
+    /// <param name="by">Who moves it, for the history.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The stored server, or <see langword="null"/> when no server has the ID.</returns>
+    /// <exception cref="AgentsValidationException">Veyra does not ship the version.</exception>
+    public async Task<SqlServer?> SetVersionAsync(
+        Guid id,
+        string version,
+        ClaimsPrincipal by,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(by);
+
+        if (SqlServerTemplates.Find(version?.Trim()) is not { } template)
+        {
+            throw new AgentsValidationException(
+                $"Veyra ships versions {SqlServerTemplates.Current.Version} and {SqlServerTemplates.Previous.Version}"
+                + " of the SQL Server template.");
+        }
+
+        if (await servers.FindAsync(id, cancellationToken) is not { } stored)
+        {
+            return null;
+        }
+
+        if (stored.Server.Version == template.Version)
+        {
+            return stored.Server;
+        }
+
+        var now = clock.GetUtcNow();
+        var server = stored.Server with
+        {
+            TemplateVersion = template.Version,
+            TemplateSetAt = now,
+            TemplateSetBy = by.Identity?.Name,
+            ChangedAt = now,
+        };
+
+        if (!await servers.UpdateAsync(server, null, cancellationToken))
+        {
+            return null;
+        }
+
+        LogVersion(server.Id, server.Name, stored.Server.Version, template.Version);
+        await RecordAsync(
+            new MonitoringChange(
+                MonitoringSubject.SqlServer,
+                server.Name,
+                MonitoringChangeKind.Changed,
+                [VersionField],
+                stored.Server.Version,
+                template.Version),
+            by,
+            cancellationToken);
 
         return server;
     }
@@ -109,7 +237,10 @@ internal sealed partial class SqlServerService(
         }
 
         LogRemoved(id);
-        await RecordAsync(stored.Server.Name, MonitoringChangeKind.Removed, [], by, cancellationToken);
+        await RecordAsync(
+            new MonitoringChange(MonitoringSubject.SqlServer, stored.Server.Name, MonitoringChangeKind.Removed, []),
+            by,
+            cancellationToken);
 
         return true;
     }
@@ -140,16 +271,8 @@ internal sealed partial class SqlServerService(
         return targets;
     }
 
-    private Task RecordAsync(
-        string name,
-        MonitoringChangeKind kind,
-        IReadOnlyList<string> fields,
-        ClaimsPrincipal by,
-        CancellationToken cancellationToken) =>
-        history.RecordAsync(
-            new MonitoringChange(MonitoringSubject.SqlServer, name, kind, fields),
-            by,
-            cancellationToken);
+    private Task RecordAsync(MonitoringChange change, ClaimsPrincipal by, CancellationToken cancellationToken) =>
+        history.RecordAsync(change, by, cancellationToken);
 
     // The fields a change touched, in the words the history shows. An entered password counts as changed: only its
     // encrypted form is stored, so it cannot be compared.
@@ -161,11 +284,14 @@ internal sealed partial class SqlServerService(
             (before.Database != after.Database, "database"),
             (before.Address != after.Address, "address"),
             (before.Port != after.Port, "port"),
+            (before.Instance != after.Instance, "instance"),
             (before.Environment != after.Environment, "environment"),
             (before.AgentId != after.AgentId, "agent"),
+            (before.Authentication != after.Authentication, "authentication"),
             (before.Login != after.Login, "login"),
             (password, "password"),
             (before.Encryption != after.Encryption, "encryption"),
+            (!before.Choices.SequenceEqual(after.Choices), "modules"),
         }.Where(entry => entry.Changed).Select(entry => entry.Field).ToList();
 
     private async Task<SqlServer> ToServerAsync(
@@ -173,39 +299,16 @@ internal sealed partial class SqlServerService(
         SqlServerInput input,
         DateTimeOffset createdAt,
         DateTimeOffset changedAt,
+        IReadOnlyList<SqlServerModuleChoice> currentModules,
         CancellationToken cancellationToken)
     {
         var name = input.Name?.Trim() ?? "";
-        var address = input.Address?.Trim() ?? "";
         var environment = input.Environment?.Trim() ?? "";
-        var login = input.Login?.Trim() ?? "";
 
         Require(NamePattern().IsMatch(name), "Name the server with letters, digits, dots, dashes, or underscores.");
         Require(
-            address.Length <= 253 && AddressPattern().IsMatch(address),
-            "Enter the server's host name or IP address, such as sql-prod-01.corp.local or 10.0.0.5.");
-        Require(input.Port is >= 1 and <= 65535, "The port must be from 1 to 65535.");
-        Require(
             NamePattern().IsMatch(environment),
             "Name the environment with letters, digits, dots, dashes, or underscores, such as production.");
-        Require(login.Length is > 0 and <= 128, "Enter the SQL login, at most 128 characters.");
-        Require(input.Password is null || input.Password.Length <= 128, "The password may have at most 128 letters.");
-        Require(Enum.IsDefined(input.Encryption), "Choose how the connection is encrypted.");
-        Require(Enum.IsDefined(input.Platform), "Choose the kind of SQL Server.");
-
-        var database = input.Database?.Trim();
-
-        if (input.Platform == SqlServerPlatform.AzureSqlDatabase)
-        {
-            Require(
-                !string.IsNullOrEmpty(database) && database.Length <= 128,
-                "Name the database: Azure SQL Database is read one database at a time.");
-        }
-        else
-        {
-            Require(string.IsNullOrEmpty(database), "Only an Azure SQL Database names its database.");
-            database = null;
-        }
 
         var agent = input.AgentId is { } agentId
             ? await agents.FindAsync(agentId, cancellationToken)
@@ -215,19 +318,35 @@ internal sealed partial class SqlServerService(
             ? "Veyra has no built-in agent. Choose the agent that reads this server."
             : "The chosen agent no longer exists. Choose another.");
 
+        var connection = SqlServerConnectionRules.Check(
+            input.Platform,
+            input.Address,
+            input.Port,
+            input.Instance,
+            input.Authentication,
+            input.Login,
+            input.Password,
+            input.Encryption,
+            input.Database,
+            agent!.Report);
+        var modules = SqlServerModules.Check(input.Modules, currentModules);
+
         return new SqlServer(
             Id: id,
             Name: name,
-            Address: address,
-            Port: input.Port,
+            Address: connection.Address,
+            Port: connection.Port,
             Environment: environment,
-            AgentId: agent!.Id,
-            Login: login,
-            Encryption: input.Encryption,
+            AgentId: agent.Id,
+            Login: connection.Login,
+            Encryption: connection.Encryption,
             CreatedAt: createdAt,
             ChangedAt: changedAt,
-            Platform: input.Platform,
-            Database: database);
+            Platform: connection.Platform,
+            Database: connection.Database,
+            Instance: connection.Instance,
+            Authentication: connection.Authentication,
+            Modules: modules);
     }
 
     private static void Require(bool holds, string message)
@@ -237,11 +356,6 @@ internal sealed partial class SqlServerService(
             throw new AgentsValidationException(message);
         }
     }
-
-    // The address goes into the agent's connection URL, so it holds a host name, an IPv4 address, or an IPv6 address
-    // in brackets, and nothing that would end the host part: no '?', '/', '@', or ':' outside the brackets.
-    [GeneratedRegex(@"^(?:[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?|\[[0-9A-Fa-f:.]+\])$")]
-    private static partial Regex AddressPattern();
 
     // A server's name becomes its block and server.address in its telemetry, so it stays a plain token.
     [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")]
@@ -256,6 +370,11 @@ internal sealed partial class SqlServerService(
         Level = LogLevel.Information,
         Message = "SQL Server {ServerId} {ServerName} changed; new password: {PasswordChanged}")]
     private partial void LogChanged(Guid serverId, string serverName, bool passwordChanged);
+
+    [LoggerMessage(
+        Level = LogLevel.Information,
+        Message = "SQL Server {ServerId} {ServerName} moved from template {FromVersion} to {ToVersion}")]
+    private partial void LogVersion(Guid serverId, string serverName, string fromVersion, string toVersion);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "SQL Server {ServerId} removed")]
     private partial void LogRemoved(Guid serverId);

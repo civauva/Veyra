@@ -133,6 +133,10 @@ export function SqlServerPanel({ server, agents, onClose, onSaved }: SqlServerPa
       encryption,
       platform,
       database: azureDatabase ? database.trim() : null,
+      // This panel does not edit the instance, the Windows sign-in, or the modules (ADR 0028); a change keeps them.
+      instance: server?.instance,
+      authentication: server?.authentication,
+      modules: server?.modules,
     };
   }
 

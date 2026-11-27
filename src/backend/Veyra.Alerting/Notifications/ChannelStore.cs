@@ -1,12 +1,24 @@
 using Npgsql;
 using NpgsqlTypes;
+using Veyra.Core.Alerts;
 
 namespace Veyra.Alerting.Notifications;
 
-/// <summary>Reads and writes notification channels in <c>alerting.channel</c>.</summary>
+/// <summary>
+/// Reads and writes notification channels in <c>alerting.channel</c>, and counts them for other modules through
+/// <see cref="INotificationChannels"/>.
+/// </summary>
 /// <param name="dataSource">The PostgreSQL connection pool.</param>
-internal sealed class ChannelStore(NpgsqlDataSource dataSource)
+internal sealed class ChannelStore(NpgsqlDataSource dataSource) : INotificationChannels
 {
+    /// <inheritdoc />
+    public async Task<int> CountEnabledAsync(CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand("SELECT count(*)::int FROM alerting.channel WHERE enabled");
+
+        return (int)(await command.ExecuteScalarAsync(cancellationToken))!;
+    }
+
     private const string _columns =
         "id, name, kind, enabled, send_warning, send_caution, send_resolved, webhook_url_protected, "
         + "webhook_url_hint, email_recipients, created_at, updated_at";

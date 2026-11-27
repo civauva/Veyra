@@ -1,3 +1,5 @@
+using Veyra.Core.Alerts;
+
 namespace Veyra.Core.Metrics;
 
 /// <summary>
@@ -26,6 +28,19 @@ public interface IMetricSearch
         DateTimeOffset windowStart,
         DateTimeOffset windowEnd,
         TimeSpan bucketSize,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Lists every block of some kinds that has series kept, one entry per block and environment, and per host for a
+    /// container (ADR 0022). Retention deletes series it no longer keeps points for, so this is the inventory.
+    /// </summary>
+    /// <param name="kinds">The kinds of block to list.</param>
+    /// <param name="firstSeenBefore">Only blocks that had sent before this time, such as the end of a window.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The blocks, by kind, name, and environment.</returns>
+    Task<IReadOnlyList<MetricBlockSeen>> ListBlocksAsync(
+        IReadOnlyList<AlertBlockKind> kinds,
+        DateTimeOffset firstSeenBefore,
         CancellationToken cancellationToken);
 
     /// <summary>Lists the metric names seen since a time.</summary>

@@ -10,9 +10,15 @@ internal static class AccessResponses
 {
     /// <summary>The signed-in user.</summary>
     /// <param name="user">The user.</param>
+    /// <param name="options">The Access settings in effect now, for the default look and whether people choose.</param>
     /// <returns>The answer.</returns>
-    public static SessionResponse Session(AccessUser user) =>
-        new(user.Id, user.Email, user.DisplayName, user.Role, user.TimeZone);
+    public static SessionResponse Session(AccessUser user, AccessOptions options) => new(
+        user.Id,
+        user.Email,
+        user.DisplayName,
+        user.Role,
+        user.TimeZone,
+        new LookResponse(user.Look, options.DefaultLook, options.PeopleChooseLook));
 
     /// <summary>A person as the Users list shows them.</summary>
     /// <param name="person">The person.</param>
@@ -71,8 +77,9 @@ internal static class AccessResponses
 
     /// <summary>A person in full, for the person panel.</summary>
     /// <param name="detail">The person.</param>
+    /// <param name="days">Their sign-in attempts per day, the oldest first.</param>
     /// <returns>The answer.</returns>
-    public static UserDetailResponse Detail(PersonDetail detail) => new(
+    public static UserDetailResponse Detail(PersonDetail detail, IReadOnlyList<SignInDay> days) => new(
         User(new PersonSummary(
             detail.User,
             detail.SecondFactor?.EnabledAt,
@@ -85,5 +92,9 @@ internal static class AccessResponses
         [.. detail.SignIns.Select(SignIn)],
         detail.SignedInLast30Days,
         detail.FailedLast30Days,
-        [.. detail.Events.Select(Event)]);
+        [.. detail.Events.Select(Event)],
+        new SignInDaysResponse(
+            [.. days.Select(day => new SignInDayResponse(day.Day, day.SignedIn, day.Failed))],
+            days.Sum(day => day.SignedIn),
+            days.Sum(day => day.Failed)));
 }

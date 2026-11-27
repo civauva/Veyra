@@ -101,6 +101,7 @@ public sealed record UserEventResponse(DateTimeOffset At, UserEventKind Kind, st
 /// <param name="SignedInLast30Days">Successful sign-ins within 30 days.</param>
 /// <param name="FailedLast30Days">Failed attempts within 30 days.</param>
 /// <param name="Events">Changes to the account, newest first.</param>
+/// <param name="SignInDays">Every sign-in attempt of the last 14 days, counted per day on the viewer's calendar.</param>
 public sealed record UserDetailResponse(
     UserResponse User,
     string? AddedBy,
@@ -110,7 +111,20 @@ public sealed record UserDetailResponse(
     IReadOnlyList<SignInAttemptResponse> SignIns,
     int SignedInLast30Days,
     int FailedLast30Days,
-    IReadOnlyList<UserEventResponse> Events);
+    IReadOnlyList<UserEventResponse> Events,
+    SignInDaysResponse SignInDays);
+
+/// <summary>A person's sign-in attempts per day, counted on the server over every attempt (VEY-68).</summary>
+/// <param name="Days">Fourteen days, the oldest first, today last.</param>
+/// <param name="SignedIn">Attempts of the fourteen days that signed in.</param>
+/// <param name="Failed">Attempts of the fourteen days that did not.</param>
+public sealed record SignInDaysResponse(IReadOnlyList<SignInDayResponse> Days, int SignedIn, int Failed);
+
+/// <summary>One day of a person's sign-in attempts.</summary>
+/// <param name="Day">The day on the viewer's calendar, <c>YYYY-MM-DD</c>.</param>
+/// <param name="SignedIn">Attempts that signed in, a recovery code included.</param>
+/// <param name="Failed">Attempts that did not.</param>
+public sealed record SignInDayResponse(DateOnly Day, int SignedIn, int Failed);
 
 /// <summary>The signed-in person's own account, for the Account page.</summary>
 /// <param name="Id">The person's ID.</param>
@@ -144,3 +158,9 @@ public sealed record AccountResponse(
 /// <summary>The time zone a person picks on the Account page (VEY-22).</summary>
 /// <param name="TimeZone">An IANA zone name, such as <c>Europe/Berlin</c>, or <see langword="null"/> for the browser's.</param>
 public sealed record TimeZoneRequest([StringLength(64)] string? TimeZone);
+
+/// <summary>The look of the app a person picks in Settings (ADR 0021).</summary>
+/// <param name="Look">
+/// A look, such as <c>forecast</c> or <c>console</c>, or <see langword="null"/> for the default look.
+/// </param>
+public sealed record LookRequest(string? Look);

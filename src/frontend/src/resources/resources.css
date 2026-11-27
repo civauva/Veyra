@@ -1,0 +1,362 @@
+/*
+ * The resource lists (ADR 0022): Services, Hosts & containers, and Databases. Dense, as the VEY-69 mockups draw them:
+ * a strip of figures, filters as chips, and one table worst first. Colours come from the tokens, so each look's own
+ * colours apply.
+ */
+
+.rs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 8px clamp(12px, 2.4vw, 20px) 28px;
+  overflow-y: auto;
+}
+
+/* The screen scrolls; its parts keep their height instead of shrinking into each other. */
+.rs > * {
+  flex-shrink: 0;
+}
+
+.rs-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.rs-head h1 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.2px;
+}
+
+.rs-head p {
+  margin: 3px 0 0;
+  color: var(--muted);
+}
+
+.rs-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.rs-actions .button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.rs-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.rs-pill.ok {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+}
+
+.rs-pill.warn {
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+}
+
+.rs-pill.bad {
+  background: var(--error-bg);
+  color: var(--error-fg);
+}
+
+.rs-pill.off {
+  background: var(--chip);
+  color: var(--muted);
+}
+
+/* ---- The figures ---- */
+
+.rs-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.rs-figure {
+  min-width: 0;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.rs-figure.warn {
+  border-color: color-mix(in srgb, var(--warning-fg) 40%, transparent);
+}
+
+.rs-figure.bad {
+  border-color: color-mix(in srgb, var(--error-fg) 45%, transparent);
+  background: linear-gradient(180deg, var(--error-bg), var(--panel) 70%);
+}
+
+.rs-figure-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.rs-figure-value {
+  margin-top: 3px;
+  font-size: 23px;
+  font-weight: 650;
+  letter-spacing: -0.4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-figure-value small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.rs-figure-detail {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.rs-good {
+  color: var(--ok-fg);
+}
+
+.rs-bad {
+  color: var(--error-fg);
+}
+
+.rs-warn {
+  color: var(--warning-fg);
+}
+
+.rs-flat,
+.rs-muted {
+  color: var(--muted);
+}
+
+.rs-none {
+  color: var(--faint);
+}
+
+/* ---- The filters ---- */
+
+.rs-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.rs-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 4px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.rs-chip select {
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.rs-find {
+  width: min(320px, 100%);
+  height: 30px;
+  margin-left: auto;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--fg);
+  font: inherit;
+}
+
+/* ---- The list ---- */
+
+.rs-panel {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--panel);
+}
+
+.rs-panel > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.rs-panel h2 {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.rs-meta {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: 11.5px;
+}
+
+.rs-scroll {
+  overflow-x: auto;
+}
+
+.rs-panel table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.rs-panel th {
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--faint);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.7px;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rs-panel td {
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.rs-panel tr:last-child td {
+  border-bottom: 0;
+}
+
+.rs-panel tbody tr:hover td {
+  background: var(--chip);
+}
+
+.rs-panel .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-name {
+  color: var(--fg);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.rs-name:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.rs-share {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-bar {
+  width: 70px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--chip);
+}
+
+.rs-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--accent);
+}
+
+.rs-bar.warn i {
+  background: var(--warning-fg);
+}
+
+.rs-bar.bad i {
+  background: var(--error-fg);
+}
+
+.rs-line {
+  display: block;
+  color: var(--accent);
+}
+
+.rs-line.bad {
+  color: var(--error-fg);
+}
+
+.rs-panel > footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--line);
+  color: var(--faint);
+  font-size: 11.5px;
+}
+
+.rs-panel > footer .link-button {
+  margin-left: auto;
+}
+
+.rs-empty,
+.rs-error {
+  margin: 0;
+  padding: 18px 14px;
+  color: var(--muted);
+}
+
+.rs-error {
+  color: var(--error-fg);
+}
+
+/* Phones: the figures two by two, the list without its wide columns. */
+@media (max-width: 719px) {
+  .rs-figures {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .rs-panel .wide {
+    display: none;
+  }
+
+  .rs-find {
+    margin-left: 0;
+  }
+}

@@ -31,6 +31,10 @@ public class MetricRollupTests(PostgresFixture postgres)
         { 5, 120, 5 },
         { 0, 190, 1 },
         { 60, 125, 60 },
+
+        // One bucket over the whole read, as a range's totals are (VEY-65): 10:00 to now, and 10:05 to 12:00.
+        { 0, -1, 191 },
+        { 5, 120, 115 },
     };
 
     [Theory]

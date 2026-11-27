@@ -179,6 +179,104 @@ public class AlertHistoryStoreTests(PostgresFixture postgres)
             span);
     }
 
+    [Fact]
+    public async Task ListPageAsync_ExactName_FindsTheBlockPastNewerBlocksWhoseNameHoldsIt()
+    {
+        await using var database = await AlertingDatabase.CreateAsync(postgres);
+        var store = new AlertStore(database);
+        await store.InsertAsync(Service("orders"), CancellationToken.None);
+
+        for (var minute = 1; minute <= 3; minute++)
+        {
+            await store.InsertAsync(
+                Service($"orders-{minute}") with { OpenedAt = _noon.AddMinutes(minute) },
+                CancellationToken.None);
+        }
+
+        var page = await store.ListPageAsync(Query() with { Limit = 2, Name = "orders" }, CancellationToken.None);
+
+        Assert.Equal("orders", Assert.Single(page.Items).Alert.Subject.Name);
+    }
+
+    [Fact]
+    public async Task ListPageAsync_ExactPart_KeepsOnlyThatPart()
+    {
+        await using var database = await AlertingDatabase.CreateAsync(postgres);
+        var store = new AlertStore(database);
+        await store.InsertAsync(Disk("web-01", "/"), CancellationToken.None);
+        await store.InsertAsync(Disk("web-01", "/var/log"), CancellationToken.None);
+
+        var page = await store.ListPageAsync(Query() with { Part = "/" }, CancellationToken.None);
+
+        Assert.Equal("/", Assert.Single(page.Items).Alert.Subject.Part);
+    }
+
+    [Fact]
+    public async Task ListPageAsync_WorstFirst_PagesWarningsFirstThenTheOldest()
+    {
+        await using var database = await AlertingDatabase.CreateAsync(postgres);
+        var store = new AlertStore(database);
+        await store.InsertAsync(Service("caution-old") with { OpenedAt = _noon }, CancellationToken.None);
+        await store.InsertAsync(Service("caution-new") with { OpenedAt = _noon.AddMinutes(5) }, CancellationToken.None);
+        await store.InsertAsync(
+            Service("warning-new") with { OpenedAt = _noon.AddMinutes(9), Severity = AlertSeverity.Warning },
+            CancellationToken.None);
+        await store.InsertAsync(
+            Service("warning-old") with { OpenedAt = _noon.AddMinutes(1), Severity = AlertSeverity.Warning },
+            CancellationToken.None);
+
+        var query = Query() with { Limit = 3, WorstFirst = true };
+        var first = await store.ListPageAsync(query, CancellationToken.None);
+        var second = await store.ListPageAsync(query with { After = first.Next }, CancellationToken.None);
+
+        Assert.Equal(
+            ["warning-old", "warning-new", "caution-old"],
+            first.Items.Select(entry => entry.Alert.Subject.Name));
+        Assert.Equal(["caution-new"], second.Items.Select(entry => entry.Alert.Subject.Name));
+        Assert.Null(second.Next);
+    }
+
+    [Fact]
+    public async Task ListSpellsAsync_EscalatedAndEased_IsOneStretchPerSeverityUntilResolved()
+    {
+        await using var database = await AlertingDatabase.CreateAsync(postgres);
+        var store = new AlertStore(database);
+        var alert = Service("orders");
+        await store.InsertAsync(alert, CancellationToken.None);
+        await store.UpdateAsync(alert.Id, AlertSeverity.Warning, 0.2, 0.05, _noon.AddMinutes(10), default);
+        await store.UpdateAsync(alert.Id, AlertSeverity.Caution, 0.03, 0.01, _noon.AddMinutes(30), default);
+        await store.ResolveAsync(alert.Id, 0.001, _noon.AddMinutes(45), default);
+        var open = Disk("web-01", "/");
+        await store.InsertAsync(open with { OpenedAt = _noon.AddHours(1) }, CancellationToken.None);
+
+        var spells = await store.ListSpellsAsync(_noon.AddMinutes(-5), _noon.AddHours(2), CancellationToken.None);
+
+        Assert.Equal(
+            [
+                (AlertSubject.Service("orders"), AlertSeverity.Caution, _noon, (DateTimeOffset?)_noon.AddMinutes(10)),
+                (AlertSubject.Service("orders"), AlertSeverity.Warning, _noon.AddMinutes(10), _noon.AddMinutes(30)),
+                (AlertSubject.Service("orders"), AlertSeverity.Caution, _noon.AddMinutes(30), _noon.AddMinutes(45)),
+                (AlertSubject.Host("web-01", "/"), AlertSeverity.Caution, _noon.AddHours(1), null),
+            ],
+            spells.OrderBy(spell => spell.From).Select(spell => (spell.Subject, spell.Severity, spell.From, spell.To)));
+        Assert.All(spells, spell => Assert.Equal("production", spell.Environment));
+    }
+
+    [Fact]
+    public async Task ListSpellsAsync_AlertsOutsideThePeriod_AreLeftOut()
+    {
+        await using var database = await AlertingDatabase.CreateAsync(postgres);
+        var store = new AlertStore(database);
+        var before = Service("orders");
+        await store.InsertAsync(before, CancellationToken.None);
+        await store.ResolveAsync(before.Id, 0, _noon.AddMinutes(5), CancellationToken.None);
+        await store.InsertAsync(Service("billing") with { OpenedAt = _noon.AddDays(2) }, CancellationToken.None);
+
+        var spells = await store.ListSpellsAsync(_noon.AddHours(1), _noon.AddDays(1), CancellationToken.None);
+
+        Assert.Empty(spells);
+    }
+
     private static AlertListQuery Query() => new(_noon.AddDays(-30), _noon.AddDays(1), 50);
 
     private static AlertState Service(string name) => new(

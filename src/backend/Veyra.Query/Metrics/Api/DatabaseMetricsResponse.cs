@@ -1,3 +1,5 @@
+using Veyra.Query.Systems.Api;
+
 namespace Veyra.Query.Metrics.Api;
 
 /// <summary>A database server's screen (ADR 0018).</summary>
@@ -35,6 +37,18 @@ public sealed record DatabaseMetricsResponse(
     IReadOnlyList<RunningQueryResponse> Running,
     IReadOnlyList<TopQueryResponse> TopQueries)
 {
+    /// <summary>The start of the period the answer covers (ADR 0022).</summary>
+    public DateTimeOffset From { get; init; }
+
+    /// <summary>The end of the period the answer covers: now, or the <c>to</c> asked for (ADR 0022).</summary>
+    public DateTimeOffset To { get; init; }
+
+    /// <summary>
+    /// The figures the Overview tab tells beside its weather, worked out from the lists as sent (VEY-68). The screen's
+    /// builder always sets them.
+    /// </summary>
+    public DatabaseOverviewResponse? Overview { get; init; }
+
     /// <summary>What Veyra's agent itself asked of the server over the range; null when nothing.</summary>
     public AgentWorkResponse? AgentWork { get; init; }
 
@@ -49,4 +63,20 @@ public sealed record DatabaseMetricsResponse(
 
     /// <summary>The tables with the most dead rows now, the most first (PostgreSQL); empty for other engines.</summary>
     public IReadOnlyList<DatabaseTableResponse> Tables { get; init; } = [];
+
+    /// <summary>
+    /// The server's own databases, left out of <see cref="Databases"/> because they were not asked for.
+    /// </summary>
+    public HiddenRowsResponse HiddenDatabases { get; init; } = HiddenRowsResponse.None;
+
+    /// <summary>The jobs SQL Server set up itself, left out of <see cref="Jobs"/>.</summary>
+    public HiddenRowsResponse HiddenJobs { get; init; } = HiddenRowsResponse.None;
+
+    /// <summary>The server's own statements, left out of <see cref="TopQueries"/>.</summary>
+    public HiddenRowsResponse HiddenTopQueries { get; init; } = HiddenRowsResponse.None;
+
+    /// <summary>
+    /// The catalog's tables and those of the server's own databases, left out of <see cref="Tables"/>.
+    /// </summary>
+    public HiddenRowsResponse HiddenTables { get; init; } = HiddenRowsResponse.None;
 }

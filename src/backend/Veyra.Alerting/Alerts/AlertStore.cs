@@ -2,21 +2,56 @@ using System.Globalization;
 using System.Text;
 using Npgsql;
 using NpgsqlTypes;
+using Veyra.Alerting.Incidents;
+using Veyra.Alerting.Notifications;
 using Veyra.Core.Alerts;
 
 namespace Veyra.Alerting.Alerts;
 
 /// <summary>
 /// Reads and writes alerts in <c>alerting.alert</c>, with their history in <c>alerting.alert_event</c>. Other modules
-/// read alerts through <see cref="IAlertStates"/>.
+/// read alerts through <see cref="IAlertStates"/>, one alert through <see cref="IAlertReader"/>, and their history
+/// through <see cref="IAlertHistory"/>.
 /// </summary>
 /// <remarks>
 /// Every change that is worth telling someone about queues its notifications in <c>alerting.delivery</c> in the same
 /// transaction, so a change is never stored without its messages, or the other way round.
 /// </remarks>
 /// <param name="dataSource">The PostgreSQL connection pool.</param>
-internal sealed class AlertStore(NpgsqlDataSource dataSource) : IAlertStates
+/// <param name="grouping">
+/// Decides which incident a new alert joins (ADR 0026); without it, alerts group by their own block and its host only.
+/// </param>
+internal sealed class AlertStore(NpgsqlDataSource dataSource, IncidentGrouping? grouping = null)
+    : IAlertStates, IAlertReader, IAlertHistory
 {
+    // The incident an alert belongs to, and that incident's number, for an alert row read from alerting.alert.
+    private const string _incidentColumns =
+        """
+        (SELECT member.incident_id FROM alerting.incident_alert AS member
+         WHERE member.alert_id = alerting.alert.id),
+        (SELECT incident.number FROM alerting.incident_alert AS member
+         JOIN alerting.incident AS incident ON incident.id = member.incident_id
+         WHERE member.alert_id = alerting.alert.id)
+        """;
+
+    private readonly IncidentGrouping _grouping = grouping ?? IncidentGrouping.Alone;
+
+    // Each event that opens, raises, or eases an alert starts a stretch that ends at the alert's next event; the
+    // resolving event starts none. The window function sees every event of the alert before the join keeps some.
+    private const string _spells =
+        """
+        SELECT alert.id, alert.environment, alert.block_kind, alert.block_name, alert.part, spell.severity,
+               spell.at, spell.until
+        FROM alerting.alert AS alert
+        JOIN LATERAL (
+            SELECT event.kind, event.severity, event.at,
+                   lead(event.at) OVER (ORDER BY event.at, event.id) AS until
+            FROM alerting.alert_event AS event
+            WHERE event.alert_id = alert.id
+        ) AS spell ON spell.kind <> 4
+        WHERE alert.opened_at < $2 AND (alert.resolved_at IS NULL OR alert.resolved_at >= $1)
+        """;
+
     // ReadAllAsync reads them in this order.
     private const string _columns =
         "id, rule, environment, block_name, severity, value, peak, threshold, window_seconds, opened_at, "
@@ -46,7 +81,10 @@ internal sealed class AlertStore(NpgsqlDataSource dataSource) : IAlertStates
               WHERE event.alert_id = $3 AND told.channel_id = channel.id)
         """;
 
-    /// <summary>Stores a newly opened alert, its opened event, and the notifications about it.</summary>
+    /// <summary>
+    /// Stores a newly opened alert, its opened event, the notifications about it, and its place in an incident
+    /// (ADR 0026).
+    /// </summary>
     /// <param name="alert">The alert, with no resolution time.</param>
     /// <param name="cancellationToken">Cancels the insert.</param>
     /// <returns>A task that completes when the alert is stored.</returns>
@@ -54,6 +92,9 @@ internal sealed class AlertStore(NpgsqlDataSource dataSource) : IAlertStates
     public async Task InsertAsync(AlertState alert, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(alert);
+
+        // Read before the transaction, so a slow read of the series never holds the alert tables.
+        var links = await _grouping.LinksAsync(cancellationToken);
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
@@ -98,6 +139,13 @@ internal sealed class AlertStore(NpgsqlDataSource dataSource) : IAlertStates
             eventId,
             alert.OpenedAt,
             (short)alert.Severity,
+            cancellationToken);
+        await IncidentStore.JoinAsync(
+            transaction,
+            alert,
+            NotificationMessages.Headline(alert),
+            links,
+            _grouping.Window,
             cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
@@ -181,6 +229,7 @@ internal sealed class AlertStore(NpgsqlDataSource dataSource) : IAlertStates
             if (kind == AlertEventKind.Escalated)
             {
                 await QueueAsync(transaction, _queueBySeverity, eventId, updatedAt, (short)severity, cancellationToken);
+                await IncidentStore.RaiseAsync(transaction, id, severity, updatedAt, cancellationToken);
             }
         }
 
@@ -233,6 +282,7 @@ internal sealed class AlertStore(NpgsqlDataSource dataSource) : IAlertStates
             resolvedAt,
             cancellationToken);
         await QueueAsync(transaction, _queueResolved, eventId, resolvedAt, id, cancellationToken);
+        await IncidentStore.ResolveIfLastAsync(transaction, id, resolvedAt, cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
     }
@@ -342,7 +392,7 @@ internal sealed class AlertStore(NpgsqlDataSource dataSource) : IAlertStates
 
         var sql = new StringBuilder(
             $"""
-            SELECT {_columns}, worst_severity, peak_at
+            SELECT {_columns}, worst_severity, peak_at, {_incidentColumns}
             FROM alerting.alert
             WHERE {Overlaps(query.From, query.To, Parameter)}
             """);
@@ -378,17 +428,39 @@ internal sealed class AlertStore(NpgsqlDataSource dataSource) : IAlertStates
             sql.Append(CultureInfo.InvariantCulture, $" AND (block_name ILIKE {pattern} OR part ILIKE {pattern})");
         }
 
+        if (query.Name is { } name)
+        {
+            sql.Append(CultureInfo.InvariantCulture, $" AND block_name = {Parameter(name)}");
+        }
+
+        if (query.Part is { } part)
+        {
+            sql.Append(CultureInfo.InvariantCulture, $" AND part = {Parameter(part)}");
+        }
+
         if (query.After is { } after)
         {
-            sql.Append(
-                CultureInfo.InvariantCulture,
-                $" AND (opened_at, id) < ({Parameter(after.OpenedAt)}, {Parameter(after.Id)})");
+            if (query.WorstFirst)
+            {
+                var level = Parameter((short)(after.Severity ?? AlertSeverity.Warning));
+                sql.Append(
+                    CultureInfo.InvariantCulture,
+                    $" AND (severity < {level} OR (severity = {level}"
+                    + $" AND (opened_at, id) > ({Parameter(after.OpenedAt)}, {Parameter(after.Id)})))");
+            }
+            else
+            {
+                sql.Append(
+                    CultureInfo.InvariantCulture,
+                    $" AND (opened_at, id) < ({Parameter(after.OpenedAt)}, {Parameter(after.Id)})");
+            }
         }
 
         // One more than the page, to know whether another page follows.
+        var order = query.WorstFirst ? "severity DESC, opened_at, id" : "opened_at DESC, id DESC";
         sql.Append(
             CultureInfo.InvariantCulture,
-            $" ORDER BY opened_at DESC, id DESC LIMIT {Parameter(query.Limit + 1)}");
+            $" ORDER BY {order} LIMIT {Parameter(query.Limit + 1)}");
         command.CommandText = sql.ToString();
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -397,10 +469,7 @@ internal sealed class AlertStore(NpgsqlDataSource dataSource) : IAlertStates
 
         while (await reader.ReadAsync(cancellationToken))
         {
-            entries.Add(new AlertListEntry(
-                Read(reader),
-                (AlertSeverity)reader.GetInt16(14),
-                reader.IsDBNull(15) ? null : reader.GetFieldValue<DateTimeOffset>(15)));
+            entries.Add(ReadEntry(reader));
         }
 
         if (entries.Count <= query.Limit)
@@ -409,8 +478,11 @@ internal sealed class AlertStore(NpgsqlDataSource dataSource) : IAlertStates
         }
 
         var page = entries.Take(query.Limit).ToList();
+        var last = page[^1].Alert;
 
-        return new AlertPage(page, new AlertCursor(page[^1].Alert.OpenedAt, page[^1].Alert.Id));
+        return new AlertPage(
+            page,
+            new AlertCursor(last.OpenedAt, last.Id, query.WorstFirst ? last.Severity : null));
     }
 
     /// <summary>
@@ -467,6 +539,34 @@ internal sealed class AlertStore(NpgsqlDataSource dataSource) : IAlertStates
         return spans;
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<AlertSpell>> ListSpellsAsync(
+        DateTimeOffset periodStart,
+        DateTimeOffset periodEnd,
+        CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(_spells);
+        command.Parameters.AddWithValue(periodStart);
+        command.Parameters.AddWithValue(periodEnd);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        var spells = new List<AlertSpell>();
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            spells.Add(new AlertSpell(
+                reader.GetGuid(0),
+                reader.IsDBNull(1) ? null : reader.GetString(1),
+                ReadSubject(reader, kind: 2, name: 3, part: 4),
+                (AlertSeverity)reader.GetInt16(5),
+                reader.GetFieldValue<DateTimeOffset>(6),
+                reader.IsDBNull(7) ? null : reader.GetFieldValue<DateTimeOffset>(7)));
+        }
+
+        return spells;
+    }
+
     /// <summary>
     /// Reads the subject of an alert from a row. Kept here, next to the columns, for every query that reads alerts.
     /// </summary>
@@ -498,7 +598,106 @@ internal sealed class AlertStore(NpgsqlDataSource dataSource) : IAlertStates
             "DELETE FROM alerting.alert WHERE resolved_at IS NOT NULL AND resolved_at < $1");
         command.Parameters.AddWithValue(before);
 
-        return await command.ExecuteNonQueryAsync(cancellationToken);
+        var deleted = await command.ExecuteNonQueryAsync(cancellationToken);
+
+        // Incidents share the alerts' retention (ADR 0026): one goes when the last of its alerts has gone.
+        await IncidentStore.DeleteEmptyAsync(dataSource, cancellationToken);
+
+        return deleted;
+    }
+
+    /// <summary>Lists the alerts of some incidents, as the alert list shows them, in the order they joined.</summary>
+    /// <param name="incidentIds">The incidents.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    /// <returns>Each alert with the incident it belongs to.</returns>
+    public async Task<IReadOnlyList<IncidentAlertEntry>> ListForIncidentsAsync(
+        IReadOnlyCollection<Guid> incidentIds,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(incidentIds);
+
+        if (incidentIds.Count == 0)
+        {
+            return [];
+        }
+
+        await using var command = dataSource.CreateCommand(
+            $"""
+            SELECT {_columns}, worst_severity, peak_at, {_incidentColumns}
+            FROM alerting.alert
+            JOIN alerting.incident_alert AS joined ON joined.alert_id = alerting.alert.id
+            WHERE joined.incident_id = ANY($1)
+            ORDER BY joined.joined_at, alerting.alert.id
+            """);
+        command.Parameters.AddWithValue(incidentIds.ToArray());
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        var entries = new List<IncidentAlertEntry>();
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var entry = ReadEntry(reader);
+            entries.Add(new IncidentAlertEntry(entry.IncidentId!.Value, entry));
+        }
+
+        return entries;
+    }
+
+    /// <summary>Returns the incident an alert belongs to.</summary>
+    /// <param name="alertId">The alert's ID.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    /// <returns>The incident's ID and number, or <see langword="null"/> when the alert belongs to none.</returns>
+    public async Task<(Guid Id, long Number)?> GetIncidentOfAsync(Guid alertId, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(
+            """
+            SELECT incident.id, incident.number
+            FROM alerting.incident_alert AS member
+            JOIN alerting.incident AS incident ON incident.id = member.incident_id
+            WHERE member.alert_id = $1
+            """);
+        command.Parameters.AddWithValue(alertId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        return await reader.ReadAsync(cancellationToken) ? (reader.GetGuid(0), reader.GetInt64(1)) : null;
+    }
+
+    /// <summary>Returns the history of every alert of an incident, oldest first.</summary>
+    /// <param name="incidentId">The incident's ID.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    /// <returns>The events, oldest first.</returns>
+    public async Task<IReadOnlyList<AlertEvent>> ListEventsOfIncidentAsync(
+        Guid incidentId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(
+            """
+            SELECT event.id, event.alert_id, event.kind, event.severity, event.value, event.at
+            FROM alerting.alert_event AS event
+            JOIN alerting.incident_alert AS member ON member.alert_id = event.alert_id
+            WHERE member.incident_id = $1
+            ORDER BY event.at, event.id
+            """);
+        command.Parameters.AddWithValue(incidentId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        var events = new List<AlertEvent>();
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            events.Add(new AlertEvent(
+                reader.GetInt64(0),
+                reader.GetGuid(1),
+                (AlertEventKind)reader.GetInt16(2),
+                (AlertSeverity)reader.GetInt16(3),
+                reader.GetDouble(4),
+                reader.GetFieldValue<DateTimeOffset>(5)));
+        }
+
+        return events;
     }
 
     private static async Task<long> AddEventAsync(
@@ -573,6 +772,14 @@ internal sealed class AlertStore(NpgsqlDataSource dataSource) : IAlertStates
         OpenedAt: reader.GetFieldValue<DateTimeOffset>(9),
         UpdatedAt: reader.GetFieldValue<DateTimeOffset>(10),
         ResolvedAt: reader.IsDBNull(11) ? null : reader.GetFieldValue<DateTimeOffset>(11));
+
+    // One row of _columns, worst_severity, peak_at, and _incidentColumns.
+    private static AlertListEntry ReadEntry(NpgsqlDataReader reader) => new(
+        Read(reader),
+        (AlertSeverity)reader.GetInt16(14),
+        reader.IsDBNull(15) ? null : reader.GetFieldValue<DateTimeOffset>(15),
+        reader.IsDBNull(16) ? null : reader.GetGuid(16),
+        reader.IsDBNull(17) ? null : reader.GetInt64(17));
 
     // Open at some time in the period: opened before it ended, and not resolved before it started.
     private static string Overlaps(DateTimeOffset from, DateTimeOffset to, Func<object, string> parameter) =>

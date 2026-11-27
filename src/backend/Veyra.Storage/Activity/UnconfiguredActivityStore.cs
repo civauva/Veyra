@@ -6,7 +6,7 @@ namespace Veyra.Storage.Activity;
 /// Stands in for <see cref="ActivityStore"/> when no database is configured, so the modules can start; every use fails
 /// with a message that says what to set.
 /// </summary>
-internal sealed class UnconfiguredActivityStore : IDatabaseActivityWriter, IDatabaseActivitySearch
+internal sealed class UnconfiguredActivityStore : IDatabaseActivityWriter, IDatabaseActivitySearch, IBackupHistory
 {
     /// <inheritdoc />
     public Task WriteAsync(IReadOnlyList<DatabaseActivity> records, CancellationToken cancellationToken) =>
@@ -32,11 +32,30 @@ internal sealed class UnconfiguredActivityStore : IDatabaseActivityWriter, IData
         throw new InvalidOperationException(StorageHealthCheck.NotConfiguredMessage);
 
     /// <inheritdoc />
+    public Task<IReadOnlyList<ActivityRecord>> ListRecordsMatchingAsync(
+        string block,
+        string kind,
+        DateTimeOffset periodStart,
+        DateTimeOffset periodEnd,
+        ActivityAttributeMatch match,
+        int limit,
+        CancellationToken cancellationToken) =>
+        throw new InvalidOperationException(StorageHealthCheck.NotConfiguredMessage);
+
+    /// <inheritdoc />
     public Task<IReadOnlyList<SessionSample>> ListBlockingAsync(
         string block,
         DateTimeOffset periodStart,
         DateTimeOffset periodEnd,
         int limit,
+        CancellationToken cancellationToken) =>
+        throw new InvalidOperationException(StorageHealthCheck.NotConfiguredMessage);
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<BackupDay>> ListDaysAsync(
+        string block,
+        DateTimeOffset periodStart,
+        DateTimeOffset periodEnd,
         CancellationToken cancellationToken) =>
         throw new InvalidOperationException(StorageHealthCheck.NotConfiguredMessage);
 

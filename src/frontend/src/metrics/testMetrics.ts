@@ -178,24 +178,53 @@ const redis: ContainerCard = {
   cpu: line("cpu", 0.8, 0.2, 7),
 };
 
+/**
+ * An overview of these cards, with the summary the server counts over them, as it answers when its search and
+ * environment keep exactly these cards.
+ *
+ * @param cards - The cards listed.
+ * @returns The overview.
+ */
+export function overviewOf(
+  cards: Pick<MetricsOverview, "hosts" | "services" | "databases" | "containers">,
+): MetricsOverview {
+  return {
+    at,
+    range: "24h",
+    from: "2026-11-09T11:00:20Z",
+    to: at,
+    bucketSeconds: 300,
+    usage: {
+      series: 1284,
+      maxSeries: 50_000,
+      pointsPerSecond: 38,
+      usedBytes: 412 * 1024 ** 2,
+      retentionDays: 30,
+      names: 412,
+    },
+    summary: {
+      hosts: cards.hosts.length,
+      fillingDisks: cards.hosts.filter((host) => host.fillingDisk).length,
+      services: cards.services.length,
+      databases: cards.databases.length,
+      containers: cards.containers.length,
+      restarting: cards.containers.filter((container) => (container.restarts ?? 0) > 0).length,
+      anySent: true,
+    },
+    hosts: cards.hosts,
+    services: cards.services,
+    databases: cards.databases,
+    containers: cards.containers,
+  };
+}
+
 /** The overview of the mockup. */
-export const overview: MetricsOverview = {
-  at,
-  range: "6h",
-  bucketSeconds: 300,
-  usage: {
-    series: 1284,
-    maxSeries: 50_000,
-    pointsPerSecond: 38,
-    usedBytes: 412 * 1024 ** 2,
-    retentionDays: 30,
-    names: 412,
-  },
+export const overview: MetricsOverview = overviewOf({
   hosts,
   services,
   databases: [],
   containers: [...web01Containers, redis],
-};
+});
 
 /** The SQL Server of the VEY-31 mockup. */
 export const sqlProd: DatabaseCard = {
@@ -223,7 +252,7 @@ export const sqlProd: DatabaseCard = {
 };
 
 /** The overview with the SQL Server among the hosts and services. */
-export const overviewWithDatabase: MetricsOverview = { ...overview, databases: [sqlProd] };
+export const overviewWithDatabase: MetricsOverview = overviewOf({ ...overview, databases: [sqlProd] });
 
 /** What only a PostgreSQL database has, for a SQL Server's databases. */
 const noPostgresParts = {
@@ -262,12 +291,18 @@ export const pgMain: DatabaseCard = {
 };
 
 /** The overview with the PostgreSQL server beside the SQL Server. */
-export const overviewWithPostgres: MetricsOverview = { ...overview, databases: [pgMain, sqlProd] };
+export const overviewWithPostgres: MetricsOverview = overviewOf({ ...overview, databases: [pgMain, sqlProd] });
 
 /** The PostgreSQL server in detail. */
 export const postgresMetrics: DatabaseMetrics = {
   card: pgMain,
-  range: "6h",
+  // As the server works them out (VEY-68): shop is the closest to wraparound.
+  get overview() {
+    return { topWait: null, lateBackups: [], failedJobs: [], oldestWraparound: postgresMetrics.databases[0] ?? null };
+  },
+  range: "24h",
+  from: "2026-11-09T11:00:20Z",
+  to: "2026-11-10T11:00:20Z",
   bucketSeconds: 300,
   requests: pgMain.requests,
   connections: line("connections", 84, 6, 2),
@@ -278,6 +313,7 @@ export const postgresMetrics: DatabaseMetrics = {
   waits: [],
   databases: [
     {
+      system: false,
       name: "shop",
       sizeBytes: 412e9,
       logBytes: null,
@@ -294,6 +330,7 @@ export const postgresMetrics: DatabaseMetrics = {
       vacuums: 14,
     },
     {
+      system: false,
       name: "reporting",
       sizeBytes: 96e9,
       logBytes: null,
@@ -310,6 +347,7 @@ export const postgresMetrics: DatabaseMetrics = {
       vacuums: 2,
     },
     {
+      system: true,
       name: "postgres",
       sizeBytes: 7.6e6,
       logBytes: null,
@@ -335,6 +373,7 @@ export const postgresMetrics: DatabaseMetrics = {
   rollbacks: line("rollbacks", 2.6, 1, 3),
   tables: [
     {
+      system: false,
       database: "shop",
       schema: "public",
       name: "carts",
@@ -344,6 +383,7 @@ export const postgresMetrics: DatabaseMetrics = {
       vacuums: 0,
     },
     {
+      system: false,
       database: "shop",
       schema: "public",
       name: "orders",
@@ -353,6 +393,7 @@ export const postgresMetrics: DatabaseMetrics = {
       vacuums: 12,
     },
     {
+      system: false,
       database: "reporting",
       schema: "sales",
       name: "daily_totals",
@@ -362,12 +403,35 @@ export const postgresMetrics: DatabaseMetrics = {
       vacuums: 2,
     },
   ],
+  hiddenDatabases: { count: 0, names: [] },
+  hiddenJobs: { count: 0, names: [] },
+  hiddenTopQueries: { count: 0, names: [] },
+  hiddenTables: { count: 0, names: [] },
 };
 
 /** The SQL Server in detail. */
 export const databaseMetrics: DatabaseMetrics = {
+  // As the server works them out (VEY-68).
+  get overview() {
+    return {
+      topWait: { label: "CPU", share: 0.51 },
+      lateBackups: ["shop", "reporting"],
+      failedJobs: [
+        {
+          system: false,
+          name: "Nightly full backup - shop",
+          failed: true,
+          lastRun: "2026-11-10T01:00:00Z",
+          durationSeconds: 4324,
+        },
+      ],
+      oldestWraparound: null,
+    };
+  },
   card: sqlProd,
-  range: "6h",
+  range: "24h",
+  from: "2026-11-09T11:00:20Z",
+  to: "2026-11-10T11:00:20Z",
   bucketSeconds: 300,
   requests: sqlProd.requests,
   connections: line("connections", 180, 12, 2),
@@ -378,6 +442,7 @@ export const databaseMetrics: DatabaseMetrics = {
   waits: [line("CPU", 0.41, 0.05, 1), line("Lock", 0.22, 0.08, 2), line("Disk I/O", 0.18, 0.03, 3)],
   databases: [
     {
+      system: false,
       name: "shop_archive",
       sizeBytes: 1.21e12,
       logBytes: 8e9,
@@ -388,6 +453,7 @@ export const databaseMetrics: DatabaseMetrics = {
       longestQuerySeconds: 0,
     },
     {
+      system: false,
       name: "shop",
       sizeBytes: 412e9,
       logBytes: 12e9,
@@ -398,6 +464,7 @@ export const databaseMetrics: DatabaseMetrics = {
       longestQuerySeconds: 134,
     },
     {
+      system: false,
       name: "reporting",
       sizeBytes: 96e9,
       logBytes: 2e9,
@@ -408,6 +475,7 @@ export const databaseMetrics: DatabaseMetrics = {
       longestQuerySeconds: 41,
     },
     {
+      system: true,
       name: "tempdb",
       sizeBytes: 24e9,
       logBytes: 1e9,
@@ -419,9 +487,15 @@ export const databaseMetrics: DatabaseMetrics = {
     },
   ],
   jobs: [
-    { name: "Nightly full backup - shop", failed: true, lastRun: "2026-11-10T01:00:00Z", durationSeconds: 4324 },
-    { name: "Index maintenance", failed: false, lastRun: "2026-11-10T00:00:00Z", durationSeconds: 1341 },
-    { name: "Purge sessions", failed: false, lastRun: "2026-11-10T10:00:00Z", durationSeconds: 4 },
+    {
+      system: false,
+      name: "Nightly full backup - shop",
+      failed: true,
+      lastRun: "2026-11-10T01:00:00Z",
+      durationSeconds: 4324,
+    },
+    { system: false, name: "Index maintenance", failed: false, lastRun: "2026-11-10T00:00:00Z", durationSeconds: 1341 },
+    { system: false, name: "Purge sessions", failed: false, lastRun: "2026-11-10T10:00:00Z", durationSeconds: 4 },
   ],
   running: [
     {
@@ -447,6 +521,7 @@ export const databaseMetrics: DatabaseMetrics = {
   ],
   topQueries: [
     {
+      system: false,
       text: "EXEC dbo.MonthlyReport @month",
       totalSeconds: 80,
       executions: 12,
@@ -455,6 +530,7 @@ export const databaseMetrics: DatabaseMetrics = {
       database: "reporting",
     },
     {
+      system: false,
       text: "SELECT * FROM dbo.Orders WHERE CustomerId = @id",
       totalSeconds: 12.5,
       executions: 400,
@@ -468,12 +544,21 @@ export const databaseMetrics: DatabaseMetrics = {
   commits: null,
   rollbacks: null,
   tables: [],
+  hiddenDatabases: { count: 0, names: [] },
+  hiddenJobs: { count: 0, names: [] },
+  hiddenTopQueries: { count: 0, names: [] },
+  hiddenTables: { count: 0, names: [] },
 };
 
 /** The web host in detail. */
 export const hostMetrics: HostMetrics = {
   card: web01,
-  range: "6h",
+  // As the server counts them (VEY-68): / fills, and one container restarted.
+  fillingDisks: 1,
+  restartingContainers: 1,
+  range: "24h",
+  from: "2026-11-09T11:00:20Z",
+  to: "2026-11-10T11:00:20Z",
   bucketSeconds: 300,
   cpu: [
     line("total", 0.42, 0.08, 3),
@@ -492,7 +577,9 @@ export const hostMetrics: HostMetrics = {
 /** The payments service in detail. */
 export const serviceMetrics: ServiceMetrics = {
   card: payments,
-  range: "6h",
+  range: "24h",
+  from: "2026-11-09T11:00:20Z",
+  to: "2026-11-10T11:00:20Z",
   bucketSeconds: 300,
   instanceNames: ["web-01", "web-02", "web-03"],
   latency: [line("p50", 0.092, 0.01, 4), line("p95", 0.34, 0.04, 2), line("p99", 0.56, 0.07, 3)],
@@ -501,6 +588,11 @@ export const serviceMetrics: ServiceMetrics = {
     { method: "POST", route: "/checkout/confirm", requestsPerSecond: 58, p95Seconds: 0.52, serverErrorRatio: 0.042 },
     { method: "GET", route: "/payments/{id}", requestsPerSecond: 35, p95Seconds: 0.088, serverErrorRatio: 0.001 },
     { method: "POST", route: "/refunds", requestsPerSecond: 16, p95Seconds: 0.31, serverErrorRatio: 0.006 },
+  ],
+  // The server picks the slowest from every route; /reports is too quiet to be among the busiest (VEY-68).
+  slowestRoutes: [
+    { method: "GET", route: "/reports", requestsPerSecond: 0.1, p95Seconds: 4.2, serverErrorRatio: 0 },
+    { method: "POST", route: "/checkout/confirm", requestsPerSecond: 58, p95Seconds: 0.52, serverErrorRatio: 0.042 },
   ],
   resources: [line("cpu", 0.38, 0.06, 2), line("memory", 1.2 * 1024 ** 3, 0.05 * 1024 ** 3, 9)],
   runtime: [line("gc", 4, 1.5, 3), line("queue", 2, 0.6, 6), line("threads", 62, 4, 1)],
@@ -535,9 +627,10 @@ export const durationChart: MetricChart = {
   split: "service.name",
   splitKeys: ["host.name", "http.request.method", "http.response.status_code", "http.route", "service.name"],
   bucketSeconds: 300,
+  // Each line with its figures over the window, as the server reads them with the points (ADR 0029).
   lines: [
-    line("checkout-web", 0.44, 0.05, 4),
-    line("payments-gateway", 0.27, 0.04, 2),
-    line("orders-api", 0.11, 0.015, 6),
+    { ...line("checkout-web", 0.44, 0.05, 4), latest: 0.742, average: 0.512, highest: 1.21 },
+    { ...line("payments-gateway", 0.27, 0.04, 2), latest: 0.132, average: 0.12, highest: 0.188 },
+    { ...line("orders-api", 0.11, 0.015, 6), latest: 0.097, average: 0.091, highest: 0.14 },
   ],
 };

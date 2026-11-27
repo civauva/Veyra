@@ -16,7 +16,7 @@ async function scrollsSideways(page: Page): Promise<boolean> {
 
 test.describe("Notifications", () => {
   test("lays the channels out for the screen size", async ({ page }, testInfo) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/notifications");
 
     const ops = page.getByRole("article", { name: "#ops-alerts" });
@@ -38,7 +38,7 @@ test.describe("Notifications", () => {
   });
 
   test("opens the side panel, sends a test, and closes with Escape", async ({ page }, testInfo) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/notifications");
 
     await page.getByRole("button", { name: "+ Add channel" }).click();
@@ -61,7 +61,7 @@ test.describe("Notifications", () => {
   });
 
   test("keeps each switch's knob inside its track", async ({ page }) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/notifications");
     await expect(page.getByRole("switch").first()).toBeVisible();
 
@@ -82,7 +82,7 @@ test.describe("Notifications", () => {
 
   test("keeps the channel cards readable in the dark theme", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "dark" });
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/notifications");
 
     const card = page.getByRole("article", { name: "#ops-alerts" });

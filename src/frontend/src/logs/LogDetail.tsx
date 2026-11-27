@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 
 import type { LogEntry } from "../api/types";
+import { HelpTip } from "../ui/HelpTip";
 import { formatInstant, formatUtc } from "./format";
 import { SeverityBadge } from "./SeverityBadge";
-import { useViewMode } from "../app/ViewToggle";
+import { useViewMode } from "../ui/ViewToggle";
 
 /** The OpenTelemetry attribute that holds an exception's stack trace; it is shown as a block, not as a row. */
 const stackTraceAttribute = "exception.stacktrace";
@@ -85,9 +86,29 @@ export function LogDetail({ entry, onSameTrace, onAround, onClose }: LogDetailPr
 
       {stackTrace && <pre className="detail-stack mono">{stackTrace}</pre>}
 
-      <Fields title="Attributes" fields={attributes} empty="This record has no attributes." />
+      <Fields
+        title="Attributes"
+        fields={attributes}
+        empty="This record has no attributes."
+        help={
+          <>
+            What the application attached to this one record, such as the route or an order number. The Advanced view
+            can filter by one, to find records like it.
+          </>
+        }
+      />
       {mode === "advanced" && (
-        <Fields title="Resource" fields={Object.entries(resource)} empty="The sender described no resource." />
+        <Fields
+          title="Resource"
+          fields={Object.entries(resource)}
+          empty="The sender described no resource."
+          help={
+            <>
+              What sent the record, the same for every record of that process: service.name, its version, host.name, and
+              the like. The OpenTelemetry SDK or the Collector sets them.
+            </>
+          }
+        />
       )}
       {mode === "advanced" && entry.traceId && (
         <Fields
@@ -96,6 +117,12 @@ export function LogDetail({ entry, onSameTrace, onAround, onClose }: LogDetailPr
             ["trace_id", entry.traceId],
             ...(entry.spanId ? ([["span_id", entry.spanId]] as [string, string][]) : []),
           ]}
+          help={
+            <>
+              The request this record was written in, and the span of it that was running. Open trace shows that
+              request; Same trace lists every record written in it.
+            </>
+          }
         />
       )}
 
@@ -132,17 +159,22 @@ interface FieldsProps {
   fields: [string, string][];
   /** What to say when there are none; omitted sections with no fields are hidden. */
   empty?: string;
+  /** What the section holds, behind the question mark beside its heading. */
+  help: ReactNode;
 }
 
-/** One titled list of name and value pairs. */
-function Fields({ title, fields, empty }: FieldsProps) {
+/** One titled list of name and value pairs, with a question mark that explains it. */
+function Fields({ title, fields, empty, help }: FieldsProps) {
   if (fields.length === 0 && !empty) {
     return null;
   }
 
   return (
     <section className="detail-fields">
-      <h3 className="section-title">{title}</h3>
+      <div className="detail-fields-head">
+        <h3 className="section-title">{title}</h3>
+        <HelpTip label={title}>{help}</HelpTip>
+      </div>
       {fields.length === 0 ? (
         <p className="filter-note">{empty}</p>
       ) : (

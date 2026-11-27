@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api, ApiError } from "../api/client";
-import type { TraceDurations, TraceItem, TraceService } from "../api/types";
+import { useRefreshEvery } from "../app/shellContext";
+import type { TraceDurations, TraceItem, TraceService, TracesSummary } from "../api/types";
 import { filtersToApiParams, type TraceFilters } from "./traceFilters";
 
 /** How often a window that ends now looks again. Spans arrive within seconds, but the list need not move under the eye. */
@@ -13,8 +14,10 @@ export interface TraceList {
   items: TraceItem[] | null;
   /** The chart's points and the 95th percentile; null before they arrive. */
   durations: TraceDurations | null;
-  /** The services of the window, most traces first. */
+  /** The services of the window, most traces first, or the slowest p95 first when asked for. */
   services: TraceService[];
+  /** The figures of the window under the filters, when asked for; null before they arrive or when not asked for. */
+  summary: TracesSummary | null;
   /** Whether older traces can be loaded. */
   hasOlder: boolean;
   /** Whether a request is running. */
@@ -27,17 +30,34 @@ export interface TraceList {
   loadOlder: () => void;
 }
 
+/** What a trace screen asks for beside the list, the chart, and the services. */
+export interface TraceListOptions {
+  /** Whether to ask for the window's figures too (ADR 0029). */
+  summary?: boolean;
+  /** Whether to ask for the services slowest p95 first, as a panel of the slowest services shows them. */
+  slowest?: boolean;
+}
+
 /**
- * Loads the trace list, its duration chart, and the services of the window for the chosen filters. The three share
- * one window, so the chart and the list agree. A window that ends now looks again every 30 seconds.
+ * Loads the trace list, its duration chart, and the services of the window for the chosen filters, and the window's
+ * figures when asked. They share one window, so the chart, the figures, and the list agree. A window that ends now
+ * looks again every 30 seconds. Only the list is asked for in the chosen order; the services leave the service filter
+ * out, so every service stays to pick from.
  *
  * @param filters - What the person chose.
  * @param environment - The environment chosen in the top bar, or null for all.
- * @returns The list, the chart, the services, and how to load older traces.
+ * @param options - What else to ask for.
+ * @returns The list, the chart, the services, the figures, and how to load older traces.
  */
-export function useTraceList(filters: TraceFilters, environment: string | null): TraceList {
+export function useTraceList(
+  filters: TraceFilters,
+  environment: string | null,
+  options: TraceListOptions = {},
+): TraceList {
   const picked = filters.from !== null && filters.to !== null;
-  const key = `${JSON.stringify(filters)}#${environment ?? ""}`;
+  const withSummary = options.summary === true;
+  const slowest = options.slowest === true;
+  const key = `${JSON.stringify(filters)}#${environment ?? ""}#${withSummary}#${slowest}`;
   const [tick, setTick] = useState(0);
   const [state, setState] = useState(() => initial(key));
 
@@ -48,28 +68,38 @@ export function useTraceList(filters: TraceFilters, environment: string | null):
     setState((previous) => ({ ...previous, tick, loading: true }));
   }
 
+  // The shell's refresh interval, or the list's own outside a shell (ADR 0022).
+  const every = useRefreshEvery(refreshMilliseconds);
+
   useEffect(() => {
-    if (picked) {
+    if (picked || every === null) {
       return undefined;
     }
 
-    const timer = window.setInterval(() => setTick((value) => value + 1), refreshMilliseconds);
+    const timer = window.setInterval(() => setTick((value) => value + 1), every);
 
     return () => window.clearInterval(timer);
-  }, [picked]);
+  }, [picked, every]);
 
   useEffect(() => {
     const controller = new AbortController();
     const now = new Date();
     const params = filtersToApiParams(filters, now, environment);
-    const servicesParams = filtersToApiParams({ ...filters, services: [] }, now, environment);
+    // The order is the list's alone; the chart, the services, and the figures read the same traces in any order.
+    const unordered = filtersToApiParams({ ...filters, order: "newest" }, now, environment);
+    const servicesParams = filtersToApiParams({ ...filters, services: [], order: "newest" }, now, environment);
+
+    if (slowest) {
+      servicesParams.set("order", "slowest");
+    }
 
     Promise.all([
       api.listTraces(params, controller.signal),
-      api.traceDurations(params, controller.signal),
+      api.traceDurations(unordered, controller.signal),
       api.traceServices(servicesParams, controller.signal),
+      withSummary ? api.traceSummary(unordered, controller.signal) : Promise.resolve(null),
     ]).then(
-      ([page, durations, services]) =>
+      ([page, durations, services, summary]) =>
         setState((previous) => ({
           ...previous,
           now,
@@ -77,6 +107,7 @@ export function useTraceList(filters: TraceFilters, environment: string | null):
           cursor: page.nextCursor,
           durations,
           services,
+          summary,
           loading: false,
           error: null,
         })),
@@ -114,6 +145,7 @@ export function useTraceList(filters: TraceFilters, environment: string | null):
     items: state.items,
     durations: state.durations,
     services: state.services,
+    summary: state.summary,
     hasOlder: state.cursor !== null,
     loading: state.loading,
     error: state.error,
@@ -131,6 +163,7 @@ function initial(key: string) {
     cursor: null as string | null,
     durations: null as TraceDurations | null,
     services: [] as TraceService[],
+    summary: null as TracesSummary | null,
     loading: true,
     error: null as string | null,
   };

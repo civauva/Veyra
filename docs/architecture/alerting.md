@@ -2,7 +2,7 @@
 
 Status: v0.1 has four built-in rules: the error rate of a service's logs, the latency of its HTTP requests, and the
 space and growth of a host's disks (ADR 0012). Notifications go to webhook and email channels, and the Alerts screen
-lists 90 days of history. User-defined rules and incidents follow.
+lists 90 days of history. Related alerts are grouped into incidents (ADR 0026). User-defined rules follow.
 
 Alerts are the only source of health on the home dashboards (ADR 0007). A lit service or host always has an alert
 behind it, and the alert says why.
@@ -13,7 +13,10 @@ flowchart LR
   MS[(storage.metric_*)] --> Q[Veyra.Query<br/>Metrics views]
   Q -- IMetricHealth --> EV
   CFG[Veyra:Alerting] --> EV
-  EV -- one transaction --> AL[(alerting.alert<br/>alert_event<br/>delivery)]
+  EV -- one transaction --> AL[(alerting.alert<br/>alert_event<br/>delivery<br/>incident)]
+  Q -- IBlockRelations --> EV
+  AL -- IIncidentReader --> CTX[Veyra.Query<br/>GET /api/v1/incidents/id/context]
+  AL -- IAlertReader --> ACTX[Veyra.Query<br/>GET /api/v1/alerts/id/context]
   CH[(alerting.channel)] --> AL
   AL --> DI[Dispatcher<br/>every 5 s]
   DI --> WH[Webhooks]
@@ -26,8 +29,11 @@ flowchart LR
 ```
 
 `Veyra.Alerting` reads record counts through `ILogRates`, log summaries through `ILogSearch`, and disk and latency
-figures through `IMetricHealth`, and offers its alerts through `IAlertStates`, all defined in `Veyra.Core`. It never
-references the Storage or Query modules. The Query module implements `IMetricHealth` with the views that draw the
+figures through `IMetricHealth`, and offers its alerts through `IAlertStates` and their history, each stretch of an
+alert at one severity, through `IAlertHistory` (the Overview's availability, ADR 0023), and its incidents through
+`IIncidentReader`, and one alert through `IAlertReader` (ADR 0029), while it groups alerts with the relations of
+`IBlockRelations` (ADR 0026), all defined in
+`Veyra.Core`. It never references the Storage or Query modules. The Query module implements `IMetricHealth` with the views that draw the
 Metrics screens and the home, so an alert and the screen it links to show the same numbers. `Veyra.Api` wires the
 interfaces to their implementations.
 
@@ -135,6 +141,52 @@ alerts, to some rules, and to a service, host, or disk by name, and the filters 
 rules stand beside it with their thresholds as this installation sets them. Days are the viewer's days: they start at
 midnight in the zone the person sees times in (VEY-22).
 
+## Incidents
+
+An incident groups related alerts into one thing to work on (ADR 0026). The Alerting module keeps them in
+`alerting.incident` (number, environment, title, severity, state, and who acknowledged it), which alerts belong to
+which in `alerting.incident_alert`, and acknowledgements in `alerting.incident_event`.
+
+```mermaid
+flowchart LR
+    open["An alert opens"] --> look["Open incidents of its environment<br/>with an alert opened in the last 15 min"]
+    look --> related{"On a related block?"}
+    related -- yes --> join["Joins the incident with the newest such alert"]
+    related -- no --> new["Opens INC-n"]
+```
+
+- **Grouping.** In the transaction that opens an alert, it joins an open or acknowledged incident of the same
+  environment that has an alert on a related block opened within `Veyra:Alerting:Incidents:GroupingMinutes` (15).
+  When several have one, the incident with the newest such alert wins. Otherwise the alert opens a new incident.
+- **Related blocks.** The same block (a disk does not make a block of its own, a container's host does); a container
+  and its host; a service or database server and a host its series name in `host.name`. Two services on one host are
+  not related. Alerting reads which blocks run on which hosts through `IBlockRelations`, which the Query module
+  answers from the inventory of blocks that sent metrics and keeps for a minute, so an alert costs no extra read of
+  the series. When the relations cannot be read, the alert still opens, grouped by its own block only, and a warning
+  is logged.
+- **Title and severity.** The title is the first alert's headline as notifications word it, such as "orders logs 6.2%
+  errors". A worse alert that joins gives the incident its headline and severity; an alert that escalates raises the
+  incident's severity.
+- **State.** `open`, `acknowledged`, or `resolved`. The incident resolves in the transaction that resolves its last
+  open alert. A related alert after that opens a new incident.
+- **Acknowledging.** Editors and Admins acknowledge an incident, and take it back, on its screen
+  (`POST`/`DELETE /api/v1/incidents/{id}/acknowledge`). Who did it and when shows on the incident and its timeline.
+  It does not stop notifications; escalation policies and quiet periods are a later decision. A resolved incident
+  cannot be acknowledged.
+- **Runbooks.** Each rule may have a link to the installation's own runbook,
+  `Veyra:Alerting:Runbooks:{rule}`, set on the Settings screen under Alert rules, Runbooks (Advanced view). The
+  incident's View runbook opens it; a rule without one shows Veyra's built-in guidance.
+- **History.** Incidents share the alerts' retention: when retention has deleted every alert of a resolved incident,
+  the incident goes too. Clearing telemetry on the Settings screen clears incidents with the alerts. Alerts opened
+  before Veyra kept incidents belong to none.
+- **What surrounds it.** `GET /api/v1/incidents/{id}/context` is the Query module's: it reads the incident through
+  `IIncidentReader` and gathers the failing trace's critical path or the failed job run, the exception, failed job
+  runs, setting changes, deadlocks and first errors, charts, warnings from the logs, and the related components, all
+  within the incident's window and affected blocks (ADR 0015).
+  `GET /api/v1/alerts/{id}/context` does the same for one alert (ADR 0029): it reads the alert through
+  `IAlertReader` and gathers its block and the related blocks with their health, and their warnings from an hour
+  before it opened until it resolved, or now.
+
 ## Notifications
 
 Administrators add channels on the Notifications screen. A channel is a **webhook** (an HTTP POST of JSON) or an
@@ -194,6 +246,11 @@ message is sent again when its lease runs out. The decision and its alternatives
     "openedAt": "2026-11-10T03:20:00+00:00",
     "resolvedAt": null,
     "url": "https://veyra.example.com/alerts/0193a2b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b"
+  },
+  "incident": {
+    "id": "0193a2b4-5c6d-7e8f-9a0b-aaaaaaaaaaaa",
+    "key": "INC-42",
+    "url": "https://veyra.example.com/incidents/0193a2b4-5c6d-7e8f-9a0b-aaaaaaaaaaaa"
   }
 }
 ```
@@ -202,6 +259,9 @@ message is sent again when its lease runs out. The decision and its alternatives
 message readable as it is in Slack and Mattermost incoming webhooks. `url` is null when `Veyra:Alerting:PublicUrl`
 is not set.
 
+- `incident` is the incident the alert belongs to (ADR 0026), with a link to its screen; it is `null` for a test and
+  for an alert in none. `alert.url` still links the alert, so receivers written before incidents keep working.
+
 - `block` says what the alert is about. `service` is the service name for service alerts and null for host
   alerts; it stays so that receivers written for the first version keep working.
 - `unit` is the unit of `value`, `threshold`, and `peak`: `ratio` from 0 to 1 for `error-rate` and `disk-space`,
@@ -209,7 +269,8 @@ is not set.
   fewest.
 
 An email has the same line as its subject, after `[Veyra]`, and a plain-text body with the service or host, the
-disk, the environment, the measurement in the rule's words, the peak, the times, and the link.
+disk, the environment, the measurement in the rule's words, the peak, the times, the incident's key and link
+(`Incident:`), and the alert's link (`Details:`).
 
 ### Security
 
@@ -242,6 +303,13 @@ from every message. It holds the alert, its events with their deliveries, and th
 
 A service's alert links to its traces (ADR 0014) from ten minutes before the alert opened to five minutes after its
 last check or its end: an error-rate alert to the failed traces, a latency alert to the slow ones.
+
+Every alert says what it means and how to fix it (VEY-60), in the Simple and the Advanced view: why it matters, then
+the steps in order, each script ready to copy with the server and database filled in. The steps of a database rule
+follow the server's engine. Catalog rules bring theirs from `GET /api/v1/alerts/catalog`; the other rules' are in the
+screen's own words. Veyra never runs a script; a person who understands it does. Each tile of the facts has a
+question mark that explains it on hover, a click or tap, or keyboard focus. Times on another day than the alert's
+last check carry their date, in the sentence under the title, the peak, and the timeline.
 
 ## Failures
 
@@ -310,6 +378,8 @@ SMTP server (`VEYRA_PUBLIC_URL`, `VEYRA_SMTP_*` in `deploy/.env`) as first value
 | `Veyra:Alerting:DatabaseWraparound:CautionRatio` | `0.5` | The transaction ID age of the limit, from 0 to 1, that opens a caution |
 | `Veyra:Alerting:DatabaseWraparound:WarningRatio` | `0.75` | The transaction ID age of the limit that opens a warning |
 | `Veyra:Alerting:DatabaseWraparound:ClearRatio` | `0.45` | A caution ends below this share; a warning as far below its own level |
+| `Veyra:Alerting:Incidents:GroupingMinutes` | `15` | How close together related alerts must open to share an incident |
+| `Veyra:Alerting:Runbooks:{rule}` | empty | The installation's runbook for a rule, such as `Runbooks:disk-space`; an http or https address |
 | `Veyra:Alerting:Notifications:DispatchInterval` | `00:00:05` | How often the dispatcher looks for messages |
 | `Veyra:Alerting:Notifications:BatchSize` | `10` | The most messages one dispatcher run sends |
 | `Veyra:Alerting:Notifications:SendTimeout` | `00:00:10` | How long one try may take |
@@ -326,8 +396,9 @@ margin that is negative or not below the caution ratio, disk-filling days that d
 `0 < WarningDays <= CautionDays` or a clear factor below 1, latency seconds that do not satisfy
 `0 < CautionSeconds <= WarningSeconds` or a clear factor outside `(0, 1]`, database levels where the warning is
 below the caution or the caution is below 1 session, 1 deadlock, or above 0 minutes or hours, a history shorter than one day, a public
-address that is not a full http or https address, a dispatcher batch size below 1, a port outside 1 to 65535, or an
-SMTP host without a valid sender address.
+address that is not a full http or https address, a grouping window below 1 minute, a runbook that names no rule or
+is not a full http or https address, a dispatcher batch size below 1, a port outside 1 to 65535, or an SMTP host
+without a valid sender address.
 
 The home snapshot measures its own error numbers over a fixed five-minute window. With a different error-rate
 window, the numbers beside a service and the ratio that fired its alert can differ. The latency and disk rules always

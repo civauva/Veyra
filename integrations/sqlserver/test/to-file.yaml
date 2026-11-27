@@ -3,6 +3,12 @@ exporters:
   file:
     path: /out/telemetry.jsonl
 
+# A read that sends log records first runs one interval after the Collector starts; the check collects for 90 seconds,
+# so the backup history (every 5 minutes in the template) is read every 30 seconds here.
+receivers:
+  sqlquery/backups:
+    collection_interval: 30s
+
 service:
   pipelines:
     metrics:
@@ -12,5 +18,8 @@ service:
       exporters:
         - file
     logs/live:
+      exporters:
+        - file
+    logs/probe:
       exporters:
         - file

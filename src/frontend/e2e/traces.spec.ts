@@ -17,7 +17,7 @@ async function scrollsSideways(page: Page, selector: string): Promise<boolean> {
 
 test.describe("Traces", () => {
   test("lists traces with the chart and opens one at every size", async ({ page }) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/traces");
 
     await expect(page.getByRole("img", { name: /3 traces: 1 failed/ })).toBeVisible();
@@ -33,7 +33,7 @@ test.describe("Traces", () => {
   });
 
   test("shows the cause beside the waterfall, or as a sheet on phones", async ({ page }, testInfo) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto(`/traces/${checkoutId}?at=2026-11-09T12:00:00.000Z`);
 
     const panel = page.getByRole("complementary", { name: "POST /authorize" });
@@ -58,8 +58,61 @@ test.describe("Traces", () => {
     }
   });
 
+  test("asks the server for the trace's records oldest first", async ({ page }) => {
+    // The server orders the records (VEY-68), so the order must reach it.
+    await answerApi(page, { look: "forecast" });
+    const oldest = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+
+      return (
+        url.pathname === "/api/v1/logs" &&
+        url.searchParams.get("traceId") === checkoutId &&
+        url.searchParams.get("order") === "oldest"
+      );
+    });
+
+    await page.goto(`/traces/${checkoutId}`);
+    await oldest;
+  });
+
+  test("asks the server for the failed spans and for the chosen span's records", async ({ page }, testInfo) => {
+    // The server filters the spans and the records (VEY-67), so each choice must reach it.
+    await answerApi(page, { look: "forecast" });
+    const asked = (path: string, name: string, value: string) =>
+      page.waitForRequest((request) => {
+        const url = new URL(request.url());
+
+        return url.pathname === path && url.searchParams.get(name) === value;
+      });
+    // Beside the waterfall the trace opens on its cause, so that span's records are asked for at once; on a phone the
+    // span opens when tapped.
+    const spanLogs = asked("/api/v1/logs", "spanId", "0000000000000003");
+    await page.goto(`/traces/${checkoutId}`);
+
+    if (testInfo.project.name === "phone") {
+      await page.getByRole("button", { name: "POST /authorize" }).click();
+    }
+
+    await spanLogs;
+
+    // A phone has no room for the waterfall's toggles.
+    if (testInfo.project.name === "phone") {
+      return;
+    }
+
+    // On a tablet the span lies over the toggles; it is closed to reach them.
+    if (testInfo.project.name === "tablet") {
+      await page.getByRole("button", { name: "Close the span" }).click();
+    }
+
+    const errors = asked(`/api/v1/traces/${checkoutId}`, "errorsOnly", "true");
+    await page.getByRole("button", { name: "Errors only" }).click();
+    await errors;
+    await expect(page.getByRole("button", { name: /SELECT payments.customer/ })).toHaveCount(0);
+  });
+
   test("goes from a log record to its trace", async ({ page }) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/logs");
 
     await page

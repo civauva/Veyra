@@ -7,7 +7,9 @@ import { alertTitle, containerAnchor } from "../alerts/ruleWords";
 import { defaultFilters, filtersToUrl } from "../logs/logFilters";
 import { ContainerIcon } from "./MetricCards";
 import { formatAmount, formatCpuPercent, formatShare, formatSpan, shareTone } from "./metricFormat";
+import { rangeWords } from "./metricRange";
 import { Sparkline } from "./Sparkline";
+import { PanelName } from "./TileName";
 
 /** Props for {@link ContainerPanel}. */
 interface ContainerPanelProps {
@@ -15,6 +17,8 @@ interface ContainerPanelProps {
   host: string;
   /** Its containers, by name. */
   containers: ContainerCard[];
+  /** How many restarted within the range, counted on the server (VEY-68). */
+  restarting: number;
   /** The range the restarts are counted over. */
   range: MetricRange;
 }
@@ -24,11 +28,10 @@ interface ContainerPanelProps {
  * a bar, restarts, uptime, and a way into its logs. A container with an open alert says so and leads to it; one
  * reached by a link to its row is scrolled to and marked. A table on wide screens, a card per container on phones.
  */
-export function ContainerPanel({ host, containers, range }: ContainerPanelProps) {
+export function ContainerPanel({ host, containers, restarting, range }: ContainerPanelProps) {
   const alerts = useContainerAlerts(host);
   const { hash } = useLocation();
   const picked = hash.length > 1 ? decodeURIComponent(hash.slice(1)) : null;
-  const restarting = containers.filter((container) => (container.restarts ?? 0) > 0).length;
 
   useEffect(() => {
     if (!picked) {
@@ -60,10 +63,14 @@ export function ContainerPanel({ host, containers, range }: ContainerPanelProps)
   return (
     <section className="metric-panel wide container-panel" aria-labelledby="host-containers">
       <div className="metric-panel-head">
-        <h2 id="host-containers">Containers</h2>
+        <PanelName id="host-containers" name="Containers">
+          The Docker containers on this host, from the Collector&apos;s docker_stats receiver: CPU over the last 5
+          minutes and over the range, memory of its limit, restarts in the range, and how long it has been up. A bar
+          turns amber from 75% and red from 90%.
+        </PanelName>
         <span>
           {containers.length === 1 ? "1 container" : `${containers.length} containers`} ·{" "}
-          {restarting === 0 ? "none restarted" : `${restarting} restarted`} in {range}
+          {restarting === 0 ? "none restarted" : `${restarting} restarted`} {rangeWords(range, "in")}
         </span>
       </div>
       <table className="container-table">
@@ -168,7 +175,7 @@ function ContainerRow({ container, range, alerts, picked }: ContainerRowProps) {
         ) : (
           <>
             <b className={restarting ? "warn" : undefined}>
-              {container.restarts} in {range}
+              {container.restarts} {rangeWords(range, "in")}
             </b>
             {container.restartsTotal !== null && <small>{container.restartsTotal} in all</small>}
           </>
@@ -201,17 +208,22 @@ function useContainerAlerts(host: string): AlertListItem[] {
 
     api
       .alerts(
-        { days: 1, state: "open", rules: ["container-restarts", "container-memory"], text: "", environment: null },
+        // The server keeps this host's container alerts, the warnings first (VEY-68).
+        {
+          days: 1,
+          state: "open",
+          rules: ["container-restarts", "container-memory"],
+          text: "",
+          environment: null,
+          kind: "container",
+          part: host,
+          order: "worst",
+          limit: 200,
+        },
         null,
         controller.signal,
       )
-      .then((page) =>
-        setAlerts(
-          page.items
-            .filter((item) => item.block.kind === "container" && item.block.part === host)
-            .sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "Warning" ? -1 : 1)),
-        ),
-      )
+      .then((page) => setAlerts(page.items))
       .catch(() => {
         if (!controller.signal.aborted) {
           setAlerts([]);

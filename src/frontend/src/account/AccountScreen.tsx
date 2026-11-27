@@ -2,12 +2,15 @@ import { useCallback, useEffect, useId, useState, type FormEvent, type ReactNode
 
 import { api } from "../api/client";
 import type { Account, Role } from "../api/types";
+import { HelpTip } from "../ui/HelpTip";
+import { ScreenBar } from "../ui/ScreenBar";
 import { RecoveryCodeList } from "../twofactor/RecoveryCodeList";
 import { SetupSteps } from "../twofactor/SetupSteps";
 import { Avatar } from "../users/Avatar";
 import { closeOnEscape } from "../users/ResetPasswordDialog";
 import { SessionList, SignInList } from "../users/SignInViews";
 import { formatSince, formatWhen } from "../users/userFormat";
+import { LookPanel } from "./LookPanel";
 import { TimesPanel } from "./TimesPanel";
 import "../twofactor/twofactor.css";
 import "../users/users.css";
@@ -83,6 +86,7 @@ export function AccountScreen() {
 
   return (
     <main className="account">
+      <ScreenBar trail={[{ label: "Your account" }]} />
       <div className="people-head">
         <div>
           <h1>Your account</h1>
@@ -105,8 +109,16 @@ export function AccountScreen() {
 
           <TimesPanel />
 
+          <LookPanel />
+
           <section className="account-panel" aria-labelledby="account-sessions">
-            <h2 id="account-sessions">Where you are signed in</h2>
+            <div className="account-panel-head">
+              <h2 id="account-sessions">Where you are signed in</h2>
+              <HelpTip label="Where you are signed in">
+                Each browser where your account is signed in now: one session each, with its address, when it started,
+                and its last activity. Sign out one you do not know, and change your password.
+              </HelpTip>
+            </div>
             <SessionList
               sessions={account.sessions}
               now={now}
@@ -122,7 +134,13 @@ export function AccountScreen() {
           </section>
 
           <section className="account-panel" aria-labelledby="account-signins">
-            <h2 id="account-signins">Recent sign-ins</h2>
+            <div className="account-panel-head">
+              <h2 id="account-signins">Recent sign-ins</h2>
+              <HelpTip label="Recent sign-ins">
+                Every attempt to sign in as you, newest first: how it ended, the address it came from, and the browser.
+                Failures you did not make, or an address not seen before, can mean someone is trying your password.
+              </HelpTip>
+            </div>
             <SignInList signIns={account.signIns} now={now} label="Recent sign-ins" />
             <p className="account-notme">
               Something here that was <b>not you?</b> Change your password, sign out everywhere else, and tell an Admin.
@@ -159,7 +177,10 @@ export function AccountScreen() {
         <AccountDialog title="Switch off two-factor sign-in" onClose={closeDialog}>
           <PasswordStep
             account={account.email}
-            lead="Signing in needs only your password again, and your recovery codes stop working. Every other browser is signed out."
+            lead={
+              "Signing in needs only your password again, and your recovery codes stop working. " +
+              "Every other browser is signed out."
+            }
             action="Switch off"
             run={async (password) => {
               await api.switchOffSecondFactor(password);

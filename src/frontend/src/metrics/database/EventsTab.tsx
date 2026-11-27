@@ -1,7 +1,9 @@
 import { api } from "../../api/client";
 import type { MetricRange } from "../../api/types";
 import { formatClockTime } from "../metricFormat";
+import { rangeWords } from "../metricRange";
 import { useMetricData } from "../useMetricData";
+import { PanelHead } from "./helpNames";
 
 /** Props for {@link EventsTab}. */
 export interface EventsTabProps {
@@ -20,8 +22,11 @@ export interface EventsTabProps {
  * keeps the events that need a look, in words; the Advanced view lists every event with its fields and message.
  */
 export function EventsTab({ engine, server, range, advanced }: EventsTabProps) {
-  const { data, error } = useMetricData(`events-${engine}-${server}-${range}`, (signal) =>
-    api.databaseEvents(engine, server, range, signal),
+  // The server leaves out the events that need nothing in the Simple view (VEY-67).
+  const { data, error } = useMetricData(
+    `events-${engine}-${server}-${range}`,
+    (signal) => api.databaseEvents(engine, server, range, !advanced, signal),
+    { choices: String(advanced) },
   );
 
   if (!data) {
@@ -32,16 +37,24 @@ export function EventsTab({ engine, server, range, advanced }: EventsTabProps) {
     ) : null;
   }
 
-  const shown = advanced ? data : data.filter((event) => event.severity !== "ok");
+  const shown = data;
 
   return (
     <section className="metric-panel" aria-labelledby="events-head">
-      <div className="metric-panel-head">
-        <h2 id="events-head">Events</h2>
-        <span>from SQL Server&apos;s system_health session, over the last {range}</span>
-      </div>
+      <PanelHead
+        id="events-head"
+        name="Events"
+        help={
+          "What SQL Server's built-in system_health session recorded, read every minute: " +
+          "errors of severity 20 and above, errors 823 and 824 (damaged pages), memory " +
+          "errors, lock waits over 30 seconds, non-yielding schedulers, and security and " +
+          "connectivity records. Any severe or memory error needs a DBA at once."
+        }
+      >
+        <span>from SQL Server&apos;s system_health session, {rangeWords(range, "over")}</span>
+      </PanelHead>
       {shown.length === 0 ? (
-        <p className="metrics-empty">No error, long wait, or failed login over the last {range}.</p>
+        <p className="metrics-empty">No error, long wait, or failed login {rangeWords(range, "over")}.</p>
       ) : (
         <ul className="live-findings">
           {shown.map((event, index) => (

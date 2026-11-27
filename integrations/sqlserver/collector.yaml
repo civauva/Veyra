@@ -1,7 +1,15 @@
+# veyra-template: sqlserver 0.2.0
+# veyra-collector: otelcol-contrib 0.140
+# veyra-sql-server: SQL Server 2019
+#
+# The lines above are the template's version, the Collector it is tested with, and the oldest SQL Server it reads
+# (ADR 0028). Veyra ships this version and the one before it (collector.0.1.0.yaml); a change to the reads below
+# needs a new version, and the old file kept as the previous one.
+#
 # OpenTelemetry Collector (contrib distribution) for one SQL Server instance (2019, 2022, or 2025): requests, waits,
 # blocking, deadlocks, file I/O, memory, and connections from the sqlserver receiver; database size, backup age,
 # SQL Agent jobs, the longest running query, and each statement's time, runs, CPU, and reads from sqlquery; the
-# busy sessions every 10 seconds for the live view (sqlquery/live).
+# busy sessions every 10 seconds for the live view (sqlquery/live); every backup msdb records (sqlquery/backups).
 # All of it goes to Veyra over OTLP/HTTP. See docs/integrations/sqlserver.md.
 #
 # Settings come from the environment, never from this file:
@@ -16,6 +24,15 @@
 #   SQLSERVER_PASSWORD     its password, URL-encoded if it has characters such as @ : / ? # & or %
 #   SQLSERVER_ENCRYPT      true to require TLS, false to let the server choose, disable to turn it off
 #   SQLSERVER_TRUST_CERT   true only for a server with a self-signed certificate the Collector cannot check
+#
+# A named instance replaces ":${env:SQLSERVER_PORT}" with "/INSTANCE" in each datasource, and needs UDP 1434 open to
+# the SQL Server Browser. Windows authentication puts DOMAIN%5Clogin as the user; on a Windows Collector an empty user
+# and password sign in as its service account. Veyra's agents write these datasources themselves.
+#
+# Veyra groups the receivers into modules that an Admin switches and times per server (ADR 0028): Core (sqlserver,
+# sqlquery, sqlquery/server), Activity (sqlquery/live), Queries (sqlquery/plans, sqlquery/querystore), Storage,
+# Backups, Jobs, Events, Configuration (sqlquery/config), and Indexes. The permissions read in sqlquery/storage runs
+# even when Storage is off.
 
 receivers:
   sqlserver:
@@ -842,7 +859,8 @@ receivers:
   # The server itself (ADR 0020, areas 1 and 10): every minute, its version and edition, SQL Server's share of CPU and
   # everything else's from the scheduler monitor ring buffer, runnable tasks, worker threads, memory, grants waiting,
   # memory dumps of the last day, whether SQL Server Agent runs, and whether SQL Server restarted in the last 15 minutes.
-  # -1 means "not known", such as Agent on an edition without it.
+  # -1 means "not known", such as Agent on an edition without it. It also names the machine: its physical memory and its
+  # operating system (ADR 0025). An Azure SQL Database has neither DMV and does not run this read at all.
   sqlquery/server:
     driver: sqlserver
     datasource: >-
@@ -881,6 +899,9 @@ receivers:
                  CASE WHEN (SELECT sqlserver_start_time FROM sys.dm_os_sys_info) > DATEADD(MINUTE, -15, GETDATE())
                       THEN 1 ELSE 0 END AS restarted,
                  DATEDIFF_BIG(SECOND, (SELECT sqlserver_start_time FROM sys.dm_os_sys_info), GETDATE()) AS uptime,
+                 (SELECT physical_memory_kb FROM sys.dm_os_sys_info) * 1024 AS os_memory_total,
+                 ISNULL((SELECT TOP (1) host_distribution FROM sys.dm_os_host_info), '') AS os_name,
+                 ISNULL((SELECT TOP (1) host_release FROM sys.dm_os_host_info), '') AS os_release,
                  CASE CONVERT(int, SERVERPROPERTY('ProductMajorVersion'))
                    WHEN 13 THEN CASE WHEN GETDATE() > '2026-07-14' THEN 1 ELSE 0 END
                    WHEN 14 THEN CASE WHEN GETDATE() > '2027-10-12' THEN 1 ELSE 0 END
@@ -890,7 +911,7 @@ receivers:
         metrics:
           - metric_name: sqlserver.server.info
             value_column: uptime
-            attribute_columns: [version, update_level, edition]
+            attribute_columns: [version, update_level, edition, os_name, os_release]
             unit: s
             value_type: int
             data_type: gauge
@@ -926,6 +947,11 @@ receivers:
             data_type: gauge
           - metric_name: sqlserver.os.memory.free
             value_column: os_memory_free
+            unit: By
+            value_type: int
+            data_type: gauge
+          - metric_name: sqlserver.os.memory.total
+            value_column: os_memory_total
             unit: By
             value_type: int
             data_type: gauge
@@ -1110,6 +1136,45 @@ receivers:
           - body_column: message
             attribute_columns: [veyra_record, sample, key, job_name, step_id, step_name, run_status, duration]
 
+  # Backup history (ADR 0025): every 5 minutes, each full, differential, and log backup that finished in the last 15
+  # minutes, at most 500, newest first. Each row becomes a sqlserver.backup record keyed by its backup_set_id and sampled
+  # at the time the backup finished, so Veyra keeps each backup once although three reads see it. Times go out in Unix
+  # milliseconds in UTC; msdb keeps the server's local time. The device is the first of its media family. -1 stands for
+  # a size msdb did not record. Azure SQL Database and Managed Instance back up by themselves and do not run this read.
+  sqlquery/backups:
+    driver: sqlserver
+    datasource: >-
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
+    collection_interval: 5m
+    queries:
+      - sql: >-
+          /* veyra-agent: backups */
+          SELECT TOP (500) 'sqlserver.backup' AS veyra_record,
+                 CONVERT(varchar(30), DATEDIFF_BIG(MILLISECOND, '1970-01-01',
+                   DATEADD(MINUTE, -DATEDIFF(MINUTE, GETUTCDATE(), GETDATE()), b.backup_finish_date))) AS sample,
+                 CONVERT(varchar(20), b.backup_set_id) AS [key],
+                 ISNULL(b.database_name, N'') AS database_name,
+                 CASE b.type WHEN 'D' THEN 'full' WHEN 'I' THEN 'differential' ELSE 'log' END AS backup_type,
+                 CONVERT(varchar(30), DATEDIFF_BIG(MILLISECOND, '1970-01-01',
+                   DATEADD(MINUTE, -DATEDIFF(MINUTE, GETUTCDATE(), GETDATE()), b.backup_start_date))) AS started,
+                 CONVERT(varchar(30), CONVERT(bigint, ISNULL(b.backup_size, -1))) AS bytes,
+                 CONVERT(varchar(30), CONVERT(bigint, ISNULL(b.compressed_backup_size, -1))) AS compressed_bytes,
+                 CASE WHEN b.is_copy_only = 1 THEN '1' ELSE '0' END AS copy_only,
+                 ISNULL(LEFT(m.physical_device_name, 260), N'') AS device
+          FROM msdb.dbo.backupset AS b
+          OUTER APPLY (
+            SELECT TOP (1) f.physical_device_name
+            FROM msdb.dbo.backupmediafamily AS f
+            WHERE f.media_set_id = b.media_set_id
+            ORDER BY f.family_sequence_number, f.mirror
+          ) AS m
+          WHERE b.type IN ('D', 'I', 'L') AND b.backup_finish_date > DATEADD(MINUTE, -15, GETDATE())
+          ORDER BY b.backup_finish_date DESC
+        logs:
+          - body_column: device
+            attribute_columns: [veyra_record, sample, key, database_name, backup_type, started, bytes, compressed_bytes,
+              copy_only]
+
   # Configuration and security (ADR 0020, area 13): every hour, each server setting and the security posture. The key
   # holds the value, so Veyra keeps each value once a day and a change shows as a new value with its time.
   sqlquery/config:
@@ -1238,6 +1303,7 @@ service:
         - sqlquery/indexes
         - sqlquery/jobs
         - sqlquery/config
+        - sqlquery/backups
       processors:
         - memory_limiter
         - resource

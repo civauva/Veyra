@@ -8,7 +8,7 @@ import { api, ApiError } from "../api/client";
 import type { SettingsReview } from "../api/types";
 import { App } from "../app/App";
 import { SessionProvider } from "../session/SessionProvider";
-import { settingsHistory, settingsPage } from "./testSettings";
+import { listingOf, settingsHistory, settingsPage } from "./testSettings";
 
 vi.mock("../api/client", async (importOriginal) => {
   const original = await importOriginal<typeof client>();
@@ -21,6 +21,7 @@ vi.mock("../api/client", async (importOriginal) => {
       signOut: vi.fn(),
       home: vi.fn(),
       settings: vi.fn(),
+      settingsListing: vi.fn(),
       reviewSettings: vi.fn(),
       saveSettings: vi.fn(),
       settingsHistory: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock("../api/client", async (importOriginal) => {
       sqlServers: vi.fn(),
       postgresServers: vi.fn(),
       agents: vi.fn(),
+      agentsSummary: vi.fn(),
       deleteSqlServer: vi.fn(),
       createSqlServer: vi.fn(),
       updateSqlServer: vi.fn(),
@@ -38,7 +40,14 @@ vi.mock("../api/client", async (importOriginal) => {
   };
 });
 
-const admin = { id: "1", email: "ana@example.com", displayName: "Ana Admin", role: "Admin" as const, timeZone: null };
+const admin = {
+  id: "1",
+  email: "ana@example.com",
+  displayName: "Ana Admin",
+  role: "Admin" as const,
+  timeZone: null,
+  look: { chosen: null, default: "forecast", mayChoose: true },
+};
 
 const quietReview: SettingsReview = {
   problems: [],
@@ -61,15 +70,62 @@ beforeEach(() => {
   localStorage.clear();
   vi.mocked(api.currentSession).mockResolvedValue(admin);
   vi.mocked(api.settings).mockResolvedValue(settingsPage);
+  vi.mocked(api.settingsListing).mockImplementation((choices) => Promise.resolve(listingOf(settingsPage, choices)));
   vi.mocked(api.settingsHistory).mockResolvedValue(settingsHistory);
   vi.mocked(api.reviewSettings).mockResolvedValue(quietReview);
   vi.mocked(api.saveSettings).mockResolvedValue(settingsPage);
   vi.mocked(api.sqlServers).mockResolvedValue([]);
   vi.mocked(api.postgresServers).mockResolvedValue([]);
   vi.mocked(api.agents).mockResolvedValue([]);
+  vi.mocked(api.agentsSummary).mockResolvedValue({
+    sqlServers: 0,
+    postgresServers: 0,
+    needLook: 0,
+    agents: 0,
+    agentsOnline: 0,
+  });
 });
 
 describe("SettingsScreen", () => {
+  it("asks the server what to list and shows exactly the settings and sections it answers", async () => {
+    vi.mocked(api.settingsListing).mockResolvedValue({
+      keys: ["Veyra:Alerting:EvaluationInterval"],
+      sections: ["Rules", "Ingestion"],
+    });
+    renderAt("/settings?section=Rules");
+
+    expect(await screen.findByRole("textbox", { name: /Check the rules every/ })).toBeVisible();
+    expect(screen.queryByRole("textbox", { name: "Error rate, Caution from" })).not.toBeInTheDocument();
+    expect(api.settingsListing).toHaveBeenLastCalledWith(
+      { search: "", section: "Rules", view: "simple" },
+      expect.any(AbortSignal),
+    );
+    const sections = screen.getByRole("navigation", { name: "Settings sections" });
+    expect(within(sections).getByRole("link", { name: /Ingestion/ })).toBeVisible();
+    expect(within(sections).queryByRole("link", { name: /Data/ })).not.toBeInTheDocument();
+  });
+
+  it("says how many rules are on from the server's count, not from the settings it lists", async () => {
+    vi.mocked(api.settings).mockResolvedValue({ ...settingsPage, rules: 30, rulesOn: 12 });
+    renderAt("/settings?section=Rules");
+
+    const sections = await screen.findByRole("navigation", { name: "Settings sections" });
+    expect(await within(sections).findByText("12 of 30 rules on")).toBeVisible();
+  });
+
+  it("sends the search and the view to the server", async () => {
+    const user = userEvent.setup();
+    renderAt("/settings?section=Rules");
+
+    await user.type(await screen.findByRole("searchbox", { name: "Find a setting" }), "smtp");
+    await user.click(screen.getByRole("button", { name: "Advanced" }));
+
+    expect(api.settingsListing).toHaveBeenLastCalledWith(
+      { search: "smtp", section: "Rules", view: "advanced" },
+      expect.any(AbortSignal),
+    );
+  });
+
   it("starts in the Simple view, which leaves out advanced settings and sections", async () => {
     renderAt("/settings?section=Rules");
 
@@ -125,6 +181,7 @@ describe("SettingsScreen", () => {
         .map((link) => link.textContent),
     ).toEqual([
       expect.stringContaining("Data and retention"),
+      expect.stringContaining("Look and feel"),
       expect.stringContaining("Alert rules"),
       expect.stringContaining("Database monitoring"),
       expect.stringContaining("Agents"),
@@ -132,9 +189,22 @@ describe("SettingsScreen", () => {
       expect.stringContaining("Sign-in and security"),
     ]);
     expect(screen.getByRole("button", { name: "Simple" })).toHaveAttribute("aria-pressed", "true");
+    const trail = screen.getByRole("navigation", { name: "Where you are" });
+    expect(within(trail).getByText("Settings")).toHaveAttribute("aria-current", "page");
 
     expect(screen.getByRole("textbox", { name: "Logs, Keep" })).toHaveValue("14");
     expect(screen.getByText("Default 14 days, from VEYRA_LOG_RETENTION_DAYS")).toBeVisible();
+  });
+
+  it("shows the person's own look above the instance's look settings in Look and feel", async () => {
+    renderAt("/settings?section=Appearance");
+
+    expect(await screen.findByRole("radiogroup", { name: "Look" })).toBeVisible();
+    expect(screen.getByRole("radio", { name: /Forecast/ })).toBeChecked();
+    expect(screen.getByRole("combobox", { name: /Default look/ })).toHaveValue("forecast");
+    expect(screen.getByRole("switch", { name: /Let people choose their look/ })).toBeChecked();
+    // A switch among a card's fields says what it switches, as every other field does.
+    expect(screen.getByText("Let people choose their look", { selector: "label" })).toBeVisible();
   });
 
   it("shows a section from the address, and a value someone saved with who saved it", async () => {
@@ -143,6 +213,11 @@ describe("SettingsScreen", () => {
 
     expect(await screen.findByRole("textbox", { name: "Error rate, Caution from" })).toHaveValue("1");
     expect(screen.getByRole("switch", { name: "Error rate, On" })).toBeChecked();
+    const trail = screen.getByRole("navigation", { name: "Where you are" });
+    expect(within(trail).getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings");
+    expect(within(trail).getByText("Alert rules")).toHaveAttribute("aria-current", "page");
+    expect(within(trail.parentElement as HTMLElement).getByRole("group", { name: "View" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "‹ All settings" })).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: /Check the rules every/ })).toHaveValue("30");
     const latency = screen.getByRole("region", { name: "Latency" });
     expect(within(latency).getByText(/Saved by Lena Adler/)).toBeVisible();

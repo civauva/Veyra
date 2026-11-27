@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
-import type { HomeAlert, HomeDisk, HomeSnapshot } from "../../api/types";
+import type { HomeDiskOutlook, HomeSnapshot } from "../../api/types";
+import { HelpTip } from "../../ui/HelpTip";
 import { formatClock } from "../../logs/format";
 import { formatSeconds, formatShare } from "../../metrics/metricFormat";
 import { conditionTitle, formatBytes, formatLoad, formatRatio } from "../homeFormat";
@@ -101,11 +102,36 @@ export function KeyMetrics({ snapshot }: ForecastVisualProps) {
   const { metrics, storage } = snapshot;
   const ingest = metrics.ingestPerSecond;
   const minutes = Math.round(metrics.windowSeconds / 60);
+  const latencyHelp = (
+    <>
+      95 of every 100 HTTP requests of the last {minutes} minutes were answered faster than this, across every service
+      that sends HTTP server metrics through OpenTelemetry. The line under it names the slowest service. A service whose
+      own p95 stays high gets a latency alert.
+    </>
+  );
+  const storageHelp = storage.budgetBytes ? (
+    <>
+      How much of the log storage budget the stored logs take, indexes included. Once logs reach the budget, the oldest
+      days are dropped; the outlook says when that will be.
+    </>
+  ) : (
+    <>
+      The space the stored logs take, indexes included. With no budget set, logs stay {storage.retentionDays} days
+      whatever their size; Admins set a budget on the Settings screen.
+    </>
+  );
 
   return (
     <section className="fc-metrics" aria-label="Key metrics">
       <Tile
         label="Errors"
+        help={
+          <>
+            The share of all log records of the last {minutes} minutes that are at Error or worse, across every service
+            shown. Each service&apos;s own share is judged by the error-rate rule, which opens an alert when it is too
+            high.
+          </>
+        }
         value={formatRatio(metrics.errorRatio)}
         detail={
           metrics.records === 0
@@ -118,6 +144,7 @@ export function KeyMetrics({ snapshot }: ForecastVisualProps) {
       {metrics.latency ? (
         <Tile
           label="Latency p95"
+          help={latencyHelp}
           value={formatSeconds(metrics.latency.p95Seconds)}
           detail={
             metrics.latency.services > 1
@@ -128,16 +155,23 @@ export function KeyMetrics({ snapshot }: ForecastVisualProps) {
           <Gauge position={metrics.latency.p95Seconds / latencyTop} />
         </Tile>
       ) : (
-        <Tile label="Latency p95" value="Not measured" detail="Send HTTP server metrics" waiting />
+        <Tile label="Latency p95" help={latencyHelp} value="Not measured" detail="Send HTTP server metrics" waiting />
       )}
       <Tile
         label="Ingest"
+        help={
+          <>
+            Log records received per second, averaged over the last {minutes} minutes. A sudden drop can mean a service
+            stopped sending; a jump, that one logs far more than it did.
+          </>
+        }
         value={ingest < 10 ? String(Number(ingest.toFixed(1))) : String(Math.round(ingest))}
         detail="logs per second"
       />
       {storage.budgetBytes ? (
         <Tile
           label="Log storage"
+          help={storageHelp}
           value={`${Math.round((storage.usedBytes / storage.budgetBytes) * 100)}%`}
           detail={`${formatBytes(storage.usedBytes)} of ${formatBytes(storage.budgetBytes)}`}
         >
@@ -146,6 +180,7 @@ export function KeyMetrics({ snapshot }: ForecastVisualProps) {
       ) : (
         <Tile
           label="Log storage"
+          help={storageHelp}
           value={formatBytes(storage.usedBytes)}
           detail={
             admin ? (
@@ -166,6 +201,8 @@ export function KeyMetrics({ snapshot }: ForecastVisualProps) {
 interface TileProps {
   /** The caption. */
   label: string;
+  /** What the tile means, behind the question mark beside its caption (VEY-60). */
+  help: ReactNode;
   /** The big value. */
   value: string;
   /** The line under it. */
@@ -176,10 +213,13 @@ interface TileProps {
   children?: ReactNode;
 }
 
-function Tile({ label, value, detail, waiting = false, children }: TileProps) {
+function Tile({ label, help, value, detail, waiting = false, children }: TileProps) {
   return (
     <div className={waiting ? "glass fc-tile waiting" : "glass fc-tile"}>
-      <p className="cap">{label}</p>
+      <div className="home-name">
+        <span className="cap">{label}</span>
+        <HelpTip label={label}>{help}</HelpTip>
+      </div>
       <span className="fc-tile-value">{value}</span>
       <span className="fc-tile-detail">{detail}</span>
       {children}
@@ -217,8 +257,20 @@ export function HourlyStrip({ snapshot }: ForecastVisualProps) {
   return (
     <section className="glass fc-hours" aria-label="Hourly">
       <div className="fc-hours-head">
-        <p className="cap">Observed · errors</p>
-        <p className="cap">{learned}</p>
+        <div className="home-name">
+          <p className="cap">Observed · errors</p>
+          <HelpTip label="Observed">
+            The share of log records at Error or worse in each of the last six hours, and in this hour so far, in your
+            time zone. A past hour shows showers from 1% and a storm from 5%; Now shows the weather of the open alerts.
+          </HelpTip>
+        </div>
+        <div className="home-name">
+          <p className="cap">{learned}</p>
+          <HelpTip label="Expected">
+            How busy each of the next six hours usually is, from the same hours on up to seven earlier days: 1.0× is an
+            average hour. An hour without that history yet says learning.
+          </HelpTip>
+        </div>
       </div>
       <ol className="fc-hour-row" aria-label="Hours">
         {observed.map((bucket, index) => {
@@ -276,7 +328,13 @@ export function Outlook({ snapshot }: ForecastVisualProps) {
   return (
     <section className="glass fc-outlook" aria-label="Outlook">
       <div className="fc-outlook-head">
-        <p className="cap">Outlook · not alerts yet</p>
+        <div className="home-name">
+          <p className="cap">Outlook · not alerts yet</p>
+          <HelpTip label="Outlook">
+            What is coming in the next 30 days that is not an alert yet: when log storage reaches its budget, and disks
+            that fill up at the pace of their last day. A disk with an open alert is in Needs you instead.
+          </HelpTip>
+        </div>
         <div className="fc-ticks" aria-hidden="true">
           <span>today</span>
           <span>1 wk</span>
@@ -292,7 +350,7 @@ export function Outlook({ snapshot }: ForecastVisualProps) {
           {position !== null && <i style={{ left: `${Math.min(position, 1) * 100}%` }} />}
         </span>
       </div>
-      <DiskOutlook disks={snapshot.disks} alerts={snapshot.alerts} />
+      <DiskOutlook watched={snapshot.disks.length > 0} outlook={snapshot.estate.diskOutlook} />
       <div className="fc-outlook-row waiting">
         <b>—</b>
         <WeatherIcon kind="cloud" className="fc-outlook-icon" />
@@ -308,24 +366,21 @@ const maxDiskRows = 2;
 
 /** Props for {@link DiskOutlook}. */
 interface DiskOutlookProps {
-  /** The watched disks. */
-  disks: HomeDisk[];
-  /** The open alerts, whose disks the outlook leaves to Needs you. */
-  alerts: HomeAlert[];
+  /** Whether any host reports disks. */
+  watched: boolean;
+  /** The disks that fill within 30 days without an open alert, as the server picks them (VEY-68). */
+  outlook: HomeDiskOutlook;
 }
 
 /**
  * The disks that fill within 30 days and have no open alert, from host metrics. When none fills, one calm row says
  * so; without host metrics, a waiting row says what is needed.
  */
-function DiskOutlook({ disks, alerts }: DiskOutlookProps) {
-  const alerted = (disk: HomeDisk) =>
-    alerts.some((alert) => alert.kind === "host" && alert.name === disk.host && alert.part === disk.mountpoint);
-  const filling = disks
-    .filter((disk) => disk.daysUntilFull !== null && disk.daysUntilFull <= 30 && !alerted(disk))
-    .slice(0, maxDiskRows);
+function DiskOutlook({ watched, outlook }: DiskOutlookProps) {
+  // The outlook has room for a few rows; the server has left out the disks Needs you tells.
+  const filling = outlook.filling.slice(0, maxDiskRows);
 
-  if (disks.length === 0) {
+  if (!watched) {
     return (
       <div className="fc-outlook-row waiting">
         <b>—</b>
@@ -337,10 +392,10 @@ function DiskOutlook({ disks, alerts }: DiskOutlookProps) {
   }
 
   if (filling.length === 0) {
-    const hosts = new Set(disks.map((disk) => disk.host)).size;
+    const { hosts } = outlook;
 
     // Every disk that fills soon already has an alert, which Needs you tells.
-    if (disks.some((disk) => disk.daysUntilFull !== null && disk.daysUntilFull <= 30)) {
+    if (outlook.allAlerted) {
       return null;
     }
 

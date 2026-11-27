@@ -1,7 +1,7 @@
 # 0013. Left sidebar navigation
 
 Date: 2026-11-11
-Status: Accepted
+Status: Accepted; since [0021](0021-looks.md) it describes the Forecast look's shell
 
 ## Context
 

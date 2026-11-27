@@ -1,7 +1,9 @@
 import { api } from "../../api/client";
 import type { Deadlock, MetricRange } from "../../api/types";
 import { formatClockTime } from "../metricFormat";
+import { rangeWords } from "../metricRange";
 import { useMetricData } from "../useMetricData";
+import { PanelHead } from "./helpNames";
 import { clock, programName } from "./liveFormat";
 
 /** Props for {@link BlockingTab}. */
@@ -41,12 +43,20 @@ export function BlockingTab({ engine, server, range, advanced, onMoment }: Block
   return (
     <div className="metric-panels">
       <section className="metric-panel" aria-labelledby="blocking-episodes">
-        <div className="metric-panel-head">
-          <h2 id="blocking-episodes">Blocking</h2>
-          <span>over the last {data.range}</span>
-        </div>
+        <PanelHead
+          id="blocking-episodes"
+          name="Blocking"
+          help={
+            "The times one session held up others over the range. Veyra builds them from the " +
+            "Live tab's reads every 10 seconds: the same head blocker in reads at most 35 " +
+            "seconds apart is one episode. Each opens the Live tab at the moment it began, to " +
+            "see who held what."
+          }
+        >
+          <span>{rangeWords(range, "over")}</span>
+        </PanelHead>
         {data.episodes.length === 0 ? (
-          <p className="metrics-empty">Nothing waited for anything over the last {data.range}.</p>
+          <p className="metrics-empty">Nothing waited for anything {rangeWords(range, "over")}.</p>
         ) : (
           <ul className="live-findings">
             {data.episodes.map((episode) => (
@@ -77,12 +87,20 @@ export function BlockingTab({ engine, server, range, advanced, onMoment }: Block
       </section>
 
       <section className="metric-panel" aria-labelledby="blocking-deadlocks">
-        <div className="metric-panel-head">
-          <h2 id="blocking-deadlocks">Deadlocks</h2>
+        <PanelHead
+          id="blocking-deadlocks"
+          name="Deadlocks"
+          help={
+            "Deadlocks recorded by SQL Server's built-in system_health session, read every " +
+            "minute. Two sessions each waited for the other, so SQL Server ended one, the " +
+            "victim, whose application got error 1205. The same pair again and again usually " +
+            "needs an index or the same order of access in both."
+          }
+        >
           <span>from SQL Server&apos;s system_health session</span>
-        </div>
+        </PanelHead>
         {data.deadlocks.length === 0 ? (
-          <p className="metrics-empty">No deadlock over the last {data.range}.</p>
+          <p className="metrics-empty">No deadlock {rangeWords(range, "over")}.</p>
         ) : (
           <ul className="live-findings">
             {data.deadlocks.map((deadlock) => (

@@ -1,11 +1,14 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { unreadText } from "./unread";
 
 import { api } from "../../api/client";
 import type { DatabaseStorage, PlanWarning, StorageView } from "../../api/types";
 import { formatAmount, formatSpan } from "../metricFormat";
 import { useMetricData } from "../useMetricData";
+import { databaseDetailId, databaseRowId, showPart } from "./drill";
+import { PanelHead } from "./helpNames";
 import { copyText } from "./liveFormat";
+import { SystemHidden, useSystemShown } from "./SystemFilter";
 
 /** Props for {@link StorageTab}. */
 export interface StorageTabProps {
@@ -25,8 +28,12 @@ export interface StorageTabProps {
  * backups, and integrity.
  */
 export function StorageTab({ engine, server, advanced, blind = false }: StorageTabProps) {
-  const { data, notFound, error } = useMetricData(`storage-${engine}-${server}`, (signal) =>
-    api.databaseStorage(engine, server, signal),
+  const [systemShown] = useSystemShown();
+  // The server leaves out its own databases, such as msdb, and their findings unless System is on (VEY-64, VEY-66).
+  const { data, notFound, error } = useMetricData(
+    `storage-${engine}-${server}`,
+    (signal) => api.databaseStorage(engine, server, systemShown, signal),
+    { choices: String(systemShown) },
   );
 
   if (notFound) {
@@ -45,41 +52,65 @@ export function StorageTab({ engine, server, advanced, blind = false }: StorageT
     ) : null;
   }
 
-  const findings = [...data.findings, ...data.databases.flatMap((database) => database.findings)].sort((a, b) =>
-    a.severity === b.severity ? 0 : a.severity === "warning" ? -1 : 1,
-  );
+  // The server merges the findings and ranks them, each with its database so it can lead to it (VEY-62, VEY-68).
+  const findings = data.needsDoing;
 
   return (
     <>
       <section className="metric-panel" aria-labelledby="storage-findings">
-        <div className="metric-panel-head">
-          <h2 id="storage-findings">Needs doing</h2>
+        <PanelHead
+          id="storage-findings"
+          name="Needs doing"
+          help={
+            "What Veyra found in the databases' files, logs, backups, and integrity checks, " +
+            "worst first, each with the statement to run. Read every 5 minutes from " +
+            "sys.databases, sys.master_files, sys.dm_db_log_stats, and msdb's backup history. " +
+            "Nothing here means they all look right."
+          }
+        >
           <span>files, logs, backups, and integrity</span>
-        </div>
+        </PanelHead>
         {findings.length === 0 ? (
           <p className="metrics-empty">
-            {blind ? unreadText : "Nothing: files, logs, backups, and integrity checks all look right."}
+            {blind
+              ? unreadText
+              : data.hiddenFindings.count > 0
+                ? "Nothing on the applications' databases."
+                : "Nothing: files, logs, backups, and integrity checks all look right."}
           </p>
         ) : (
           <ul className="live-findings">
-            {findings.map((finding, index) => (
-              <FindingItem key={`${finding.kind}-${index}`} finding={finding} />
+            {findings.map(({ finding, database }, index) => (
+              <FindingItem key={`${finding.kind}-${index}`} finding={finding}>
+                {database !== null && <DatabaseLink name={database} advanced={advanced} />}
+              </FindingItem>
             ))}
           </ul>
         )}
+        <SystemHidden hidden={data.hiddenFindings} noun="finding" />
       </section>
 
       <Volumes data={data} />
 
       {advanced && (
         <section className="metric-panel" aria-labelledby="storage-detail">
-          <div className="metric-panel-head">
-            <h2 id="storage-detail">Each database</h2>
+          <PanelHead
+            id="storage-detail"
+            name="Each database"
+            help={
+              "Each database's settings, log, backups, integrity, and files, read every 5 " +
+              "minutes; open one to see them. Look for auto close or auto shrink on, page " +
+              "verify not CHECKSUM, a log that waits to be reused, a log backup over an hour " +
+              "old in full recovery, a last good CHECKDB over 8 days ago, and growth set in " +
+              "percent."
+            }
+          >
             <span>settings, files, log, backups, integrity</span>
-          </div>
+          </PanelHead>
           {data.databases.map((database) => (
             <DatabaseDetail key={database.name} database={database} />
           ))}
+          <SystemHidden hidden={data.hiddenDatabases} noun="database" />
         </section>
       )}
     </>
@@ -94,10 +125,18 @@ function Volumes({ data }: { data: StorageView }) {
 
   return (
     <section className="metric-panel" aria-labelledby="storage-volumes">
-      <div className="metric-panel-head">
-        <h2 id="storage-volumes">Volumes</h2>
+      <PanelHead
+        id="storage-volumes"
+        name="Volumes"
+        help={
+          "The disks that hold database files, with their free space and when each fills at " +
+          "the pace of the last week, from sys.dm_os_volume_stats, read every 5 minutes. " +
+          "Amber from 85% used and red from 95%, the volume rule's levels. A full volume " +
+          "stops its databases from growing, and writes fail."
+        }
+      >
         <span>that hold database files</span>
-      </div>
+      </PanelHead>
       <ul className="live-plain">
         {data.volumes.map((volume) => (
           <li key={volume.volume}>
@@ -120,12 +159,53 @@ function Volumes({ data }: { data: StorageView }) {
   );
 }
 
+/** Props for {@link DatabaseLink}. */
+interface DatabaseLinkProps {
+  /** The database. */
+  name: string;
+  /** Whether the Advanced view is on, where the database's details are on the tab. */
+  advanced: boolean;
+}
+
+/**
+ * Leads from a finding to its database (VEY-62): in the Advanced view to its details, opened; in the Simple view to its
+ * row in the list of databases.
+ */
+function DatabaseLink({ name, advanced }: DatabaseLinkProps) {
+  function go() {
+    if (advanced) {
+      const detail = document.getElementById(databaseDetailId(name));
+
+      if (detail instanceof HTMLDetailsElement) {
+        detail.open = true;
+      }
+
+      showPart(databaseDetailId(name));
+
+      return;
+    }
+
+    showPart(databaseRowId(name));
+  }
+
+  return (
+    <button
+      type="button"
+      className="link-button"
+      aria-label={advanced ? `See ${name}'s details` : `See ${name} in the list`}
+      onClick={go}
+    >
+      See {name} ›
+    </button>
+  );
+}
+
 /** One database's details, folded until opened. */
 function DatabaseDetail({ database }: { database: DatabaseStorage }) {
   const age = (seconds: number | null) => (seconds === null ? "never" : `${formatSpan(seconds)} ago`);
 
   return (
-    <details className="storage-database">
+    <details className="storage-database db-drill-target" id={databaseDetailId(database.name)} tabIndex={-1}>
       <summary>
         <b>{database.name}</b>{" "}
         <small className="faint">
@@ -201,8 +281,16 @@ function DatabaseDetail({ database }: { database: DatabaseStorage }) {
   );
 }
 
-/** A finding with what to do and the statement to copy. */
-export function FindingItem({ finding }: { finding: PlanWarning }) {
+/** Props for {@link FindingItem}. */
+export interface FindingItemProps {
+  /** The finding. */
+  finding: PlanWarning;
+  /** Where it leads, such as its database (VEY-62), after what to do. */
+  children?: ReactNode;
+}
+
+/** A finding with what to do, the statement to copy, and where it leads. */
+export function FindingItem({ finding, children }: FindingItemProps) {
   const [copied, setCopied] = useState(false);
 
   return (
@@ -225,6 +313,7 @@ export function FindingItem({ finding }: { finding: PlanWarning }) {
             </button>
           </div>
         )}
+        {children && <div className="live-actions">{children}</div>}
       </div>
     </li>
   );

@@ -8,7 +8,7 @@ import { api, ApiError } from "../api/client";
 import type { HomeAlert, HomeBlock, HomeSnapshot } from "../api/types";
 import { App } from "../app/App";
 import { SessionProvider } from "../session/SessionProvider";
-import { clearSnapshot, stormSnapshot } from "./testSnapshots";
+import { clearSnapshot, environmentChoicesOf, stormSnapshot } from "./testSnapshots";
 
 vi.mock("../api/client", async (importOriginal) => {
   const original = await importOriginal<typeof client>();
@@ -20,6 +20,7 @@ vi.mock("../api/client", async (importOriginal) => {
       currentSession: vi.fn(),
       signOut: vi.fn(),
       home: vi.fn(),
+      homeEnvironments: vi.fn(),
       searchLogs: vi.fn(),
       summarizeLogs: vi.fn(),
     },
@@ -32,6 +33,7 @@ const viewer = {
   displayName: "Dana Kim",
   role: "Viewer" as const,
   timeZone: null,
+  look: { chosen: null, default: "forecast", mayChoose: true },
 };
 
 function renderHome() {
@@ -111,6 +113,8 @@ describe("HomeScreen", () => {
         ...stormSnapshot.blocks,
         { ...firstBlock, id: "host:production/web-01", kind: "host", name: "web-01", health: "Caution" },
       ],
+      // The server leaves the alerted disk out of the outlook (VEY-68).
+      estate: { ...stormSnapshot.estate, diskOutlook: { filling: [], hosts: 2, allAlerted: true } },
     });
     const user = userEvent.setup();
 
@@ -218,7 +222,17 @@ describe("HomeScreen", () => {
       id: `service:production/${name}`,
       name,
     }));
-    vi.mocked(api.home).mockResolvedValue({ ...stormSnapshot, blocks: [...more, ...stormSnapshot.blocks] });
+    const served = stormSnapshot.estate;
+    // The server lists the services by name and again the worst first (VEY-68); the home takes the worst first.
+    vi.mocked(api.home).mockResolvedValue({
+      ...stormSnapshot,
+      blocks: [...more, ...stormSnapshot.blocks],
+      estate: {
+        ...served,
+        services: [...more, ...served.services],
+        servicesWorstFirst: [...served.servicesWorstFirst.slice(0, 2), ...more, ...served.servicesWorstFirst.slice(2)],
+      },
+    });
 
     renderHome();
 
@@ -249,6 +263,30 @@ describe("HomeScreen", () => {
     expect(within(outlook).getByText("17 days")).toBeVisible();
     expect(within(outlook).getByText("23 days")).toBeVisible();
     expect(within(outlook).getByText("Disk / on web-01 is full at this pace (81% now)")).toBeVisible();
+  });
+
+  it("explains every tile behind its question mark", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.home).mockResolvedValue(stormSnapshot);
+
+    renderHome();
+
+    const metrics = await screen.findByRole("region", { name: "Key metrics" });
+    expect(
+      within(metrics)
+        .getAllByRole("button", { name: /^What .* means$/ })
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["What Errors means", "What Latency p95 means", "What Ingest means", "What Log storage means"]);
+    for (const name of ["Observed", "Expected", "Services", "Hosts", "Outlook", "Needs you"]) {
+      expect(screen.getByRole("button", { name: `What ${name} means` })).toBeInTheDocument();
+    }
+    // The question marks sit beside the headings, so the panels keep their names.
+    expect(screen.getByRole("region", { name: "Needs you" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "What Ingest means" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/per second, averaged over the last 5 minutes/);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 
   it("says what it needs when there are no metrics", async () => {
@@ -315,12 +353,17 @@ describe("HomeScreen", () => {
       ],
     };
     vi.mocked(api.home).mockImplementation((environment) => Promise.resolve({ ...snapshot, environment }));
+    vi.mocked(api.homeEnvironments).mockImplementation((search) =>
+      Promise.resolve(environmentChoicesOf(snapshot.environments, search)),
+    );
     const user = userEvent.setup();
 
     renderHome();
     await user.click(await screen.findByRole("button", { name: /^Environment:/ }));
     await user.click(
-      within(screen.getByRole("dialog", { name: "Choose an environment" })).getByRole("button", { name: /staging/ }),
+      await within(screen.getByRole("dialog", { name: "Choose an environment" })).findByRole("button", {
+        name: /staging/,
+      }),
     );
 
     await vi.waitFor(() => expect(api.home).toHaveBeenLastCalledWith("staging", expect.anything()));
@@ -351,6 +394,7 @@ describe("HomeScreen", () => {
       ...clearSnapshot,
       blocks: [],
       condition: { kind: "Clear", over: null, errorRatio: null },
+      estate: { ...clearSnapshot.estate, services: [], servicesWorstFirst: [] },
     });
 
     renderHome();

@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,7 +7,7 @@ import type * as client from "../api/client";
 import { api } from "../api/client";
 import { App } from "../app/App";
 import { SessionProvider } from "../session/SessionProvider";
-import { dana, people, tom, tomDetail } from "./testUsers";
+import { dana, people, tom, tomDetail, userList, userListOf } from "./testUsers";
 
 vi.mock("../api/client", async (importOriginal) => {
   const original = await importOriginal<typeof client>();
@@ -52,8 +52,9 @@ beforeEach(() => {
     displayName: dana.displayName,
     role: "Admin",
     timeZone: null,
+    look: { chosen: null, default: "forecast", mayChoose: true },
   });
-  vi.mocked(api.listUsers).mockResolvedValue(people);
+  vi.mocked(api.listUsers).mockResolvedValue(userList);
   vi.mocked(api.user).mockResolvedValue(tomDetail);
   vi.mocked(api.secondFactorPolicy).mockResolvedValue({ requiredFor: "Admins" });
   vi.mocked(api.setSecondFactorPolicy).mockImplementation((requiredFor) => Promise.resolve({ requiredFor }));
@@ -82,13 +83,61 @@ describe("UsersScreen", () => {
     expect(within(grid).getByRole("button", { name: /Tom Okafor/ })).toHaveTextContent("Locked");
   });
 
-  it("filters to the people without a second factor", async () => {
+  it("explains the rings and the badges with a question mark", async () => {
     const user = userEvent.setup();
+    renderAt("/users");
+
+    const strip = await screen.findByRole("region", { name: "Security" });
+    expect(within(strip).getByRole("button", { name: "What Second factors means" })).toBeInTheDocument();
+    expect(within(strip).getByRole("button", { name: "What Recent sign-ins means" })).toBeInTheDocument();
+    expect(within(strip).getByRole("button", { name: "What Admins with a second factor means" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "What People means" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/amber/);
+  });
+
+  it("explains a person's figures, sign-in days, and sessions with a question mark", async () => {
+    const user = userEvent.setup();
+    renderAt("/users");
+
+    await user.click(await screen.findByRole("button", { name: /Tom Okafor/ }));
+    const panel = await screen.findByRole("region", { name: "Tom Okafor" });
+    for (const name of ["Last active", "Sessions", "Sign-ins, 30 days"]) {
+      expect(within(panel).getByRole("button", { name: `What ${name} means` })).toBeInTheDocument();
+    }
+
+    await user.click(within(panel).getByRole("tab", { name: /Sign-ins/ }));
+    await user.click(within(panel).getByRole("button", { name: "What Last 14 days means" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/failed/);
+    expect(within(panel).getByRole("button", { name: "What Latest sign-ins means" })).toBeInTheDocument();
+
+    await user.click(within(panel).getByRole("tab", { name: /Sessions/ }));
+    expect(within(panel).getByRole("button", { name: "What Open sessions means" })).toBeInTheDocument();
+  });
+
+  it("draws the sign-in days the server counted, not the few attempts it lists", async () => {
+    const user = userEvent.setup();
+    renderAt("/users");
+
+    await user.click(await screen.findByRole("button", { name: /Tom Okafor/ }));
+    const panel = await screen.findByRole("region", { name: "Tom Okafor" });
+    await user.click(within(panel).getByRole("tab", { name: /Sign-ins/ }));
+
+    expect(within(panel).getByRole("img", { name: "Last 14 days: 2 signed in, 64 failed" })).toBeVisible();
+  });
+
+  it("asks the server for the people without a second factor and lists its answer", async () => {
+    const user = userEvent.setup();
+    const without = people.filter((person) => !person.secondFactorSince);
+    vi.mocked(api.listUsers).mockImplementation((choices) =>
+      Promise.resolve(choices.show === "nofactor" ? userListOf(without) : userList),
+    );
     renderAt("/users");
 
     await user.click(await screen.findByRole("radio", { name: /No second factor/ }));
 
+    expect(api.listUsers).toHaveBeenLastCalledWith({ search: "", show: "nofactor" }, expect.any(AbortSignal));
     const grid = screen.getByRole("list", { name: "People" });
+    await waitFor(() => expect(within(grid).getAllByRole("listitem")).toHaveLength(without.length));
     expect(
       within(grid)
         .getAllByRole("listitem")
@@ -98,6 +147,37 @@ describe("UsersScreen", () => {
       expect.stringContaining("Mei Chen"),
       expect.stringContaining("Sam Taylor"),
     ]);
+  });
+
+  it("asks the server for the people the search keeps, with the chip counts it gives", async () => {
+    const user = userEvent.setup();
+    const payments = people.filter((person) => person.team === "Payments");
+    vi.mocked(api.listUsers).mockImplementation((choices) =>
+      Promise.resolve(
+        choices.search === "pay" ? userListOf(payments, { everyone: 2, noFactor: 1, locked: 1, off: 0 }) : userList,
+      ),
+    );
+    renderAt("/users");
+
+    await user.type(await screen.findByRole("searchbox", { name: "Find a person" }), "pay");
+
+    expect(api.listUsers).toHaveBeenLastCalledWith({ search: "pay", show: "everyone" }, expect.any(AbortSignal));
+    expect(await screen.findByRole("radio", { name: "Everyone 2" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Switched off 0" })).toBeInTheDocument();
+    expect(within(screen.getByRole("list", { name: "People" })).getAllByRole("listitem")).toHaveLength(2);
+    expect(screen.getByRole("region", { name: "Security" })).toHaveTextContent("5 of 8use a second factor");
+  });
+
+  it("shows the rings and the role bar as the server counts them", async () => {
+    vi.mocked(api.listUsers).mockResolvedValue({
+      ...userList,
+      posture: { ...userList.posture, people: 40, withSecondFactor: 31 },
+      roles: { admins: 4, editors: 10, viewers: 26 },
+    });
+    renderAt("/users");
+
+    expect(await screen.findByRole("region", { name: "Security" })).toHaveTextContent("31 of 40use a second factor");
+    expect(screen.getByRole("img", { name: "4 Admins, 10 Editors, 26 Viewers" })).toBeInTheDocument();
   });
 
   it("opens a person with their sign-ins, flagging an address not seen before", async () => {

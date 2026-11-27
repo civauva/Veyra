@@ -32,7 +32,7 @@ public class PostgresViewTests
         AddLevel("postgresql.query.duration.max", 134, attributes: [("postgresql.database.name", "shop")]);
         AddLevel("postgresql.query.duration.max", 3, attributes: [("postgresql.database.name", "reporting")]);
 
-        var view = (await Builder().DatabaseAsync("postgresql", "pg-main", "1h", default))!;
+        var view = (await Builder().DatabaseAsync("postgresql", "pg-main", "1h", system: true, default))!;
 
         var card = view.Card;
         Assert.Equal(("postgresql", "pg-main", "production"), (card.Engine, card.Server, card.Environment));
@@ -58,7 +58,7 @@ public class PostgresViewTests
         AddCounter("postgresql.deadlocks", perMinute: 1, Database("shop"));
         AddLevel("postgresql.deadlocks", 7, Database("reporting"));
 
-        var view = (await Builder().DatabaseAsync("postgresql", "pg-main", "1h", default))!;
+        var view = (await Builder().DatabaseAsync("postgresql", "pg-main", "1h", system: true, default))!;
 
         Assert.Equal(5, view.Card.Deadlocks);
     }
@@ -86,7 +86,7 @@ public class PostgresViewTests
         AddCounter("postgresql.table.vacuum.count", perMinute: 1, Table("shop", "carts"));
         AddLevel("postgresql.table.vacuum.count", 40, Table("shop", "orders"));
 
-        var view = (await Builder().DatabaseAsync("postgresql", "pg-main", "1h", default))!;
+        var view = (await Builder().DatabaseAsync("postgresql", "pg-main", "1h", system: true, default))!;
 
         Assert.Equal(["shop", "reporting"], view.Databases.Select(database => database.Name));
         var shop = view.Databases[0];
@@ -109,13 +109,42 @@ public class PostgresViewTests
     }
 
     [Fact]
+    public async Task DatabaseAsync_SystemHidden_ListsTheApplicationsTablesAndDatabasesOnly()
+    {
+        AddLevel("postgresql.db_size", 412e9, Database("shop"));
+        AddLevel("postgresql.db_size", 8e6, Database("postgres"));
+        AddLevel("postgresql.rows", 900, Table("shop", "orders"), [("state", "live")]);
+        AddLevel("postgresql.rows", 10, Table("shop", "orders"), [("state", "dead")]);
+
+        // Twelve catalog tables with more dead rows than the application's: the ten listed must still be its own.
+        for (var index = 0; index < 12; index++)
+        {
+            (string, string)[] catalog =
+            [
+                ("postgresql.database.name", "shop"),
+                ("postgresql.table.name", $"pg_catalog.pg_table_{index}"),
+            ];
+            AddLevel("postgresql.rows", 100, catalog, [("state", "live")]);
+            AddLevel("postgresql.rows", 500, catalog, [("state", "dead")]);
+        }
+
+        var view = (await Builder().DatabaseAsync("postgresql", "pg-main", "1h", system: false, default))!;
+
+        Assert.Equal(["shop"], view.Databases.Select(database => database.Name));
+        Assert.Equal(["orders"], view.Tables.Select(table => table.Name));
+        Assert.Equal(1, view.HiddenDatabases.Count);
+        Assert.Equal(12, view.HiddenTables.Count);
+        Assert.Empty(view.HiddenTables.Names);
+    }
+
+    [Fact]
     public async Task DatabaseAsync_PostgresDatabase_GrowsPerDay()
     {
         var size = AddSeries("postgresql.db_size", MetricKind.Sum, Database("shop"), []);
         _store.Point(size, _baseline.AddMinutes(5).AddDays(-1), 400e9);
         _store.Point(size, _baseline.AddMinutes(5), 412e9);
 
-        var view = (await Builder().DatabaseAsync("postgresql", "pg-main", "1h", default))!;
+        var view = (await Builder().DatabaseAsync("postgresql", "pg-main", "1h", system: true, default))!;
 
         Assert.Equal(12e9, view.Databases.Single().GrowthBytesPerDay!.Value, 0);
     }

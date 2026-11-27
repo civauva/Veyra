@@ -1,45 +1,34 @@
-import type { SessionInfo, SignInAttempt } from "../api/types";
+import type { SessionInfo, SignInAttempt, SignInDays as SignInDayCounts } from "../api/types";
 import { formatSince, formatWhen, outcomeText } from "./userFormat";
-import { localDay, shiftDay } from "../time/zone";
 
 /** Props for {@link SignInDays}. */
 interface SignInDaysProps {
-  /** The latest sign-in attempts. */
-  signIns: SignInAttempt[];
-  /** The current time. */
-  now: Date;
+  /** Every attempt of the last 14 days, counted per day on the server on the viewer's calendar (VEY-68). */
+  counts: SignInDayCounts;
 }
 
 /**
  * Sign-in attempts of the last 14 days, one column per day: successful ones rise above the line, failed ones hang
  * below it, so a burst of wrong passwords stands out at once.
  */
-export function SignInDays({ signIns, now }: SignInDaysProps) {
-  // Days on the person's calendar (VEY-22), so a sign-in after their midnight counts on the new day.
-  const today = localDay(now);
-  const days = Array.from({ length: 14 }, (_, index) => {
-    const day = shiftDay(today, index - 13);
-    const inDay = signIns.filter((one) => localDay(one.at) === day);
-
-    return {
-      good: inDay.filter((one) => outcomeText(one.outcome).tone !== "bad").length,
-      bad: inDay.filter((one) => outcomeText(one.outcome).tone === "bad").length,
-    };
-  });
-  const most = Math.max(1, ...days.map((day) => Math.max(day.good, day.bad)));
-  const good = days.reduce((sum, day) => sum + day.good, 0);
-  const bad = days.reduce((sum, day) => sum + day.bad, 0);
+export function SignInDays({ counts }: SignInDaysProps) {
+  // The tallest column sets the scale, so the chart fits any number of attempts.
+  const most = Math.max(1, ...counts.days.map((day) => Math.max(day.signedIn, day.failed)));
 
   return (
     <div className="signin-days">
-      <div className="days" role="img" aria-label={`Last 14 days: ${good} signed in, ${bad} failed`}>
-        {days.map((day, index) => (
-          <div key={index}>
+      <div
+        className="days"
+        role="img"
+        aria-label={`Last 14 days: ${counts.signedIn} signed in, ${counts.failed} failed`}
+      >
+        {counts.days.map((day) => (
+          <div key={day.day}>
             <span className="up">
-              <b style={{ height: `${(day.good / most) * 100}%` }} />
+              <b style={{ height: `${(day.signedIn / most) * 100}%` }} />
             </span>
             <span className="down">
-              <b style={{ height: `${(day.bad / most) * 100}%` }} />
+              <b style={{ height: `${(day.failed / most) * 100}%` }} />
             </span>
           </div>
         ))}

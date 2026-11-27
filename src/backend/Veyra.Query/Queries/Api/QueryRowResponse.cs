@@ -12,6 +12,10 @@ namespace Veyra.Query.Queries.Api;
 /// <param name="PerRunSeconds">Time per run.</param>
 /// <param name="Plans">How many plans it used over the range.</param>
 /// <param name="Findings">What its plans and history show, the worst first.</param>
+/// <param name="System">
+/// Whether it is the server's own housekeeping rather than an application's work (VEY-64), which the tab hides unless
+/// asked.
+/// </param>
 public sealed record QueryRowResponse(
     string QueryHash,
     string? Database,
@@ -23,4 +27,5 @@ public sealed record QueryRowResponse(
     long Reads,
     double PerRunSeconds,
     int Plans,
-    IReadOnlyList<PlanWarningResponse> Findings);
+    IReadOnlyList<PlanWarningResponse> Findings,
+    bool System);

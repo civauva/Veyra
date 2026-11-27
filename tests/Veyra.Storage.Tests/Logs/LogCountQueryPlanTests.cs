@@ -28,6 +28,17 @@ public class LogCountQueryPlanTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task CreateCommand_ExactLevels_StillReadOnlyTheHourCounts()
+    {
+        await using var database = await CreateWeekAsync();
+        var query = Query(_today.AddDays(-7), _today) with { Levels = [LogSeverity.Error, LogSeverity.Fatal] };
+
+        var plan = await ExplainAsync(database, query, TimeSpan.FromHours(1));
+
+        Assert.All(plan.Relations, relation => Assert.StartsWith("log_count_hour_202611", relation));
+    }
+
+    [Fact]
     public async Task CreateCommand_UnalignedWindow_ReadsRecordsOnlyOfTheEdgeDaysByTime()
     {
         await using var database = await CreateWeekAsync();

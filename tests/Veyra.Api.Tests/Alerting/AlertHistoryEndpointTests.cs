@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Veyra.Alerting.Alerts;
 using Veyra.Alerting.Catalog;
@@ -38,6 +39,21 @@ public class AlertHistoryEndpointTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task Catalog_EachRule_SaysWhatItMeansAndHowToFixIt()
+    {
+        await using var factory = await VeyraApiFactory.CreateAsync(postgres);
+        using var admin = await factory.CreateAdminClientAsync();
+
+        var catalog = await admin.GetFromJsonAsync<List<CatalogEntry>>("/api/v1/alerts/catalog");
+
+        Assert.Equal(RuleCatalog.All.Count, catalog!.Count);
+        Assert.All(catalog, rule => Assert.NotEmpty(rule.Steps));
+        var integrity = catalog.Single(rule => rule.Id == "db-checkdb-age");
+        Assert.Contains("corrupt", integrity.Meaning, StringComparison.Ordinal);
+        Assert.Contains(integrity.Steps, step => step.Script?.Contains("DBCC CHECKDB", StringComparison.Ordinal) == true);
+    }
+
+    [Fact]
     public async Task HostAlert_IsListedByKindWithItsDiskDetailsAndLightsAHostBlock()
     {
         await using var factory = await VeyraApiFactory.CreateAsync(postgres);
@@ -60,11 +76,16 @@ public class AlertHistoryEndpointTests(PostgresFixture postgres)
 
         var hosts = await admin.GetFromJsonAsync<AlertList>("/api/v1/alerts?kind=host&q=web");
         var services = await admin.GetFromJsonAsync<AlertList>("/api/v1/alerts?kind=service");
+        var exact = await admin.GetFromJsonAsync<AlertList>(
+            "/api/v1/alerts?kind=host&block=web-01&part=%2F&order=worst");
+        var other = await admin.GetFromJsonAsync<AlertList>("/api/v1/alerts?kind=host&block=web&order=worst");
         var details = await admin.GetFromJsonAsync<Details>($"/api/v1/alerts/{disk.Id}");
         var home = await admin.GetFromJsonAsync<Home>("/api/v1/home");
 
         Assert.Equal(disk.Id, Assert.Single(hosts!.Items).Id);
         Assert.Empty(services!.Items);
+        Assert.Equal(disk.Id, Assert.Single(exact!.Items).Id);
+        Assert.Empty(other!.Items);
         Assert.Equal(new Block("host", "web-01", "/", "host:production/web-01"), details!.Block);
         Assert.Null(details.Service);
         Assert.True(details.LowerIsWorse);
@@ -76,6 +97,42 @@ public class AlertHistoryEndpointTests(PostgresFixture postgres)
         Assert.Equal(("host", "web-01", "/"), (home.Alerts[0].Kind, home.Alerts[0].Name, home.Alerts[0].Part));
     }
 
+    [Fact]
+    public async Task Areas_DatabaseAlert_LeadsWithItsAreaAndTellsTheAreaOnTheListToo()
+    {
+        await using var factory = await VeyraApiFactory.CreateAsync(postgres);
+        using var admin = await factory.CreateAdminClientAsync();
+        var now = DateTimeOffset.UtcNow;
+        var backup = new AlertState(
+            Guid.CreateVersion7(),
+            "db-backup-age",
+            "production",
+            AlertSubject.Database("microsoft.sql_server sql-prod-01", "shop"),
+            AlertSeverity.Warning,
+            30,
+            30,
+            26,
+            TimeSpan.FromMinutes(5),
+            now.AddHours(-1),
+            now,
+            null);
+        await factory.Services.GetRequiredService<AlertStore>().InsertAsync(backup, CancellationToken.None);
+
+        var areas = await admin.GetFromJsonAsync<JsonElement>(
+            "/api/v1/alerts/areas?block=microsoft.sql_server%20sql-prod-01&area=blocking&area=databases");
+        var list = await admin.GetFromJsonAsync<JsonElement>("/api/v1/alerts?kind=database");
+        using var unknown = await admin.GetAsync(new Uri("/api/v1/alerts/areas?block=x&area=planet", UriKind.Relative));
+
+        Assert.Equal(2, areas.GetArrayLength());
+        Assert.Equal(
+            ("databases", "Warning"),
+            (areas[0].GetProperty("area").GetString(), areas[0].GetProperty("health").GetString()));
+        Assert.Equal(backup.Id, areas[0].GetProperty("alerts")[0].GetProperty("id").GetGuid());
+        Assert.Equal("Ok", areas[1].GetProperty("health").GetString());
+        Assert.Equal("databases", list.GetProperty("items")[0].GetProperty("area").GetString());
+        Assert.Equal(HttpStatusCode.BadRequest, unknown.StatusCode);
+    }
+
     [Theory]
     [InlineData("days=0")]
     [InlineData("days=91")]
@@ -84,6 +141,7 @@ public class AlertHistoryEndpointTests(PostgresFixture postgres)
     [InlineData("kind=planet")]
     [InlineData("limit=0")]
     [InlineData("limit=201")]
+    [InlineData("order=sideways")]
     [InlineData("cursor=not-a-cursor")]
     public async Task List_InvalidQuery_IsAnsweredWithAProblem(string query)
     {
@@ -137,6 +195,10 @@ public class AlertHistoryEndpointTests(PostgresFixture postgres)
     }
 
     private sealed record AlertList(List<Item> Items, string? Next);
+
+    private sealed record CatalogEntry(string Id, string Meaning, List<Step> Steps);
+
+    private sealed record Step(string Text, string? Script);
 
     private sealed record Item(Guid Id, string Rule, Block Block, string Severity, string Worst, DateTimeOffset? ResolvedAt);
 

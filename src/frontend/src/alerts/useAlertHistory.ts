@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api, ApiError } from "../api/client";
 import type { AlertListItem, AlertQuery, AlertSummary } from "../api/types";
+import { useRefreshEvery } from "../app/shellContext";
 
 /** How often the Alerts screen fetches again while it shows only its first page: twice a minute. */
 export const historyRefreshMilliseconds = 30_000;
@@ -51,6 +52,9 @@ export function useAlertHistory(query: AlertQuery): AlertHistoryState {
 
   const pages = state.key === key ? state.pages : 0;
 
+  // The shell's refresh interval, or the history's own outside a shell (ADR 0022).
+  const every = useRefreshEvery(historyRefreshMilliseconds);
+
   useEffect(() => {
     if (pages > 1) {
       return;
@@ -88,14 +92,16 @@ export function useAlertHistory(query: AlertQuery): AlertHistoryState {
     }
 
     void load();
-    const timer = window.setInterval(() => void load(), historyRefreshMilliseconds);
+    const timer = every === null ? null : window.setInterval(() => void load(), every);
 
     return () => {
       stopped = true;
-      window.clearInterval(timer);
+      if (timer !== null) {
+        window.clearInterval(timer);
+      }
       controller?.abort();
     };
-  }, [key, pages]);
+  }, [key, pages, every]);
 
   const loadMore = useCallback(() => {
     if (!state.next || state.loadingMore) {

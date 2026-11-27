@@ -1,4 +1,5 @@
-# A throwaway SQL Server with SQL Agent, and the Collector with ../collector.yaml writing to a file instead of Veyra.
+# A throwaway SQL Server with SQL Agent, and the Collector with ../collector.yaml and the connection probe of
+# ../probe.yaml writing to a file instead of Veyra.
 # run.sh starts it, seeds it, and checks what the Collector sends. Passwords come from run.sh, never from this file.
 name: veyra-sqlserver-check
 
@@ -16,6 +17,7 @@ services:
     user: "0"
     command:
       - --config=/etc/check/collector.yaml
+      - --config=/etc/check/probe.yaml
       - --config=/etc/check/to-file.yaml
     environment:
       VEYRA_OTLP_ENDPOINT: http://unused:4318
@@ -28,9 +30,12 @@ services:
       SQLSERVER_ENCRYPT: "true"
       # The container's own certificate is self-signed, with a serial number Go refuses unless told otherwise.
       SQLSERVER_TRUST_CERT: "true"
+      # The probe of ../probe.yaml (ADR 0028), as Veyra adds it for Test connection, answers under this ID.
+      VEYRA_PROBE_ID: 0195a00000007000800000000000c0de
       GODEBUG: x509negativeserial=1
     volumes:
       - ../collector.yaml:/etc/check/collector.yaml:ro
+      - ../probe.yaml:/etc/check/probe.yaml:ro
       - ./to-file.yaml:/etc/check/to-file.yaml:ro
       - ./out:/out
     depends_on:

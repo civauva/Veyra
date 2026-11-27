@@ -39,7 +39,13 @@ describe("narrative", () => {
   });
 
   it("says when no logs arrived", () => {
-    expect(narrative({ ...clearSnapshot, blocks: [] })).toBe("No logs arrived in the last hour.");
+    const quiet = {
+      ...clearSnapshot,
+      blocks: [],
+      estate: { ...clearSnapshot.estate, services: [], servicesWorstFirst: [] },
+    };
+
+    expect(narrative(quiet)).toBe("No logs arrived in the last hour.");
   });
 
   it("counts several cautions in the plural", () => {
@@ -53,6 +59,8 @@ describe("narrative", () => {
     const snapshot = {
       ...stormSnapshot,
       alerts: [caution("orders", 1), caution("billing", 2), caution("search", 3)],
+      // The server counts the alerts (VEY-68).
+      estate: { ...stormSnapshot.estate, alertCounts: { warnings: 0, cautions: 3 } },
     };
 
     expect(narrative(snapshot)).toMatch(/^3 cautions need you\./);
@@ -76,6 +84,11 @@ describe("formatBytes", () => {
     expect(formatBytes(340 * 1024 * 1024)).toBe("340 MB");
     expect(formatBytes(1.2 * 1024 * 1024 * 1024)).toBe("1.2 GB");
     expect(formatBytes(20 * 1024 * 1024 * 1024)).toBe("20 GB");
+  });
+
+  it("formats a shrinking size in the same units, with a minus (VEY-81)", () => {
+    expect(formatBytes(-208273408)).toBe("−199 MB");
+    expect(formatBytes(-512)).toBe("−512 B");
   });
 });
 

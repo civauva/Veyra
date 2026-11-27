@@ -52,13 +52,10 @@ export function SettingField({ setting, edit, problem, tagAdvanced = false, onEd
   const id = useId();
   const noteId = `${id}-note`;
   const name = fieldName(setting);
-  const edited = edit !== undefined;
-  const value = edited ? edit : setting.value;
-  const [changingSecret, setChangingSecret] = useState(false);
+  const on = (edit !== undefined ? edit : setting.value) === "true";
 
-  if (setting.kind === "Switch") {
-    const on = (edited ? edit : setting.value) === "true";
-
+  // A rule's own On switch sits bare in its card's header; any other switch is a field like the rest, with its name.
+  if (setting.kind === "Switch" && setting.label === "On") {
     return (
       <div className="setting-field setting-switch">
         <button
@@ -73,117 +70,179 @@ export function SettingField({ setting, edit, problem, tagAdvanced = false, onEd
     );
   }
 
-  const control = (() => {
-    switch (setting.kind) {
-      case "Choice":
-        return (
-          <select
-            id={id}
-            aria-label={name}
-            aria-describedby={noteId}
-            value={value ?? ""}
-            onChange={(event) => onEdit(event.target.value === setting.value ? undefined : event.target.value)}
-          >
-            {setting.choices.map((choice) => (
-              <option key={choice} value={choice}>
-                {choice}
-              </option>
-            ))}
-          </select>
-        );
-      case "Secret":
-        if (!changingSecret && !edited) {
-          return (
-            <span className="setting-secret">
-              <span>{setting.isSet ? "Set · stored encrypted" : "Not set"}</span>
-              <button
-                type="button"
-                className="button small quiet"
-                aria-label={`Change ${setting.label}`}
-                onClick={() => setChangingSecret(true)}
-              >
-                Change
-              </button>
-            </span>
-          );
-        }
-
-        return (
-          <input
-            id={id}
-            type="password"
-            autoComplete="new-password"
-            aria-label={name}
-            aria-describedby={noteId}
-            value={edit ?? ""}
-            onChange={(event) => onEdit(event.target.value === "" ? undefined : event.target.value)}
-          />
-        );
-      default:
-        return (
-          <span className={`setting-input${edited ? " edited" : ""}${problem ? " invalid" : ""}`}>
-            <input
-              id={id}
-              type="text"
-              inputMode={setting.kind === "Text" ? "text" : "decimal"}
-              aria-label={name}
-              aria-describedby={noteId}
-              aria-invalid={problem ? true : undefined}
-              value={toShown(setting, value ?? null)}
-              placeholder={setting.optional ? "none" : undefined}
-              onChange={(event) => {
-                const next = fromShown(setting, event.target.value);
-
-                onEdit(next === (setting.value ?? "") ? undefined : next);
-              }}
-            />
-            {setting.unit && <em aria-hidden="true">{setting.unit}</em>}
-          </span>
-        );
-    }
-  })();
-
   return (
     <div className="setting-field">
       <label htmlFor={id}>
         {setting.label}
         {tagAdvanced && setting.advanced && <span className="setting-tag">Advanced</span>}
       </label>
-      {control}
-      <span id={noteId} className={`setting-note${problem ? " problem" : edited ? " edited" : ""}`}>
-        {problem ? (
-          problem
-        ) : edited ? (
-          <>
-            {edit === null
-              ? `Resets to ${describeValue(setting, setting.default)}`
-              : setting.kind === "Secret"
-                ? "Replaces the stored value"
-                : `Was ${describeValue(setting, setting.value)}`}{" "}
-            ·{" "}
-            <button type="button" className="link-button" onClick={() => onEdit(undefined)}>
-              Undo
-            </button>
-          </>
-        ) : setting.saved ? (
-          <>
-            Saved by {setting.savedBy ?? "someone"}
-            {setting.savedAt ? ` · ${shortDate(setting.savedAt)} ${formatClock(setting.savedAt)}` : ""} ·{" "}
+      <SettingControl setting={setting} edit={edit} problem={problem} id={id} noteId={noteId} onEdit={onEdit} />
+      <SettingNote setting={setting} edit={edit} problem={problem} id={noteId} onEdit={onEdit} />
+    </div>
+  );
+}
+
+/** Props for {@link SettingControl}. */
+export interface SettingControlProps {
+  /** The setting, with the value in effect. */
+  setting: Setting;
+  /** The person's unsaved edit, if any. */
+  edit: SettingEdit;
+  /** Why the last review refused the value, or null. */
+  problem: string | null;
+  /** The control's element ID, which its label points to. */
+  id: string;
+  /** The ID of the note that describes it. */
+  noteId: string;
+  /** Called with a new edit; undefined takes the edit back. */
+  onEdit: (edit: SettingEdit) => void;
+}
+
+/**
+ * A setting's control, chosen by its kind: a switch, a choice, a secret that can only be replaced, or a box for a
+ * number, a duration, or text with its unit. Every look draws it, each in its own row or field.
+ */
+export function SettingControl({ setting, edit, problem, id, noteId, onEdit }: SettingControlProps) {
+  const name = fieldName(setting);
+  const edited = edit !== undefined;
+  const value = edited ? edit : setting.value;
+  const [changingSecret, setChangingSecret] = useState(false);
+  const on = value === "true";
+
+  switch (setting.kind) {
+    case "Switch":
+      return (
+        <button
+          id={id}
+          type="button"
+          role="switch"
+          className="switch"
+          aria-checked={on}
+          aria-label={name}
+          aria-describedby={noteId}
+          onClick={() => onEdit(String(!on) === setting.value ? undefined : String(!on))}
+        />
+      );
+    case "Choice":
+      return (
+        <select
+          id={id}
+          aria-label={name}
+          aria-describedby={noteId}
+          value={value ?? ""}
+          onChange={(event) => onEdit(event.target.value === setting.value ? undefined : event.target.value)}
+        >
+          {setting.choices.map((choice) => (
+            <option key={choice} value={choice}>
+              {choice}
+            </option>
+          ))}
+        </select>
+      );
+    case "Secret":
+      if (!changingSecret && !edited) {
+        return (
+          <span className="setting-secret">
+            <span>{setting.isSet ? "Set · stored encrypted" : "Not set"}</span>
             <button
               type="button"
-              className="link-button"
-              aria-label={`Reset ${setting.label} to ${describeValue(setting, setting.default)}`}
-              onClick={() => onEdit(null)}
+              className="button small quiet"
+              aria-label={`Change ${setting.label}`}
+              onClick={() => setChangingSecret(true)}
             >
-              Reset
+              Change
             </button>
-          </>
-        ) : setting.kind === "Secret" ? (
-          setting.help
-        ) : (
-          `Default ${describeValue(setting, setting.default)}${sourceWords(setting)}`
-        )}
-      </span>
-    </div>
+          </span>
+        );
+      }
+
+      return (
+        <input
+          id={id}
+          type="password"
+          autoComplete="new-password"
+          aria-label={name}
+          aria-describedby={noteId}
+          value={edit ?? ""}
+          onChange={(event) => onEdit(event.target.value === "" ? undefined : event.target.value)}
+        />
+      );
+    default:
+      return (
+        <span className={`setting-input${edited ? " edited" : ""}${problem ? " invalid" : ""}`}>
+          <input
+            id={id}
+            type="text"
+            inputMode={setting.kind === "Text" ? "text" : "decimal"}
+            aria-label={name}
+            aria-describedby={noteId}
+            aria-invalid={problem ? true : undefined}
+            value={toShown(setting, value ?? null)}
+            placeholder={setting.optional ? "none" : undefined}
+            onChange={(event) => {
+              const next = fromShown(setting, event.target.value);
+
+              onEdit(next === (setting.value ?? "") ? undefined : next);
+            }}
+          />
+          {setting.unit && <em aria-hidden="true">{setting.unit}</em>}
+        </span>
+      );
+  }
+}
+
+/** Props for {@link SettingNote}. */
+export interface SettingNoteProps {
+  /** The setting, with the value in effect. */
+  setting: Setting;
+  /** The person's unsaved edit, if any. */
+  edit: SettingEdit;
+  /** Why the last review refused the value, or null. */
+  problem: string | null;
+  /** The note's element ID, which its control points to. */
+  id: string;
+  /** Called with a new edit; undefined takes the edit back, null resets to the default. */
+  onEdit: (edit: SettingEdit) => void;
+}
+
+/** The note under a setting: the problem, what an edit changes with Undo, who saved it with Reset, or its default. */
+export function SettingNote({ setting, edit, problem, id, onEdit }: SettingNoteProps) {
+  const edited = edit !== undefined;
+
+  return (
+    <span id={id} className={`setting-note${problem ? " problem" : edited ? " edited" : ""}`}>
+      {problem ? (
+        problem
+      ) : edited ? (
+        <>
+          {edit === null
+            ? `Resets to ${describeValue(setting, setting.default)}`
+            : setting.kind === "Secret"
+              ? "Replaces the stored value"
+              : `Was ${describeValue(setting, setting.value)}`}{" "}
+          ·{" "}
+          <button type="button" className="link-button" onClick={() => onEdit(undefined)}>
+            Undo
+          </button>
+        </>
+      ) : setting.saved ? (
+        <>
+          Saved by {setting.savedBy ?? "someone"}
+          {setting.savedAt ? ` · ${shortDate(setting.savedAt)} ${formatClock(setting.savedAt)}` : ""} ·{" "}
+          <button
+            type="button"
+            className="link-button"
+            aria-label={`Reset ${setting.label} to ${describeValue(setting, setting.default)}`}
+            onClick={() => onEdit(null)}
+          >
+            Reset
+          </button>
+        </>
+      ) : setting.kind === "Secret" ? (
+        setting.help
+      ) : (
+        `Default ${describeValue(setting, setting.default)}${sourceWords(setting)}`
+      )}
+    </span>
   );
 }

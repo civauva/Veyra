@@ -48,6 +48,7 @@ How work moves from an idea to a release.
 ## Releasing
 
 - **Versions.** Semantic versioning. Pre-release milestones are `v0.x`, as listed in the roadmap.
-- **Release notes.** Each version has release notes that describe what changed for users.
+- **Release notes.** Each version has release notes in `CHANGELOG.md` that describe what changed for users; the app
+  shows them behind its version. See [`releasing.md`](releasing.md).
 - **Reference installation.** Merged changes are deployed often to the maintainer's reference installation, which
   Veyra also monitors. Problems found there become work items.

@@ -52,6 +52,7 @@ beforeEach(() => {
     displayName: lenaAccount.displayName,
     role: "Editor",
     timeZone: null,
+    look: { chosen: null, default: "forecast", mayChoose: true },
   });
   vi.mocked(api.setTimeZone).mockResolvedValue(undefined);
   vi.mocked(api.account).mockResolvedValue(lenaAccount);
@@ -108,6 +109,16 @@ describe("AccountScreen", () => {
     expect(within(sessions).getByRole("listitem", { name: "Edge on Windows" })).toHaveTextContent("this one");
     expect(screen.getByRole("list", { name: "Recent sign-ins" })).toHaveTextContent("Wrong password");
     expect(screen.getByRole("region", { name: "Two-factor sign-in" })).toHaveTextContent("9 of 10 recovery codes left");
+  });
+
+  it("explains where you are signed in and your recent sign-ins with a question mark", async () => {
+    const user = userEvent.setup();
+    renderAccount();
+
+    expect(await screen.findByRole("button", { name: "What Recent sign-ins means" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Where you are signed in" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "What Where you are signed in means" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/session/);
   });
 
   it("changes the password once both new ones match", async () => {

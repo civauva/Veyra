@@ -54,4 +54,8 @@ public sealed record DatabaseStorageResponse(
     string? LastFullDestination,
     double? CheckdbAgeSeconds,
     double DamagedPages,
-    IReadOnlyList<PlanWarningResponse> Findings);
+    IReadOnlyList<PlanWarningResponse> Findings)
+{
+    /// <summary>Whether the engine keeps the database for itself (VEY-64), such as master or msdb.</summary>
+    public bool System { get; init; }
+}

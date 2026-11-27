@@ -131,3 +131,51 @@ describe("times in the person's zone (VEY-22)", () => {
     expect(initOf(fetchMock, 0)?.body).toBe(JSON.stringify({ timeZone: "Europe/Berlin" }));
   });
 });
+
+describe("the reads of the Console screens (ADR 0029)", () => {
+  it("sends the explorer's service and host to the chart read", async () => {
+    const fetchMock = mockFetch(json({ lines: [] }));
+
+    await api.metricChart({
+      name: "http.server.request.duration",
+      show: "p95",
+      split: "service.name",
+      service: "checkout",
+      host: "web-01",
+      range: "24h",
+    });
+
+    const sent = new URL(String(fetchMock.mock.calls[0]?.[0]), "http://veyra");
+    expect(sent.pathname).toBe("/api/v1/metrics/chart");
+    expect(sent.searchParams.get("service")).toBe("checkout");
+    expect(sent.searchParams.get("host")).toBe("web-01");
+    expect(sent.searchParams.get("split")).toBe("service.name");
+  });
+
+  it("leaves the service and the host out when none is chosen", async () => {
+    const fetchMock = mockFetch(json({ lines: [] }));
+
+    await api.metricChart({
+      name: "system.cpu.utilization",
+      show: null,
+      split: null,
+      service: null,
+      host: null,
+      range: "1h",
+    });
+
+    const sent = new URL(String(fetchMock.mock.calls[0]?.[0]), "http://veyra");
+    expect(sent.searchParams.has("service")).toBe(false);
+    expect(sent.searchParams.has("host")).toBe(false);
+  });
+
+  it("asks for the traces' figures and an alert's context", async () => {
+    const fetchMock = mockFetch(json({ traces: 1 }), json({ logs: { items: [] } }));
+
+    await api.traceSummary(new URLSearchParams({ from: "a", to: "b" }));
+    await api.alertContext("alert 1");
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/api/v1/traces/summary?from=a&to=b");
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe("/api/v1/alerts/alert%201/context");
+  });
+});

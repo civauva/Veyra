@@ -1,0 +1,160 @@
+/*
+ * The server switcher in a database server's trail (VEY-62): a pill with the server's health and name, and a menu of
+ * every database server drawn over the page on a solid panel, whatever weather is behind it.
+ */
+
+.db-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(320px, 52vw);
+  min-height: 32px;
+  padding: 4px 10px 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  color: var(--fg);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.db-switch:hover,
+.db-switch[aria-expanded="true"] {
+  border-color: var(--accent);
+}
+
+/* Inside the outline of the button: the trail clips what overflows its last step. */
+.db-switch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.db-switch-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-switch-caret {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.db-switch-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+
+.db-switch-dot.ok {
+  background: var(--ok-fg);
+}
+
+.db-switch-dot.caution {
+  background: var(--warning-fg);
+  box-shadow: 0 0 8px var(--warning-fg);
+}
+
+.db-switch-dot.warning {
+  background: var(--error-fg);
+  box-shadow: 0 0 8px var(--error-fg);
+}
+
+.db-switch-menu {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: min(340px, calc(100vw - 24px));
+  max-height: min(60vh, 420px);
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-tile);
+  background: var(--popover);
+  color: var(--fg);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.3);
+}
+
+.db-switch-head {
+  padding: 4px 10px 6px;
+  color: var(--faint);
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.db-switch-empty {
+  margin: 0;
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.db-switch-item {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: min(9px, var(--radius-control));
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.db-switch-item:hover,
+.db-switch-item:focus-visible {
+  background: var(--chip);
+  outline: none;
+}
+
+.db-switch-item:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.db-switch-item[aria-current="true"] {
+  background: var(--selected);
+}
+
+.db-switch-item b {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-switch-item small {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* Phones and touch screens: targets of at least 44 px, and the engine under the name rather than beside it. */
+@media (max-width: 560px), (pointer: coarse) {
+  .db-switch {
+    min-height: 44px;
+  }
+
+  .db-switch-item {
+    grid-template-columns: 8px minmax(0, 1fr);
+    min-height: 48px;
+  }
+
+  .db-switch-item small {
+    grid-column: 2;
+  }
+}

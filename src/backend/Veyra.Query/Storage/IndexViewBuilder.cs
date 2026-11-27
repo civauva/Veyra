@@ -2,8 +2,10 @@ using System.Globalization;
 using Veyra.Core.Activity;
 using Veyra.Core.Telemetry;
 using Veyra.Query.Live;
+using Veyra.Query.Metrics;
 using Veyra.Query.Queries.Api;
 using Veyra.Query.Storage.Api;
+using Veyra.Query.Systems;
 
 namespace Veyra.Query.Storage;
 
@@ -20,12 +22,22 @@ internal sealed class IndexViewBuilder(IDatabaseActivitySearch activity, TimePro
 
     private const int _maxRows = 20_000;
 
+    // How many findings the Simple view shows, the worst first.
+    private const int _simpleFindings = 5;
+
     /// <summary>Builds the advice.</summary>
     /// <param name="engine">The engine.</param>
     /// <param name="server">The server.</param>
+    /// <param name="system">Whether the server's own databases are listed and advised on (VEY-66).</param>
+    /// <param name="simple">Whether to keep to what the Simple view shows: the five worst findings (VEY-67).</param>
     /// <param name="cancellationToken">Cancels the read.</param>
     /// <returns>The advice.</returns>
-    public async Task<IndexesResponse> IndexesAsync(string engine, string server, CancellationToken cancellationToken)
+    public async Task<IndexesResponse> IndexesAsync(
+        string engine,
+        string server,
+        bool system,
+        bool simple,
+        CancellationToken cancellationToken)
     {
         var now = clock.GetUtcNow();
         var records = await activity.ListRecordsAsync(
@@ -37,18 +49,34 @@ internal sealed class IndexViewBuilder(IDatabaseActivitySearch activity, TimePro
             _maxRows,
             cancellationToken);
 
-        return Build(records, now);
+        return Build(records, now, system, simple);
     }
 
     /// <summary>Turns the rows into advice. Pure; tested without a database.</summary>
     /// <param name="records">The index rows, newest first.</param>
     /// <param name="now">The current time.</param>
+    /// <param name="system">Whether the server's own databases are listed and advised on.</param>
+    /// <param name="simple">
+    /// Whether to keep to what the Simple view shows (VEY-67): the five worst findings, and no list of indexes.
+    /// </param>
     /// <returns>The advice.</returns>
-    public static IndexesResponse Build(IReadOnlyList<ActivityRecord> records, DateTimeOffset now)
+    public static IndexesResponse Build(
+        IReadOnlyList<ActivityRecord> records,
+        DateTimeOffset now,
+        bool system,
+        bool simple = false)
     {
         ArgumentNullException.ThrowIfNull(records);
 
-        var rows = records.GroupBy(record => record.Key).Select(group => group.First()).ToList();
+        var all = records.GroupBy(record => record.Key).Select(group => group.First()).ToList();
+        // The server's own databases are left out of the advice and the list unless asked for, before the list is cut
+        // to its largest 100, so msdb's history never takes the applications' places (VEY-66).
+        var rows = SystemRows.Keep(all, system, IsSystem, _ => null).Rows;
+        var hidden = SystemRows.Keep(
+            all.Where(row => Text(row, "row_type") == "usage"),
+            system,
+            IsSystem,
+            row => Text(row, "database_name")).Hidden;
         var findings = new List<PlanWarningResponse>();
 
         foreach (var missing in rows.Where(row => Text(row, "row_type") == "missing")
@@ -198,13 +226,25 @@ internal sealed class IndexViewBuilder(IDatabaseActivitySearch activity, TimePro
                 Number(row, "size_bytes"),
                 Number(row, "reads"),
                 Number(row, "writes"),
-                Number(row, "escalations")))
+                Number(row, "escalations"))
+            {
+                System = SystemObjects.IsSystemDatabase(SqlServerNames.Engine, Text(row, "database_name")),
+            })
             .ToList();
 
+        var ordered = findings.OrderBy(finding => finding.Severity == "warning" ? 0 : 1).ToList();
+
         return new IndexesResponse(
-            findings.OrderBy(finding => finding.Severity == "warning" ? 0 : 1).ToList(),
-            indexes);
+            simple ? [.. ordered.Take(_simpleFindings)] : ordered,
+            simple ? [] : indexes)
+        {
+            HiddenIndexes = hidden,
+        };
     }
+
+    // Whether a row is of one of SQL Server's own databases, such as msdb.
+    private static bool IsSystem(ActivityRecord row) =>
+        SystemObjects.IsSystemDatabase(SqlServerNames.Engine, Text(row, "database_name"));
 
     private static string Text(ActivityRecord record, string key) => record.Attributes.GetValueOrDefault(key) ?? "";
 

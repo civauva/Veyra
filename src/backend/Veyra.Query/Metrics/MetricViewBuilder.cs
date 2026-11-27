@@ -50,31 +50,48 @@ internal sealed class MetricViewBuilder(IMetricSearch search, TimeProvider clock
 
     private readonly MetricReader _reader = new(search);
 
-    /// <summary>Builds the overview.</summary>
-    /// <param name="range">The window of the lines, for example <c>6h</c>.</param>
+    /// <summary>Builds the overview of every card.</summary>
+    /// <param name="span">The window: a named range ending now, or a from–to period (ADR 0022).</param>
     /// <param name="cancellationToken">Cancels the reads.</param>
     /// <returns>The overview.</returns>
-    public async Task<MetricsOverviewResponse> OverviewAsync(string? range, CancellationToken cancellationToken)
+    public Task<MetricsOverviewResponse> OverviewAsync(MetricSpan span, CancellationToken cancellationToken) =>
+        OverviewAsync(span, MetricsOverviewFilter.None, cancellationToken);
+
+    /// <summary>Builds the overview of the cards a search and an environment keep.</summary>
+    /// <param name="span">The window: a named range ending now, or a from–to period (ADR 0022).</param>
+    /// <param name="filter">
+    /// The search and the environment. They narrow the series reads before their limits, and then each card exactly.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the reads.</param>
+    /// <returns>The overview.</returns>
+    public async Task<MetricsOverviewResponse> OverviewAsync(
+        MetricSpan span,
+        MetricsOverviewFilter filter,
+        CancellationToken cancellationToken)
     {
-        var now = clock.GetUtcNow();
-        var window = MetricWindow.Card(range, now);
+        ArgumentNullException.ThrowIfNull(filter);
+
+        var window = MetricWindow.Card(span, clock.GetUtcNow());
+        var now = window.End;
         var recent = MetricWindow.Recent(now);
 
         // The reads do not depend on each other, so they run at the same time: the overview takes as long as its
         // slowest read, not all of them together (ADR 0015).
         var findingHosts = search.FindSeriesAsync(
-            new MetricSeriesQuery(now - _activeWithin, Names: _hostCard),
+            filter.Narrow(new MetricSeriesQuery(now - _activeWithin, Names: _hostCard), everywhereWithout: true),
             cancellationToken);
         var findingServices = search.FindSeriesAsync(
-            new MetricSeriesQuery(now - _activeWithin, Names: _serviceCard),
+            filter.Narrow(new MetricSeriesQuery(now - _activeWithin, Names: _serviceCard), everywhereWithout: false),
             cancellationToken);
         var findingDatabases = search.FindSeriesAsync(
-            new MetricSeriesQuery(now - _activeWithin, Names: _databaseCard),
+            filter.Narrow(new MetricSeriesQuery(now - _activeWithin, Names: _databaseCard), everywhereWithout: true),
             cancellationToken);
         var findingContainers = search.FindSeriesAsync(
-            new MetricSeriesQuery(now - _activeWithin, Names: MetricNames.Container, Limit: _maxContainerSeries),
+            filter.Narrow(
+                new MetricSeriesQuery(now - _activeWithin, Names: MetricNames.Container, Limit: _maxContainerSeries),
+                everywhereWithout: true),
             cancellationToken);
-        var measuringUsage = search.GetUsageAsync(now, cancellationToken);
+        var measuringUsage = search.GetUsageAsync(clock.GetUtcNow(), cancellationToken);
         var listingNames = search.ListNamesAsync(null, window.Start, cancellationToken);
 
         var hostSeries = (await findingHosts)
@@ -163,10 +180,12 @@ internal sealed class MetricViewBuilder(IMetricSearch search, TimeProvider clock
                 serviceRecent.Where(series => Belongs(series, key.Service, key.Environment))))
             .ToList();
 
+        // By the server's name, whatever its engine, as the overview and the switcher list them (VEY-68).
         var databases = databaseSeries
             .Select(series => series.Block!)
             .Distinct()
-            .OrderBy(block => block.Name, StringComparer.Ordinal)
+            .OrderBy(block => block.Server, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(block => block.Name, StringComparer.Ordinal)
             .Select(block => block.Engine == MetricNames.PostgresEngine
                 ? PostgresView.Card(
                     block,
@@ -180,8 +199,18 @@ internal sealed class MetricViewBuilder(IMetricSearch search, TimeProvider clock
                     databaseQuarter.Where(series => series.Block == block)))
             .ToList();
 
+        var containers = ContainerView.Cards(await readingContainerWindow, await readingContainerRecent);
+
+        // The series reads were narrowed before their limits; each card is now held to the filter exactly, since a
+        // card's name and environment can differ from the block name of a single series.
+        hosts = [.. hosts.Where(card => filter.Matches(card.Name) && filter.Holds(card.Environment, true))];
+        services = [.. services.Where(card => filter.Matches(card.Name) && filter.Holds(card.Environment, false))];
+        databases = [.. databases.Where(card => filter.Matches(card.Server) && filter.Holds(card.Environment, true))];
+        containers = [.. containers.Where(card => filter.Matches(card.Name) && filter.Holds(card.Environment, true))];
+
         var usage = await measuringUsage;
         var names = await listingNames;
+        var listed = hosts.Count + services.Count + databases.Count + containers.Count;
 
         return new MetricsOverviewResponse(
             now,
@@ -194,21 +223,42 @@ internal sealed class MetricViewBuilder(IMetricSearch search, TimeProvider clock
                 usage.UsedBytes,
                 usage.RetentionDays,
                 names.Count),
+            new MetricsSummaryResponse(
+                hosts.Count,
+                hosts.Count(host => host.FillingDisk is not null),
+                services.Count,
+                databases.Count,
+                containers.Count,
+                containers.Count(container => container.Restarts > 0),
+                listed > 0 || (filter.Filters && await AnySentAsync(now, cancellationToken))),
             hosts,
             services,
             databases,
-            ContainerView.Cards(await readingContainerWindow, await readingContainerRecent));
+            containers)
+        {
+            From = window.From,
+            To = window.End,
+        };
     }
+
+    // Whether any card's series sent recently, when the filter left no card: one row is enough to tell.
+    private async Task<bool> AnySentAsync(DateTimeOffset now, CancellationToken cancellationToken) =>
+        (await search.FindSeriesAsync(
+            new MetricSeriesQuery(
+                now - _activeWithin,
+                Names: [.. _hostCard, .. _serviceCard, .. _databaseCard, .. MetricNames.Container],
+                Limit: 1),
+            cancellationToken)).Count > 0;
 
     /// <summary>Builds one host's view.</summary>
     /// <param name="host">The host name.</param>
-    /// <param name="range">The window, for example <c>6h</c>.</param>
+    /// <param name="span">The window: a named range ending now, or a from–to period (ADR 0022).</param>
     /// <param name="cancellationToken">Cancels the reads.</param>
     /// <returns>The view, or null when the host sent no host metrics within the window.</returns>
-    public async Task<HostMetricsResponse?> HostAsync(string host, string? range, CancellationToken cancellationToken)
+    public async Task<HostMetricsResponse?> HostAsync(string host, MetricSpan span, CancellationToken cancellationToken)
     {
-        var now = clock.GetUtcNow();
-        var window = MetricWindow.Of(range, now);
+        var window = MetricWindow.Of(span, clock.GetUtcNow());
+        var now = window.End;
         var series = (await search.FindSeriesAsync(
                 new MetricSeriesQuery(window.Start, Names: MetricNames.Host, HostName: host),
                 cancellationToken))
@@ -258,17 +308,17 @@ internal sealed class MetricViewBuilder(IMetricSearch search, TimeProvider clock
     /// <summary>Builds one service's view.</summary>
     /// <param name="service">The service name.</param>
     /// <param name="environment">The environment; null for a service that names none.</param>
-    /// <param name="range">The window, for example <c>6h</c>.</param>
+    /// <param name="span">The window: a named range ending now, or a from–to period (ADR 0022).</param>
     /// <param name="cancellationToken">Cancels the reads.</param>
     /// <returns>The view, or null when the service sent none of these metrics within the window.</returns>
     public async Task<ServiceMetricsResponse?> ServiceAsync(
         string service,
         string? environment,
-        string? range,
+        MetricSpan span,
         CancellationToken cancellationToken)
     {
-        var now = clock.GetUtcNow();
-        var window = MetricWindow.Of(range, now);
+        var window = MetricWindow.Of(span, clock.GetUtcNow());
+        var now = window.End;
         var series = (await search.FindSeriesAsync(
                 new MetricSeriesQuery(
                     window.Start,
@@ -293,14 +343,14 @@ internal sealed class MetricViewBuilder(IMetricSearch search, TimeProvider clock
 
     /// <summary>Lists the metric names seen within a window, for the browser.</summary>
     /// <param name="text">Only names that contain this text; null for all.</param>
-    /// <param name="range">The window, for example <c>6h</c>.</param>
+    /// <param name="span">The window: a named range ending now, or a from–to period (ADR 0022).</param>
     /// <param name="cancellationToken">Cancels the read.</param>
     /// <returns>The names, alphabetically.</returns>
     public Task<IReadOnlyList<MetricName>> NamesAsync(
         string? text,
-        string? range,
+        MetricSpan span,
         CancellationToken cancellationToken) =>
-        search.ListNamesAsync(text, MetricWindow.Of(range, clock.GetUtcNow()).Start, cancellationToken);
+        search.ListNamesAsync(text, MetricWindow.Of(span, clock.GetUtcNow()).Start, cancellationToken);
 
     /// <summary>Charts one metric, as one line or split by an attribute.</summary>
     /// <param name="name">The metric name.</param>
@@ -308,7 +358,7 @@ internal sealed class MetricViewBuilder(IMetricSearch search, TimeProvider clock
     /// <c>value</c>, <c>rate</c>, <c>p50</c>, <c>p95</c>, or <c>p99</c>; null picks what suits the kind.
     /// </param>
     /// <param name="split">An attribute to split by, or null for one line.</param>
-    /// <param name="range">The window, for example <c>6h</c>.</param>
+    /// <param name="span">The window: a named range ending now, or a from–to period (ADR 0022).</param>
     /// <param name="service">Only this service's series.</param>
     /// <param name="host">Only this host's series.</param>
     /// <param name="cancellationToken">Cancels the reads.</param>
@@ -317,12 +367,12 @@ internal sealed class MetricViewBuilder(IMetricSearch search, TimeProvider clock
         string name,
         string? show,
         string? split,
-        string? range,
+        MetricSpan span,
         string? service,
         string? host,
         CancellationToken cancellationToken)
     {
-        var window = MetricWindow.Of(range, clock.GetUtcNow());
+        var window = MetricWindow.Of(span, clock.GetUtcNow());
         var data = await _reader.ReadAsync(
             new MetricSeriesQuery(window.Start, Names: [name], ServiceName: service, HostName: host),
             window,
@@ -358,7 +408,11 @@ internal sealed class MetricViewBuilder(IMetricSearch search, TimeProvider clock
             split,
             keys,
             (int)window.Bucket.TotalSeconds,
-            lines);
+            lines)
+        {
+            From = window.From,
+            To = window.End,
+        };
     }
 
     private static bool Belongs(MetricSeries series, string service, string? environment) =>

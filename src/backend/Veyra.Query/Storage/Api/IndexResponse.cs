@@ -21,4 +21,8 @@ public sealed record IndexResponse(
     double SizeBytes,
     double Reads,
     double Writes,
-    double Escalations);
+    double Escalations)
+{
+    /// <summary>Whether it is in a database the engine keeps for itself (VEY-64).</summary>
+    public bool System { get; init; }
+}

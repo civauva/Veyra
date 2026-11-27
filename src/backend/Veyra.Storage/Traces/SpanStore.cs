@@ -1,9 +1,13 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using NpgsqlTypes;
+using Veyra.Core.Telemetry;
 using Veyra.Core.Traces;
+using Veyra.Storage.Ingest;
+using Veyra.Storage.Jobs;
 
 namespace Veyra.Storage.Traces;
 
@@ -16,7 +20,9 @@ namespace Veyra.Storage.Traces;
 /// count, failures, and services) is counted for that page's traces only.
 /// </remarks>
 /// <param name="dataSource">The PostgreSQL connection pool.</param>
-internal sealed class SpanStore(NpgsqlDataSource dataSource) : ISpanWriter, ITraceSearch
+/// <param name="options">The Storage settings, with the attributes that name a job (ADR 0027).</param>
+internal sealed class SpanStore(NpgsqlDataSource dataSource, IOptionsMonitor<StorageOptions> options)
+    : ISpanWriter, ITraceSearch
 {
     /// <summary>The partitioned table.</summary>
     public const string Table = "span";
@@ -68,7 +74,10 @@ internal sealed class SpanStore(NpgsqlDataSource dataSource) : ISpanWriter, ITra
         ORDER BY trace_id, start_time
         """;
 
-    /// <summary>Stores a batch with binary <c>COPY</c>, the fastest way to insert many rows.</summary>
+    /// <summary>
+    /// Stores a batch with binary <c>COPY</c>, the fastest way to insert many rows, and adds it to the ingest counts
+    /// (ADR 0023) and its job runs (ADR 0027) in the same transaction, so neither ever disagrees with the spans.
+    /// </summary>
     /// <param name="spans">The spans to store.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
     /// <returns>A task that completes when the batch is stored.</returns>
@@ -82,6 +91,7 @@ internal sealed class SpanStore(NpgsqlDataSource dataSource) : ISpanWriter, ITra
         }
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         await using var writer = await connection.BeginBinaryImportAsync(_copyCommand, cancellationToken);
 
         foreach (var span in spans)
@@ -140,6 +150,20 @@ internal sealed class SpanStore(NpgsqlDataSource dataSource) : ISpanWriter, ITra
         }
 
         await writer.CompleteAsync(cancellationToken);
+        await writer.CloseAsync(cancellationToken);
+
+        // After the copy, so a run's steps among this batch's own spans are found with those stored before.
+        await JobRuns.AddTracedAsync(
+            connection,
+            spans,
+            options.CurrentValue.Jobs.NameAttributeList(),
+            cancellationToken);
+        await IngestCounts.AddAsync(
+            connection,
+            IngestSignal.Spans,
+            spans.Select(span => (span.Start, span.Environment)),
+            cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 
     /// <inheritdoc />
@@ -199,15 +223,24 @@ internal sealed class SpanStore(NpgsqlDataSource dataSource) : ISpanWriter, ITra
             }
         }
 
-        TraceCursor? next = null;
-
-        if (roots.Count > query.Limit)
+        if (roots.Count <= query.Limit)
         {
-            roots.RemoveRange(query.Limit, roots.Count - query.Limit);
-            next = new TraceCursor(roots[^1].Start, roots[^1].RootSpanId);
+            return new TracePage(await CountOthersAsync(roots, cancellationToken), null);
         }
 
-        return new TracePage(await CountOthersAsync(roots, cancellationToken), next);
+        roots.RemoveRange(query.Limit, roots.Count - query.Limit);
+        var last = roots[^1];
+        var items = await CountOthersAsync(roots, cancellationToken);
+
+        if (query.Order == TraceOrder.Worst)
+        {
+            return new TracePage(
+                items,
+                null,
+                new TraceWorstCursor(last.Failed, last.Duration, last.TraceId, last.RootSpanId));
+        }
+
+        return new TracePage(items, new TraceCursor(last.Start, last.RootSpanId));
     }
 
     /// <inheritdoc />
@@ -254,7 +287,12 @@ internal sealed class SpanStore(NpgsqlDataSource dataSource) : ISpanWriter, ITra
             ? []
             : Enumerable.Range(0, room).Select(i => rest[(int)((long)i * rest.Count / room)]);
 
-        return new TraceDurations(notable.Concat(sample).OrderBy(point => point.Start).ToList(), read.Count, p95);
+        return new TraceDurations(
+            notable.Concat(sample).OrderBy(point => point.Start).ToList(),
+            read.Count,
+            p95,
+            read.Count(point => point.Failed),
+            read.Count(point => !point.Failed && point.Duration >= p95));
     }
 
     /// <inheritdoc />
@@ -266,39 +304,187 @@ internal sealed class SpanStore(NpgsqlDataSource dataSource) : ISpanWriter, ITra
 
         await using var command = CreateRootsCommand(
             query with { Services = null },
-            "service_name",
+            "service_name, duration_us, status",
             MaxDurationsRead,
             paged: false);
 
         // Counted from the newest roots the chart reads, so the cost has the same bound however busy the window was.
+        // percentile_disc is the nearest rank, as the chart's 95th percentile.
         command.CommandText =
-            $"SELECT service_name, count(*)::int FROM ({command.CommandText}) AS newest GROUP BY 1 ORDER BY 2 DESC, 1";
+            "SELECT service_name, count(*)::int, count(*) FILTER (WHERE status = 2)::int, "
+            + "percentile_disc(0.95) WITHIN GROUP (ORDER BY duration_us) "
+            + $"FROM ({command.CommandText}) AS newest GROUP BY 1 ORDER BY 2 DESC, 1";
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var services = new List<TraceServiceCount>();
 
         while (await reader.ReadAsync(cancellationToken))
         {
-            services.Add(new TraceServiceCount(reader.GetString(0), reader.GetInt32(1)));
+            services.Add(new TraceServiceCount(
+                reader.GetString(0),
+                reader.GetInt32(1),
+                reader.GetInt32(2),
+                TimeSpan.FromMicroseconds(reader.GetInt64(3))));
         }
 
         return services;
     }
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// The percentiles come from the newest roots the chart reads, so the 95th percentile is the one the list's slow
+    /// filter uses. The counts are of every root in the window and in the period before, read from the root-span
+    /// indexes alone; the plan tests explain them.
+    /// </remarks>
+    public async Task<TraceFigures> FiguresAsync(TraceQuery query, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        var (p50, p95) = await PercentilesAsync(query, cancellationToken);
+        var length = query.To - query.From;
+        var hasPrevious = query.From.UtcTicks - DateTimeOffset.MinValue.UtcTicks >= length.Ticks;
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var batch = connection.CreateBatch();
+        await using var figures = CreateFiguresCommand(query, p95);
+        batch.BatchCommands.Add(Batched(figures));
+
+        if (hasPrevious)
+        {
+            await using var previous = CreateFiguresCommand(
+                query with { From = query.From - length, To = query.From },
+                null);
+            batch.BatchCommands.Add(Batched(previous));
+        }
+
+        await using var reader = await batch.ExecuteReaderAsync(cancellationToken);
+        await reader.ReadAsync(cancellationToken);
+        var traces = reader.GetInt32(0);
+        var failed = reader.GetInt32(1);
+        var slow = reader.GetInt32(2);
+        var services = reader.GetInt32(3);
+        int? previousTraces = null;
+
+        if (await reader.NextResultAsync(cancellationToken) && await reader.ReadAsync(cancellationToken))
+        {
+            previousTraces = reader.GetInt32(0);
+        }
+
+        return new TraceFigures(traces, failed, slow, p50, p95, services, previousTraces);
+    }
+
     /// <summary>
-    /// Builds the statement over root spans: the window, the filters, newest first. The plan tests explain it.
+    /// Builds the statement that counts the roots of a window: all, failed, at least as slow as a duration, and their
+    /// services. The plan tests explain it.
     /// </summary>
-    /// <param name="query">The window, filters, and cursor.</param>
+    /// <param name="query">The window and the filters.</param>
+    /// <param name="slowFrom">The duration a slow trace takes at least; none counts as slow without it.</param>
+    /// <returns>The command, without a connection, which the caller disposes.</returns>
+    internal NpgsqlCommand CreateFiguresCommand(TraceQuery query, TimeSpan? slowFrom)
+    {
+        var command = dataSource.CreateCommand();
+        var filters = RootFilters(command, query);
+        command.Parameters.AddWithValue(slowFrom is { } duration ? (long)duration.TotalMicroseconds : long.MaxValue);
+        command.CommandText =
+            "SELECT count(*)::int, count(*) FILTER (WHERE status = 2)::int, "
+            + string.Create(
+                CultureInfo.InvariantCulture,
+                $"count(*) FILTER (WHERE duration_us >= ${command.Parameters.Count})::int, ")
+            + "count(DISTINCT service_name)::int "
+            + $"FROM storage.span WHERE {filters}";
+
+        return command;
+    }
+
+    // The median and the 95th percentile of the newest roots the chart reads, by nearest rank as the chart has them.
+    private async Task<(TimeSpan? P50, TimeSpan? P95)> PercentilesAsync(
+        TraceQuery query,
+        CancellationToken cancellationToken)
+    {
+        await using var command = CreateRootsCommand(query, "duration_us", MaxDurationsRead, paged: false);
+        command.CommandText =
+            "SELECT percentile_disc(0.5) WITHIN GROUP (ORDER BY duration_us), "
+            + "percentile_disc(0.95) WITHIN GROUP (ORDER BY duration_us) "
+            + $"FROM ({command.CommandText}) AS newest";
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        await reader.ReadAsync(cancellationToken);
+
+        return reader.IsDBNull(0)
+            ? (null, null)
+            : (TimeSpan.FromMicroseconds(reader.GetInt64(0)), TimeSpan.FromMicroseconds(reader.GetInt64(1)));
+    }
+
+    // A batch takes its own commands; the statement and its parameters are copied from one built for plan tests.
+    private static NpgsqlBatchCommand Batched(NpgsqlCommand command)
+    {
+        var batched = new NpgsqlBatchCommand(command.CommandText);
+
+        foreach (NpgsqlParameter parameter in command.Parameters)
+        {
+            batched.Parameters.Add(parameter.Clone());
+        }
+
+        return batched;
+    }
+
+    /// <summary>
+    /// Builds the statement over root spans: the window, the filters, and the order. The plan tests explain it.
+    /// </summary>
+    /// <param name="query">The window, filters, order, and cursor.</param>
     /// <param name="columns">The columns to read; all are in the root-span indexes.</param>
     /// <param name="limit">The most rows.</param>
-    /// <param name="paged">Whether to continue after the query's cursor.</param>
+    /// <param name="paged">
+    /// Whether this is a page of the list, in the query's order after its cursor. Otherwise the newest roots are read,
+    /// the bound the chart, the services, and the figures share.
+    /// </param>
     /// <returns>The command, without a connection, which the caller disposes.</returns>
     internal NpgsqlCommand CreateRootsCommand(TraceQuery query, string columns, int limit, bool paged)
     {
         var command = dataSource.CreateCommand();
-        var sql = new StringBuilder(
-            $"SELECT {columns} FROM storage.span "
-            + "WHERE parent_span_id IS NULL AND start_time >= $1 AND start_time < $2");
+        var sql = new StringBuilder($"SELECT {columns} FROM storage.span WHERE {RootFilters(command, query)}");
+        var worst = paged && query.Order == TraceOrder.Worst;
+
+        if (worst && query.AfterWorst is { } afterWorst)
+        {
+            // All four keys descend, so one row comparison continues the order exactly, and the index can seek to it.
+            command.Parameters.AddWithValue(afterWorst.Failed);
+            command.Parameters.AddWithValue((long)afterWorst.Duration.TotalMicroseconds);
+            command.Parameters.AddWithValue(Convert.FromHexString(afterWorst.TraceId));
+            command.Parameters.AddWithValue(Convert.FromHexString(afterWorst.SpanId));
+            var count = command.Parameters.Count;
+            sql.Append(" AND ((status = 2), duration_us, trace_id, span_id) < ")
+                .Append(CultureInfo.InvariantCulture, $"(${count - 3}, ${count - 2}, ${count - 1}, ${count})");
+        }
+        else if (paged && !worst && query.After is { } after)
+        {
+            command.Parameters.AddWithValue(after.Start);
+            command.Parameters.AddWithValue(Convert.FromHexString(after.SpanId));
+            var count = command.Parameters.Count;
+            sql.Append(CultureInfo.InvariantCulture, $" AND (start_time, span_id) < (${count - 1}, ${count})");
+        }
+
+        // The worst order is spelled as the worst-first index is made, so the index reads the roots in order.
+        sql.Append(
+            worst
+                ? " ORDER BY (status = 2) DESC, duration_us DESC, trace_id DESC, span_id DESC"
+                : " ORDER BY start_time DESC, span_id DESC");
+        command.Parameters.AddWithValue(limit);
+        sql.Append(CultureInfo.InvariantCulture, $" LIMIT ${command.Parameters.Count}");
+        command.CommandText = sql.ToString();
+
+        return command;
+    }
+
+    /// <summary>
+    /// Adds the conditions on root spans of a query's window and filters to a command's parameters.
+    /// </summary>
+    /// <param name="command">The command the parameters are added to, numbered from its first.</param>
+    /// <param name="query">The window and the filters.</param>
+    /// <returns>The conditions, for a <c>WHERE</c> clause.</returns>
+    private static string RootFilters(NpgsqlCommand command, TraceQuery query)
+    {
+        var sql = new StringBuilder("parent_span_id IS NULL AND start_time >= $1 AND start_time < $2");
 
         command.Parameters.AddWithValue(query.From);
         command.Parameters.AddWithValue(query.To);
@@ -340,21 +526,7 @@ internal sealed class SpanStore(NpgsqlDataSource dataSource) : ISpanWriter, ITra
             sql.Append(CultureInfo.InvariantCulture, $" AND attributes @> ${command.Parameters.Count}");
         }
 
-        if (paged && query.After is { } after)
-        {
-            command.Parameters.AddWithValue(after.Start);
-            command.Parameters.AddWithValue(Convert.FromHexString(after.SpanId));
-            var count = command.Parameters.Count;
-            sql.Append(CultureInfo.InvariantCulture, $" AND (start_time, span_id) < (${count - 1}, ${count})");
-        }
-
-        command.Parameters.AddWithValue(limit);
-        sql.Append(
-            CultureInfo.InvariantCulture,
-            $" ORDER BY start_time DESC, span_id DESC LIMIT ${command.Parameters.Count}");
-        command.CommandText = sql.ToString();
-
-        return command;
+        return sql.ToString();
     }
 
     /// <summary>Adds each listed trace's span count, failures, cause, and services, in one round trip.</summary>

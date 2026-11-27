@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 
 import type { AlertListItem } from "../../api/types";
+import { HelpTip } from "../../ui/HelpTip";
 import { formatDuration } from "../../alerts/alertFormat";
 import { alertTitle, formatMeasure, ruleName } from "../../alerts/ruleWords";
 import { formatClock } from "../../logs/format";
@@ -28,7 +29,13 @@ export function LatestAlerts({ items, error, now }: LatestAlertsProps) {
   return (
     <section className="glass lg-panel lg-latest" aria-label="Latest alerts">
       <div className="lg-head">
-        <h2 className="cap">Latest alerts</h2>
+        <div className="home-name">
+          <h2 className="cap">Latest alerts</h2>
+          <HelpTip label="Latest alerts">
+            The newest alerts of the last 30 days, open and resolved. The figure is the latest measurement while an
+            alert is open and its worst once it resolved. Each leads to its details.
+          </HelpTip>
+        </div>
         <Link className="lg-more" to="/alerts">
           All alerts
           <span aria-hidden="true"> ›</span>

@@ -9,7 +9,7 @@ async function scrollsSideways(page: Page): Promise<boolean> {
 
 test.describe("Log Explorer", () => {
   test("shows records and opens one without breaking the layout", async ({ page }, testInfo) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/logs");
 
     const row = page.getByRole("button", { name: /Payment declined by PSP: upstream timeout after 1800 ms \(#0\)/ });
@@ -19,7 +19,7 @@ test.describe("Log Explorer", () => {
     await row.click();
 
     const detail = page.getByRole("region", { name: "Selected record" });
-    await expect(detail.getByText(/System.TimeoutException/)).toBeVisible();
+    await expect(detail.getByText(/System.TimeoutException/).first()).toBeVisible();
     const box = await detail.boundingBox();
     const viewport = page.viewportSize();
 
@@ -36,7 +36,7 @@ test.describe("Log Explorer", () => {
   });
 
   test("filters by severity from the panel or, on phones, the filter sheet", async ({ page }, testInfo) => {
-    const searches = await answerApi(page);
+    const searches = await answerApi(page, { look: "forecast" });
     await page.goto("/logs");
     await expect(page.getByRole("button", { name: /Order 88001/ })).toBeVisible();
 
@@ -57,7 +57,7 @@ test.describe("Log Explorer", () => {
   });
 
   test("loads the next page when scrolled to the end", async ({ page }) => {
-    const searches = await answerApi(page);
+    const searches = await answerApi(page, { look: "forecast" });
     await page.goto("/logs");
     await expect(page.getByText(/Showing 100 of/)).toBeVisible();
 
@@ -72,7 +72,7 @@ test.describe("Log Explorer", () => {
 
   test("moves the selection with the arrow keys", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop", "Keyboard selection is checked where the list stays in view.");
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/logs");
 
     await page.getByRole("button", { name: /\(#0\)/ }).click();
@@ -84,7 +84,7 @@ test.describe("Log Explorer", () => {
 
   test("works in the dark theme", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "dark" });
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/logs");
 
     const background = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
@@ -95,7 +95,7 @@ test.describe("Log Explorer", () => {
 
 test.describe("Ingestion keys", () => {
   test("lists keys without breaking the layout", async ({ page }) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/keys");
 
     await expect(page.getByRole("heading", { name: "Ingestion keys" })).toBeVisible();

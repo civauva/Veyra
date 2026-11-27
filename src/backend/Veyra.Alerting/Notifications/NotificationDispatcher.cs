@@ -49,7 +49,13 @@ internal sealed partial class NotificationDispatcher(
             var result = delivery.Channel.Enabled
                 ? await sender.SendAsync(
                     delivery.Channel,
-                    NotificationMessages.For(delivery.Event, delivery.Alert, settings.PublicBaseUri()),
+                    NotificationMessages.For(
+                        delivery.Event,
+                        delivery.Alert,
+                        settings.PublicBaseUri(),
+                        delivery.IncidentId is { } incident && delivery.IncidentNumber is { } number
+                            ? (incident, number)
+                            : null),
                     cancellationToken)
                 : SendResult.Failed("The channel was switched off before the message went out.");
 

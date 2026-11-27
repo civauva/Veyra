@@ -27,4 +27,14 @@ public sealed record QueryResponse(
     IReadOnlyList<PlanWarningResponse> Findings,
     IReadOnlyList<SessionCaller> Callers,
     IReadOnlyList<QueryStoreIntervalResponse> History,
-    IReadOnlyList<QueryWaitResponse> Waits);
+    IReadOnlyList<QueryWaitResponse> Waits)
+{
+    /// <summary>The start of the period the answer covers (ADR 0022).</summary>
+    public DateTimeOffset From { get; init; }
+
+    /// <summary>The end of the period the answer covers: now, or the <c>to</c> asked for (ADR 0022).</summary>
+    public DateTimeOffset To { get; init; }
+
+    /// <summary>How many reads saw any program run it, the callers' shares added up on the server (VEY-68).</summary>
+    public long CallerSamples => Callers.Sum(caller => caller.Samples);
+}

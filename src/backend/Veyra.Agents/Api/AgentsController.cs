@@ -42,6 +42,24 @@ public sealed class AgentsController : ControllerBase
         (await _overview.ListAgentsAsync(cancellationToken)).Select(ToResponse).ToList();
 
     /// <summary>
+    /// Counts the monitored servers and the agents and how they stand, for the lines of the Settings list (VEY-68).
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The counts.</returns>
+    [HttpGet("summary")]
+    public async Task<AgentsSummaryResponse> SummaryAsync(CancellationToken cancellationToken)
+    {
+        var sql = await _overview.ListSqlServersAsync(cancellationToken);
+        var postgres = await _overview.ListPostgresServersAsync(cancellationToken);
+        var agents = await _overview.ListAgentsAsync(cancellationToken);
+
+        return AgentsSummaryResponse.Of(
+            [.. sql.Select(one => one.Status.State)],
+            [.. postgres.Select(one => one.Status.State)],
+            [.. agents.Select(one => one.State)]);
+    }
+
+    /// <summary>
     /// Adds an agent for a network Veyra cannot reach, with a one-time code that installs it. The code works once, for
     /// an hour, and is shown only in this answer.
     /// </summary>

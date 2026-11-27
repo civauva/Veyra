@@ -1,14 +1,19 @@
 import { Link, useParams, useSearchParams } from "react-router";
 
 import { api } from "../api/client";
-import type { ChartLine, ServiceMetrics } from "../api/types";
-import { useViewMode, ViewToggle } from "../app/ViewToggle";
+import type { ChartLine, MetricRange, ServiceMetrics } from "../api/types";
+import { ScreenBar } from "../ui/ScreenBar";
+import { useViewMode } from "../ui/ViewToggle";
 import { defaultFilters, filtersToUrl } from "../logs/logFilters";
+import { BlockPage } from "./BlockPage";
 import { BlockStatus } from "./BlockStatus";
 import { LineChart } from "./LineChart";
 import { ServiceIcon } from "./MetricCards";
 import { formatAmount, formatRate, formatSeconds, formatShare } from "./metricFormat";
-import { RangePicker, rangeFrom } from "./RangePicker";
+import { rangeOf, rangeSearch, rangeWords, withRange } from "./metricRange";
+import { RangePicker } from "./RangePicker";
+import { FigureName, PanelName } from "./TileName";
+import { useOpenAlerts } from "./database/useOpenAlerts";
 import { useMetricData } from "./useMetricData";
 import "./metrics.css";
 
@@ -20,48 +25,52 @@ import "./metrics.css";
 export function ServiceScreen() {
   const { service = "" } = useParams();
   const [params, setParams] = useSearchParams();
-  const range = rangeFrom(params.get("range"));
+  const range = rangeOf(params);
   const environment = params.get("environment");
   const { data, notFound, error } = useMetricData(`service-${service}-${environment ?? ""}-${range}`, (signal) =>
     api.serviceMetrics(service, environment, range, signal),
   );
   const [mode] = useViewMode();
-
-  function pick(next: string) {
-    const changed = new URLSearchParams(params);
-    changed.set("range", next);
-    setParams(changed, { replace: true });
-  }
+  // Read once for the banner and the rail beside the screen, so the two never disagree (VEY-63).
+  const { alerts } = useOpenAlerts("service", service);
 
   return (
     <main className="metrics">
-      <Link className="metrics-back" to={`/metrics?range=${range}`}>
-        ← Metrics
-      </Link>
-      <div className="metrics-detail-head">
-        <span className="metric-icon large service">
-          <ServiceIcon size={26} />
-        </span>
-        <div>
-          <h1>{service}</h1>
-          {data && <Tags service={data} />}
+      <ScreenBar
+        trail={[
+          { label: "Metrics", to: `/metrics?${rangeSearch(range)}` },
+          { label: "Services", to: `/metrics?${rangeSearch(range)}#metrics-services` },
+          { label: service },
+        ]}
+        view
+      >
+        <RangePicker value={range} onChange={(next) => setParams(withRange(params, next), { replace: true })} />
+      </ScreenBar>
+      <BlockPage kind="service" name={service} alerts={alerts}>
+        <div className="metrics-detail-head">
+          <span className="metric-icon large service">
+            <ServiceIcon size={26} />
+          </span>
+          <div>
+            <h1>{service}</h1>
+            {data && <Tags service={data} />}
+          </div>
         </div>
-        <ViewToggle />
-        <RangePicker value={range} onChange={pick} />
-      </div>
-      {data && <BlockStatus kind="service" name={service} />}
+        {data && <BlockStatus kind="service" name={service} alerts={alerts} />}
 
-      {error && (
-        <p className="metrics-error" role="alert">
-          {data ? `Could not refresh: ${error}.` : `The service could not be loaded: ${error}`}
-        </p>
-      )}
-      {notFound && (
-        <p className="metrics-empty">
-          {service} sent no HTTP or runtime metrics within the last {range}.
-        </p>
-      )}
-      {data && (mode === "advanced" ? <ServicePanels service={data} /> : <ServiceBasics service={data} />)}
+        {error && (
+          <p className="metrics-error" role="alert">
+            {data ? `Could not refresh: ${error}.` : `The service could not be loaded: ${error}`}
+          </p>
+        )}
+        {notFound && (
+          <p className="metrics-empty">
+            {service} sent no HTTP or runtime metrics {rangeWords(range, "within")}.
+          </p>
+        )}
+        {data &&
+          (mode === "advanced" ? <ServicePanels service={data} range={range} /> : <ServiceBasics service={data} />)}
+      </BlockPage>
     </main>
   );
 }
@@ -90,29 +99,57 @@ function Tags({ service }: { service: ServiceMetrics }) {
   );
 }
 
+/** The name of the requests figure, with its explanation. */
+function RequestsName() {
+  return (
+    <FigureName name="Requests">
+      HTTP requests the service answered per second over the last 5 minutes, over every instance, from the SDK&apos;s
+      http.server.request.duration.
+    </FigureName>
+  );
+}
+
+/** The name of the p95 latency figure, with its explanation. */
+function LatencyName() {
+  return (
+    <FigureName name="Latency p95">
+      95 of every 100 requests over the last 5 minutes took this long or less, so it shows how the slow end of normal
+      feels.
+    </FigureName>
+  );
+}
+
+/** The name of the server errors figure, with its explanation. */
+function ServerErrorsName() {
+  return (
+    <FigureName name="5xx answers">
+      The share of requests over the last 5 minutes answered with a 5xx status, an error on the server. It turns red
+      from 1%.
+    </FigureName>
+  );
+}
+
 /** The Simple view: three figures and the five slowest routes. */
 function ServiceBasics({ service }: { service: ServiceMetrics }) {
   const { card } = service;
-  const slowest = [...service.routes]
-    .filter((route) => route.p95Seconds !== null)
-    .sort((a, b) => (b.p95Seconds ?? 0) - (a.p95Seconds ?? 0))
-    .slice(0, 5);
+  // The server picks them from every route, not only the busiest it lists (VEY-68).
+  const slowest = service.slowestRoutes;
 
   return (
     <>
       <dl className="metrics-strip">
         <div>
-          <dt>Requests</dt>
+          <RequestsName />
           <dd>
             {formatRate(card.requestsPerSecond)} <small>per second</small>
           </dd>
         </div>
         <div>
-          <dt>Latency p95</dt>
+          <LatencyName />
           <dd>{formatSeconds(card.p95Seconds)}</dd>
         </div>
         <div>
-          <dt>5xx answers</dt>
+          <ServerErrorsName />
           <dd className={card.serverErrorRatio !== null && card.serverErrorRatio >= 0.01 ? "bad" : undefined}>
             {formatShare(card.serverErrorRatio)}
           </dd>
@@ -121,7 +158,10 @@ function ServiceBasics({ service }: { service: ServiceMetrics }) {
       <div className="metric-panels">
         <section className="metric-panel wide" aria-labelledby="service-slowest">
           <div className="metric-panel-head">
-            <h2 id="service-slowest">Slowest routes</h2>
+            <PanelName id="service-slowest" name="Slowest routes">
+              Of the ten busiest routes over the last 5 minutes, the five whose 95th percentile of duration was highest,
+              with their requests per second and share of 5xx answers. Start with these when the service feels slow.
+            </PanelName>
             <span>p95, last 5 minutes</span>
           </div>
           {slowest.length === 0 ? (
@@ -170,8 +210,16 @@ function ServiceBasics({ service }: { service: ServiceMetrics }) {
   );
 }
 
+/** Props for {@link ServicePanels}. */
+interface ServicePanelsProps {
+  /** The service's metrics. */
+  service: ServiceMetrics;
+  /** The range the screen shows, for the panels' words. */
+  range: MetricRange;
+}
+
 /** The Advanced view: every figure and panel. */
-function ServicePanels({ service }: { service: ServiceMetrics }) {
+function ServicePanels({ service, range }: ServicePanelsProps) {
   const { card } = service;
   const find = (lines: ChartLine[], label: string) => lines.find((line) => line.label === label);
   const pick = (lines: ChartLine[], picks: [string, string, string?][]) =>
@@ -188,30 +236,36 @@ function ServicePanels({ service }: { service: ServiceMetrics }) {
     <>
       <dl className="metrics-strip">
         <div>
-          <dt>Requests</dt>
+          <RequestsName />
           <dd>
             {formatRate(card.requestsPerSecond)} <small>per second</small>
           </dd>
         </div>
         <div>
-          <dt>Latency p95</dt>
+          <LatencyName />
           <dd>
             {formatSeconds(card.p95Seconds)}{" "}
             <small>p50 {formatSeconds(find(service.latency, "p50")?.latest ?? null)}</small>
           </dd>
         </div>
         <div>
-          <dt>5xx answers</dt>
+          <ServerErrorsName />
           <dd className={card.serverErrorRatio !== null && card.serverErrorRatio >= 0.01 ? "bad" : undefined}>
             {formatShare(card.serverErrorRatio)}
           </dd>
         </div>
         <div>
-          <dt>CPU</dt>
+          <FigureName name="CPU">
+            CPU the service&apos;s processes use over the last 5 minutes, of the CPUs they may use, from the SDK&apos;s
+            process or runtime metrics.
+          </FigureName>
           <dd>{formatShare(card.cpuRatio)}</dd>
         </div>
         <div>
-          <dt>Memory</dt>
+          <FigureName name="Memory">
+            Memory the service&apos;s processes use now, added up over its instances, from the SDK&apos;s process or
+            runtime metrics. Memory that only grows can be a leak.
+          </FigureName>
           <dd>{formatAmount(card.memoryBytes)}</dd>
         </div>
       </dl>
@@ -219,7 +273,10 @@ function ServicePanels({ service }: { service: ServiceMetrics }) {
       <div className="metric-panels">
         <section className="metric-panel" aria-labelledby="service-latency">
           <div className="metric-panel-head">
-            <h2 id="service-latency">Latency</h2>
+            <PanelName id="service-latency" name="Latency">
+              How long requests took {rangeWords(range, "over")}: p50 is the typical request, p95 and p99 the slow ones.
+              A p99 far above p95 means a few requests are much slower than the rest.
+            </PanelName>
             <span>from http.server.request.duration</span>
           </div>
           <LineChart
@@ -235,7 +292,10 @@ function ServicePanels({ service }: { service: ServiceMetrics }) {
 
         <section className="metric-panel" aria-labelledby="service-requests">
           <div className="metric-panel-head">
-            <h2 id="service-requests">Requests</h2>
+            <PanelName id="service-requests" name="Requests" label="the Requests chart">
+              Requests per second {rangeWords(range, "over")}, by the class of their status: 2xx and 3xx answered well,
+              4xx were refused, such as a page not found, and 5xx failed on the server. A rise in 5xx needs a look.
+            </PanelName>
             <span>per second</span>
           </div>
           <LineChart
@@ -256,7 +316,10 @@ function ServicePanels({ service }: { service: ServiceMetrics }) {
 
         <section className="metric-panel wide" aria-labelledby="service-routes">
           <div className="metric-panel-head">
-            <h2 id="service-routes">Routes</h2>
+            <PanelName id="service-routes" name="Routes">
+              The ten busiest routes over the last 5 minutes, with requests per second, the 95th percentile of their
+              duration, and the share answered with a 5xx status, which turns red from 1%.
+            </PanelName>
             <span>busiest first, last 5 minutes</span>
           </div>
           {service.routes.length === 0 ? (
@@ -313,7 +376,10 @@ function ServicePanels({ service }: { service: ServiceMetrics }) {
         {hasResources && (
           <section className="metric-panel" aria-labelledby="service-resources">
             <div className="metric-panel-head">
-              <h2 id="service-resources">CPU and memory</h2>
+              <PanelName id="service-resources" name="CPU and memory">
+                CPU the service&apos;s processes use, of the CPUs they may use, and their memory, added up over its
+                instances, {rangeWords(range, "over")}. From the SDK&apos;s process or runtime metrics.
+              </PanelName>
             </div>
             <LineChart
               title="CPU in use"
@@ -336,7 +402,11 @@ function ServicePanels({ service }: { service: ServiceMetrics }) {
         {hasRuntime && (
           <section className="metric-panel" aria-labelledby="service-runtime">
             <div className="metric-panel-head">
-              <h2 id="service-runtime">{card.runtime ?? "Runtime"}</h2>
+              <PanelName id="service-runtime" name={card.runtime ?? "Runtime"} label="Runtime">
+                The runtime&apos;s own metrics {rangeWords(range, "over")}, where the SDK sends them: garbage
+                collections per minute, work waiting in the thread pool queue, and the pool&apos;s threads. A queue that
+                keeps growing means the service cannot keep up.
+              </PanelName>
             </div>
             <LineChart
               title="Runtime"

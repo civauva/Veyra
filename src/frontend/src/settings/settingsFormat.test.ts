@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Setting } from "../api/types";
-import { describeValue, fromShown, matchesSearch, toShown } from "./settingsFormat";
+import { changeWords, describeValue, fromShown, toShown } from "./settingsFormat";
 
 /** A setting with the given kind and unit; the rest does not matter here. */
 function setting(kind: Setting["kind"], unit: string | null = null, extra: Partial<Setting> = {}): Setting {
@@ -84,14 +84,22 @@ describe("describeValue", () => {
   });
 });
 
-describe("matchesSearch", () => {
-  it("finds a setting by its label, group, help, or key, ignoring case", () => {
-    const caution = setting("Ratio", "%");
+describe("changeWords", () => {
+  it("changeWords_NewValue_SaysFromAndTo", () => {
+    const days = setting("WholeNumber", "days", { group: "Logs", label: "Keep", value: "14", default: "7" });
 
-    expect(matchesSearch(caution, "caution")).toBe(true);
-    expect(matchesSearch(caution, "ERROR RATE")).toBe(true);
-    expect(matchesSearch(caution, "log records")).toBe(true);
-    expect(matchesSearch(caution, "veyra:test")).toBe(true);
-    expect(matchesSearch(caution, "smtp")).toBe(false);
+    expect(changeWords(days, "30")).toBe("Logs, Keep: 14 days to 30 days");
+  });
+
+  it("changeWords_Reset_SaysTheDefault", () => {
+    const days = setting("WholeNumber", "days", { group: "Logs", label: "Keep", value: "14", default: "7" });
+
+    expect(changeWords(days, null)).toBe("Logs, Keep: 14 days to the default, 7 days");
+  });
+
+  it("changeWords_Secret_SaysOnlyThatItChanged", () => {
+    expect(changeWords(setting("Secret", null, { group: "Email", label: "Password" }), "hunter2")).toBe(
+      "Email, Password: changed",
+    );
   });
 });

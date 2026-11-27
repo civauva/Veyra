@@ -5,6 +5,7 @@ import {
   filtersFromSearch,
   filtersToApiParams,
   filtersToSearch,
+  isTraceId,
   traceWindow,
 } from "./traceFilters";
 
@@ -57,7 +58,7 @@ describe("filtersToApiParams", () => {
     const params = filtersToApiParams(filters, now, "production", "next-page");
 
     expect(Object.fromEntries(params)).toEqual({
-      from: "2026-11-09T11:00:00.000Z",
+      from: "2026-11-08T12:00:00.000Z",
       to: "2026-11-09T12:00:00.000Z",
       service: "payments",
       environment: "production",
@@ -67,5 +68,41 @@ describe("filtersToApiParams", () => {
       attribute: "http.route:/payments",
       cursor: "next-page",
     });
+  });
+});
+
+describe("the order and failed-and-slow (ADR 0029)", () => {
+  it("keep the screen's own default order out of the address, and any other in it", () => {
+    const worst = { ...defaultTraceFilters, order: "worst" as const };
+
+    expect(filtersToSearch(worst, "worst").toString()).toBe("");
+    expect(filtersToSearch(defaultTraceFilters, "worst").toString()).toBe("order=newest");
+    expect(filtersFromSearch(new URLSearchParams(""), "worst").order).toBe("worst");
+    expect(filtersFromSearch(new URLSearchParams("order=newest"), "worst").order).toBe("newest");
+    expect(filtersFromSearch(new URLSearchParams("order=odd")).order).toBe("newest");
+  });
+
+  it("read and write failed and slow", () => {
+    const both = { ...defaultTraceFilters, show: "failed-slow" as const };
+
+    expect(filtersToSearch(both).toString()).toBe("show=failed-slow");
+    expect(filtersFromSearch(filtersToSearch(both))).toEqual(both);
+  });
+
+  it("ask the list for worst first, and for failed and slow traces with both filters", () => {
+    const filters = { ...defaultTraceFilters, show: "failed-slow" as const, order: "worst" as const };
+    const params = filtersToApiParams(filters, now, null);
+
+    expect(params.get("order")).toBe("worst");
+    expect(params.get("failed")).toBe("true");
+    expect(params.get("slow")).toBe("true");
+    expect(filtersToApiParams(defaultTraceFilters, now, null).has("order")).toBe(false);
+  });
+});
+
+describe("isTraceId", () => {
+  it("knows a pasted trace ID from an operation's name", () => {
+    expect(isTraceId(" 5B8EFFF798038103D269B633813FC60C ")).toBe(true);
+    expect(isTraceId("POST /checkout")).toBe(false);
   });
 });

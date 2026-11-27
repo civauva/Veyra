@@ -1,6 +1,7 @@
 import { api } from "../../api/client";
 import { formatAmount, formatSpan } from "../metricFormat";
 import { useMetricData } from "../useMetricData";
+import { PanelHead } from "./helpNames";
 
 /** Props for {@link AvailabilitySection}. */
 export interface AvailabilitySectionProps {
@@ -26,22 +27,24 @@ export function AvailabilitySection({ engine, server, advanced }: AvailabilitySe
     return null;
   }
 
-  const trouble = [
-    ...data.replicas
-      .filter((one) => !one.healthy)
-      .map((one) => `replica ${one.replica} of ${one.group} is not healthy`),
-    ...data.databases
-      .filter((one) => !one.synchronizing)
-      .map((one) => `${one.database} on ${one.replica} is not synchronizing`),
-    ...data.logShipping.filter((one) => one.behind).map((one) => `log shipping of ${one.database} is behind`),
-  ];
+  // The server says what is not well (VEY-68).
+  const { trouble } = data;
 
   return (
     <section className="metric-panel" aria-labelledby="availability-head">
-      <div className="metric-panel-head">
-        <h2 id="availability-head">Availability</h2>
+      <PanelHead
+        id="availability-head"
+        name="Availability"
+        help={
+          "Availability Groups, log shipping, and the failover cluster, read every minute " +
+          "from the sys.dm_hadr views, msdb's log shipping monitor, and " +
+          "sys.dm_os_cluster_nodes. Every replica should be healthy and every database " +
+          "synchronizing. A growing queue or lag means a failover now would lose or delay " +
+          "data."
+        }
+      >
         <span>Availability Groups, log shipping, and the cluster</span>
-      </div>
+      </PanelHead>
       <p className={trouble.length > 0 ? "metrics-error" : "metrics-empty"}>
         {trouble.length > 0
           ? `Needs a look: ${trouble.join("; ")}.`

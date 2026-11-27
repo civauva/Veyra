@@ -30,20 +30,33 @@ export function testSpan(
     events: [],
     links: [],
     dropped: { attributes: 0, events: 0, links: 0 },
+    depth: 0,
+    children: 0,
+    missingParent: false,
     ...extra,
   };
 }
 
-/** A checkout that failed because psp-client timed out, with one span whose parent never arrived. */
+/**
+ * A checkout that failed because psp-client timed out, with one span whose parent never arrived. The spans come in the
+ * server's tree order, each with its depth (VEY-68).
+ */
 export const checkoutTrace: Trace = {
   traceId: checkoutId,
   spans: [
-    testSpan("0000000000000001", null, "checkout-web", "POST /api/checkout", 0, 1840, { status: "Error" }),
+    testSpan("0000000000000001", null, "checkout-web", "POST /api/checkout", 0, 1840, {
+      status: "Error",
+      children: 1,
+    }),
     testSpan("0000000000000002", "0000000000000001", "payments-gateway", "POST /payments", 52, 1774, {
       status: "Error",
+      depth: 1,
+      children: 2,
     }),
+    testSpan("0000000000000004", "0000000000000002", "postgres", "SELECT payments.customer", 63, 14, { depth: 2 }),
     testSpan("0000000000000003", "0000000000000002", "psp-client", "POST /authorize", 110, 1606, {
       status: "Error",
+      depth: 2,
       attributes: { "http.route": "/authorize", "http.response.status_code": "504" },
       events: [
         {
@@ -56,9 +69,33 @@ export const checkoutTrace: Trace = {
         },
       ],
     }),
-    testSpan("0000000000000004", "0000000000000002", "postgres", "SELECT payments.customer", 63, 14),
-    testSpan("0000000000000005", "00000000000000ff", "inventory", "reserve stock", 84, 14),
+    testSpan("0000000000000005", "00000000000000ff", "inventory", "reserve stock", 84, 14, { missingParent: true }),
   ],
+  summary: {
+    start: "2026-11-09T12:00:00.000Z",
+    durationMs: 1840,
+    spans: 5,
+    failed: 3,
+    missingParents: 1,
+    missingParentServices: ["inventory"],
+    services: [
+      { service: "checkout-web", spans: 1 },
+      { service: "inventory", spans: 1 },
+      { service: "payments-gateway", spans: 1 },
+      { service: "postgres", spans: 1 },
+      { service: "psp-client", spans: 1 },
+    ],
+    criticalPath: ["0000000000000001", "0000000000000002", "0000000000000003", "0000000000000004"],
+    cause: "0000000000000003",
+  },
+};
+
+/** The failed checkout as the server answers with `errorsOnly`: the failed spans and the spans above them. */
+export const checkoutErrors: Trace = {
+  ...checkoutTrace,
+  spans: checkoutTrace.spans
+    .filter((span) => span.status === "Error")
+    .map((span) => (span.spanId === "0000000000000002" ? { ...span, children: 1 } : span)),
 };
 
 /** A page of the trace list with the failed checkout and a quick one. */
@@ -109,6 +146,8 @@ export const durations: TraceDurations = {
   read: 3,
   maxRead: 20000,
   p95Ms: 900,
+  failed: 1,
+  slow: 1,
 };
 
 /** A log record of the psp-client span. */

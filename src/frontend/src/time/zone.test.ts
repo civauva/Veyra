@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { formatClock, formatInstant, formatTime, formatUtc } from "../logs/format";
+import { formatClock, formatInstant, formatSpan, formatTime, formatUtc } from "../logs/format";
 import {
   cityOf,
   displayZone,
@@ -30,6 +30,18 @@ describe("the display zone", () => {
     setDisplayZone("Mars/Olympus_Mons");
 
     expect(displayZone()).toBe("UTC");
+  });
+
+  it("formatSpan_WithinOneDay_ShowsClocksOnly", () => {
+    setDisplayZone("Europe/Berlin");
+
+    expect(formatSpan("2026-11-09T07:00:00Z", "2026-11-09T08:30:00Z")).toBe("08:00 – 09:30");
+  });
+
+  it("formatSpan_AcrossDays_ShowsTheDayOfEachEnd", () => {
+    setDisplayZone("Europe/Berlin");
+
+    expect(formatSpan("2026-11-08T12:05:00Z", "2026-11-09T12:05:00Z")).toBe("Nov 8 13:05 – Nov 9 13:05");
   });
 
   it("formats times of day, clocks, and instants in the zone", () => {

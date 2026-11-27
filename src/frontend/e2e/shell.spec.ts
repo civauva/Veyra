@@ -13,7 +13,7 @@ async function sidebarWidth(page: Page): Promise<number> {
 
 test.describe("Shell", () => {
   test("keeps the environment and the open alerts in view on every screen", async ({ page }) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
 
     for (const path of ["/", "/logs", "/metrics", "/alerts", "/keys"]) {
       await page.goto(path);
@@ -26,7 +26,7 @@ test.describe("Shell", () => {
   });
 
   test("shows icons on laptops and tablets and a drawer on phones", async ({ page }, testInfo) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/");
     await expect(page.getByRole("region", { name: "Needs you" })).toBeVisible();
 
@@ -52,7 +52,7 @@ test.describe("Shell", () => {
     test.slow();
     // Short enough that every screen has more than fits.
     await page.setViewportSize({ width: 1440, height: 420 });
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
 
     for (const path of ["/", "/logs", "/metrics", "/alerts", "/keys", "/users", "/notifications", "/account"]) {
       await page.goto(path);
@@ -65,7 +65,7 @@ test.describe("Shell", () => {
   });
 
   test("leads home from the logo", async ({ page }) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/logs");
 
     await page.getByRole("link", { name: "Veyra home" }).click();
@@ -76,7 +76,7 @@ test.describe("Shell", () => {
   test("labels the sidebar on large screens", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop", "Large screens are desktop browsers.");
     await page.setViewportSize({ width: 1920, height: 1080 });
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/");
 
     expect(await sidebarWidth(page)).toBe(232);
@@ -84,7 +84,7 @@ test.describe("Shell", () => {
   });
 
   test("chooses the environment from the switcher", async ({ page }) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/");
 
     await page.getByRole("button", { name: /^Environment:/ }).click();
@@ -95,8 +95,27 @@ test.describe("Shell", () => {
     await expect(page.getByRole("button", { name: /^Environment: All environments/ })).toBeVisible();
   });
 
+  test("asks the server for the environments the find box keeps", async ({ page }) => {
+    // The server filters the switcher's list (VEY-67), so the search must reach it.
+    await answerApi(page, { look: "forecast" });
+    await page.goto("/");
+
+    await page.getByRole("button", { name: /^Environment:/ }).click();
+    const list = page.getByRole("dialog", { name: "Choose an environment" });
+    const asked = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+
+      return url.pathname === "/api/v1/home/environments" && url.searchParams.get("search") === "prod";
+    });
+    await list.getByRole("searchbox", { name: "Find an environment" }).fill("prod");
+    await asked;
+
+    await expect(list.getByRole("button", { name: /production/ })).toBeVisible();
+    await expect(list.getByRole("button", { name: /All environments/ })).toHaveCount(0);
+  });
+
   test("keeps the weather to a band on work screens and in full on the home", async ({ page }) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/logs");
     await expect(page.locator(".shell")).toHaveClass(/scene-storm/);
 
@@ -111,7 +130,7 @@ test.describe("Shell", () => {
 
   test("blends the home into the next screen", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name === "phone", "On phones the main navigation waits in the drawer.");
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/");
     await expect(page.getByRole("region", { name: "Needs you" })).toBeVisible();
 
@@ -142,7 +161,7 @@ test.describe("Shell", () => {
 
   test("still shows one frame of weather without motion", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/");
     await expect(page.getByRole("region", { name: "Needs you" })).toBeVisible();
 
@@ -160,7 +179,7 @@ test.describe("Home on large screens", () => {
   // Natural size on every screen (VEY-24): more to see, never bigger type and never a sideways scroll.
   async function open(page: Page, width: number, height: number, home?: HomeSnapshot) {
     await page.setViewportSize({ width, height });
-    await answerApi(page, { home });
+    await answerApi(page, { look: "forecast", home });
     await page.goto("/");
     await expect(page.getByRole("region", { name: "Needs you" })).toBeVisible();
     await expect(page.locator(".home-body")).toHaveCSS("zoom", "1");
@@ -270,4 +289,20 @@ test.describe("Home on large screens", () => {
       expect(await page.locator(".home").evaluate((home) => home.scrollHeight - home.clientHeight)).toBe(0);
     });
   }
+
+  test("shows the version, which opens the release notes, in the Forecast look too (VEY-82)", async ({ page }) => {
+    await answerApi(page, { look: "forecast" });
+    await page.goto("/logs");
+    const menu = page.getByRole("button", { name: "Menu" });
+
+    if (await menu.isVisible()) {
+      await menu.click();
+    }
+
+    await page.getByRole("button", { name: "Veyra 0.4.1: what's new" }).click();
+    const notes = page.getByRole("dialog", { name: "What's new in Veyra" });
+    await expect(notes).toContainText("Tiles open their details.");
+    await notes.getByRole("button", { name: "Close" }).click();
+    await expect(notes).toHaveCount(0);
+  });
 });

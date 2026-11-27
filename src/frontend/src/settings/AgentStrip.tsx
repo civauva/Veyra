@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 
 import type { Agent } from "../api/types";
+import { HelpTip } from "../ui/HelpTip";
 import { ago } from "./monitoringFormat";
 
 /** Props for {@link AgentStrip}. */
@@ -27,6 +28,12 @@ export function AgentStrip({ agents, now }: AgentStripProps) {
       {text}
     </Link>
   );
+  const agentHelp = (
+    <HelpTip label="Agent">
+      The agent is the OpenTelemetry Collector that Veyra runs and sets up. It signs in to each server below, reads its
+      figures, and sends them to Veyra, so every server here waits for it.
+    </HelpTip>
+  );
 
   if (!agent) {
     return (
@@ -36,6 +43,7 @@ export function AgentStrip({ agents, now }: AgentStripProps) {
           <b>Veyra has no agent to read database servers.</b> Its built-in agent comes with Veyra's Docker Compose
           deployment, <code>deploy/docker-compose.yml</code>: start Veyra with it, and the agent sets itself up.
         </p>
+        {agentHelp}
         {agentsLink("How to start it ›")}
       </div>
     );
@@ -50,6 +58,7 @@ export function AgentStrip({ agents, now }: AgentStripProps) {
         <p>
           Read by {name} · Online{agent.version ? ` · version ${agent.version}` : ""}
         </p>
+        {agentHelp}
         {agentsLink("Agents ›")}
       </div>
     );
@@ -79,6 +88,7 @@ export function AgentStrip({ agents, now }: AgentStripProps) {
     <div className={`monitor-agent ${notice.tone}`} role="status" aria-label="Agent">
       <i aria-hidden="true" />
       <p>{notice.text}</p>
+      {agentHelp}
       {agentsLink(agent.state === "NotConnected" || agent.state === "Offline" ? "How to start it ›" : "Agents ›")}
     </div>
   );

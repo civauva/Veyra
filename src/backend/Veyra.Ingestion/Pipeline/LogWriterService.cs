@@ -13,11 +13,13 @@ namespace Veyra.Ingestion.Pipeline;
 /// </remarks>
 /// <param name="queue">Where accepted records wait.</param>
 /// <param name="writer">The storage module's writer.</param>
+/// <param name="live">Hears each stored batch, for the live streams (ADR 0022).</param>
 /// <param name="clock">The clock for retry pauses.</param>
 /// <param name="logger">Receives write failures.</param>
 internal sealed partial class LogWriterService(
     LogQueue queue,
     ILogWriter writer,
+    ILiveTelemetry live,
     TimeProvider clock,
     ILogger<LogWriterService> logger) : BackgroundService
 {
@@ -68,6 +70,7 @@ internal sealed partial class LogWriterService(
             {
                 await writer.WriteAsync(batch, stoppingToken);
                 queue.MarkWritten(batch.Count);
+                TellLive(batch);
 
                 return;
             }
@@ -96,6 +99,25 @@ internal sealed partial class LogWriterService(
             delay = TimeSpan.FromTicks(Math.Min(delay.Ticks * 2, _maxRetryDelay.Ticks));
         }
     }
+
+    // Only once the batch is stored, so a retried batch is never shown twice. The live streams must not stop
+    // ingestion: a failure there loses the batch for the streams only.
+    private void TellLive(List<LogRecord> batch)
+    {
+        try
+        {
+            live.LogsWritten(batch);
+        }
+        catch (Exception exception)
+        {
+            LogLiveFailed(exception, batch.Count);
+        }
+    }
+
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Handing {Count} written log records to the live streams failed")]
+    private partial void LogLiveFailed(Exception exception, int count);
 
     [LoggerMessage(
         Level = LogLevel.Error,

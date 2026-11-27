@@ -1,7 +1,9 @@
-import { useEffect, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import type { AlertListItem, AlertQuery, AlertRule, AlertSummary } from "../api/types";
+import { HelpTip } from "../ui/HelpTip";
+import { ScreenBar } from "../ui/ScreenBar";
 import { type ShellScene, useShell } from "../app/shellContext";
 import { WeatherIcon } from "../home/WeatherIcon";
 import { useSession } from "../session/useSession";
@@ -15,10 +17,8 @@ import { instantOfLocalDay, localDay, localDayName } from "../time/zone";
 import "../home/home.css";
 import "./alert.css";
 import "./alerts.css";
-import { useViewMode, ViewToggle } from "../app/ViewToggle";
-
-/** The periods the screen offers, in days; resolved alerts are kept 90 days by default. */
-const periods = [30, 90] as const;
+import { useViewMode } from "../ui/ViewToggle";
+import { periods, readQuery, stateCount, summarySentence, writeQuery } from "./alertQuery";
 
 /**
  * The Alerts screen: every alert of the last 30 or 90 days, newest first. A weather log shows the worst alert of each
@@ -57,6 +57,7 @@ export function AlertsScreen() {
 
   return (
     <main className="home alert-screen alerts-screen">
+      <ScreenBar trail={[{ label: "Alerts" }]} view />
       <div className="alert-page">
         <AlertsHero summary={history.summary} days={query.days} />
         {history.error && (
@@ -112,7 +113,6 @@ export function AlertsScreen() {
                   />
                 </label>
               )}
-              <ViewToggle className="alerts-view" />
             </div>
 
             <AlertRows items={history.items} now={history.summary ? new Date(history.summary.to) : null} />
@@ -151,21 +151,29 @@ function AlertsHero({ summary, days }: { summary: AlertSummary | null; days: num
       {summary && (
         <dl className="alerts-stats">
           <div className="glass fact">
-            <dt className="cap">Open</dt>
+            <StatName name="Open">
+              Alerts open now, and how many of them are warnings and how many cautions. Each resolves by itself once its
+              measure clears.
+            </StatName>
             <dd className="fact-value">{summary.open}</dd>
             <dd className="fact-note">
               {summary.open === 0 ? "none now" : `${summary.openWarnings} warning, ${cautions} caution`}
             </dd>
           </div>
           <div className="glass fact">
-            <dt className="cap">{days} days</dt>
+            <StatName name={`${days} days`}>
+              Every alert that was open at some time in the last {days} days, and how many of them reached warning.
+            </StatName>
             <dd className="fact-value">{summary.total}</dd>
             <dd className="fact-note">
               {summary.warnings} {summary.warnings === 1 ? "warning" : "warnings"}
             </dd>
           </div>
           <div className="glass fact">
-            <dt className="cap">Median</dt>
+            <StatName name="Median">
+              How long alerts took from opening to resolving: half of those that resolved in the last {days} days
+              cleared faster than this, half took longer.
+            </StatName>
             <dd className="fact-value">
               {summary.medianSeconds === null ? "—" : formatDuration(summary.medianSeconds * 1000)}
             </dd>
@@ -174,6 +182,20 @@ function AlertsHero({ summary, days }: { summary: AlertSummary | null; days: num
         </dl>
       )}
     </section>
+  );
+}
+
+/**
+ * The name of one of the hero's counts, with the question mark that explains it (VEY-60), as on the alert's facts.
+ *
+ * @param props - The name, and what the count means.
+ */
+function StatName({ name, children }: { name: string; children: ReactNode }) {
+  return (
+    <dt className="fact-name">
+      <span className="cap">{name}</span>
+      <HelpTip label={name}>{children}</HelpTip>
+    </dt>
   );
 }
 
@@ -198,9 +220,15 @@ function WeatherLog({ summary, days, onDays }: WeatherLogProps) {
   return (
     <section className="glass weather-log" aria-labelledby={headingId}>
       <div className="weather-log-head">
-        <h2 id={headingId} className="cap">
-          Weather log · last {summary.days.length} days
-        </h2>
+        <div className="alert-name">
+          <h2 id={headingId} className="cap">
+            Weather log · last {summary.days.length} days
+          </h2>
+          <HelpTip label="Weather log">
+            One cell per day with the worst alert that opened that day and how many opened. Alerts opened before the
+            period count on its first day. Days start at midnight in your time zone.
+          </HelpTip>
+        </div>
         <div className="weather-log-tools">
           <ul className="log-legend" aria-hidden="true">
             <li className="legend-day-warning">warning</li>
@@ -326,9 +354,15 @@ function BuiltInRules({ summary }: { summary: AlertSummary }) {
 
   return (
     <aside className="glass built-in-rules" aria-labelledby="built-in-rules">
-      <h2 id="built-in-rules" className="cap">
-        Built-in rules
-      </h2>
+      <div className="alert-name">
+        <h2 id="built-in-rules" className="cap">
+          Built-in rules
+        </h2>
+        <HelpTip label="Built-in rules">
+          The rules Veyra checks every 30 seconds, with their caution and warning thresholds as this installation sets
+          them, and how many alerts each raised in the period.
+        </HelpTip>
+      </div>
       <ul>
         {summary.rules.map((rule) => (
           <li key={rule.rule} className={rule.enabled ? "built-in-rule" : "built-in-rule off"}>
@@ -367,67 +401,7 @@ function sceneOf(summary: AlertSummary): ShellScene {
   return summary.openWarnings > 0 ? "storm" : summary.open > 0 ? "showers" : "clear";
 }
 
-/** The sentence under the title. */
-function summarySentence(summary: AlertSummary, days: number): string {
-  const open =
-    summary.open === 0
-      ? "No alert is open."
-      : summary.open === 1
-        ? "One alert is open."
-        : `${summary.open} alerts are open.`;
-  const period =
-    summary.total === 0
-      ? ` No alerts in the last ${days} days.`
-      : ` ${summary.total} ${summary.total === 1 ? "alert" : "alerts"} in the last ${days} days` +
-        (summary.medianSeconds === null
-          ? "."
-          : `; the median cleared in ${formatDuration(summary.medianSeconds * 1000)}.`);
-
-  return open + period;
-}
-
-/** How many alerts a state filter holds over the period. */
-function stateCount(summary: AlertSummary, state: AlertQuery["state"]): number {
-  return state === "open" ? summary.open : state === "resolved" ? summary.resolved : summary.total;
-}
-
 /** A day heading: `Today`, `Yesterday`, or `Nov 8`, on the person's calendar (VEY-22). */
 function dayName(day: string, now: Date | null): string {
   return localDayName(day, now ?? new Date());
-}
-
-/** The filters from the address; anything unknown falls back to the default. */
-function readQuery(params: URLSearchParams): Omit<AlertQuery, "environment"> {
-  const days = Number(params.get("days"));
-  const state = params.get("state");
-
-  return {
-    days: periods.includes(days as (typeof periods)[number]) ? days : 30,
-    state: state === "open" || state === "resolved" ? state : "all",
-    rules: params.getAll("rule").filter((rule): rule is AlertRule => (ruleOrder as string[]).includes(rule)),
-    text: params.get("q") ?? "",
-  };
-}
-
-/** The filters as address parameters, leaving out the defaults. */
-function writeQuery(query: Omit<AlertQuery, "environment">): URLSearchParams {
-  const params = new URLSearchParams();
-
-  if (query.days !== 30) {
-    params.set("days", String(query.days));
-  }
-
-  if (query.state !== "all") {
-    params.set("state", query.state);
-  }
-
-  for (const rule of query.rules) {
-    params.append("rule", rule);
-  }
-
-  if (query.text) {
-    params.set("q", query.text);
-  }
-
-  return params;
 }

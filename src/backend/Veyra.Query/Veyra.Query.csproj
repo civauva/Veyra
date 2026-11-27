@@ -11,6 +11,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Veyra.Query.Tests" />
+    <!-- The search and live stream tests replace the search budget and count the hub's listeners. -->
+    <InternalsVisibleTo Include="Veyra.Api.Tests" />
   </ItemGroup>
 
 </Project>

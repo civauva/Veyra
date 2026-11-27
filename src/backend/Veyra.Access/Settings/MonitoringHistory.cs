@@ -26,4 +26,29 @@ internal sealed class MonitoringHistory(SettingStore store, UserStore users) : I
             new SettingAuthor(userId, user?.DisplayName ?? "Unknown"),
             cancellationToken);
     }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<MonitoringHistoryEntry>> ListAsync(
+        MonitoringSubject subject,
+        string name,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var changes = await store.MonitoringHistoryAsync(subject, name, limit, cancellationToken);
+
+        return changes
+            .Select(change => new MonitoringHistoryEntry(
+                change.ChangedAt,
+                change.ChangedByName,
+                change.Kind switch
+                {
+                    SettingChangeKind.Added => MonitoringChangeKind.Added,
+                    SettingChangeKind.Removed => MonitoringChangeKind.Removed,
+                    _ => MonitoringChangeKind.Changed,
+                },
+                change.Fields ?? [],
+                change.OldValue,
+                change.NewValue))
+            .ToList();
+    }
 }

@@ -106,5 +106,9 @@ public sealed class SqlServersController : ControllerBase
             CreatedAt: view.Server.CreatedAt,
             ChangedAt: view.Server.ChangedAt,
             Platform: view.Server.Platform,
-            Database: view.Server.Database);
+            Database: view.Server.Database,
+            Instance: view.Server.Instance,
+            Authentication: view.Server.Authentication,
+            Modules: view.Server.Choices,
+            Version: view.Server.Version);
 }

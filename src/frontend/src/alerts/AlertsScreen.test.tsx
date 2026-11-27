@@ -32,6 +32,7 @@ const viewer = {
   displayName: "Dana Kim",
   role: "Viewer" as const,
   timeZone: null,
+  look: { chosen: null, default: "forecast", mayChoose: true },
 };
 
 const days = Array.from({ length: 30 }, (_, index) => ({
@@ -73,6 +74,7 @@ const disk: AlertListItem = {
   openedAt: "2026-11-10T03:20:00Z",
   updatedAt: "2026-11-10T07:34:00Z",
   resolvedAt: null,
+  area: null,
 };
 
 const errors: AlertListItem = {
@@ -133,6 +135,33 @@ describe("AlertsScreen", () => {
     ).toBeVisible();
     expect(within(screen.getByRole("main")).getByText("1 warning, 1 caution")).toBeVisible();
     await waitFor(() => expect(container.querySelector(".shell")).toHaveClass("scene-storm"));
+  });
+
+  it("has the bar with its name and the view toggle", async () => {
+    renderAt("/alerts");
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Alerts" })).toBeVisible();
+    const trail = screen.getByRole("navigation", { name: "Where you are" });
+    expect(within(trail).getByText("Alerts")).toHaveAttribute("aria-current", "page");
+    expect(within(trail.parentElement as HTMLElement).getByRole("group", { name: "View" })).toBeInTheDocument();
+    expect(screen.getAllByRole("group", { name: "View" })).toHaveLength(1);
+  });
+
+  it("explains the counts, the weather log, and the rules behind their question marks", async () => {
+    const user = userEvent.setup();
+
+    renderAt("/alerts");
+
+    expect(await screen.findByRole("button", { name: "What Open means" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "What 30 days means" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "What Median means" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "What Weather log means" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "What Built-in rules means" })).toBeInTheDocument();
+    // The question marks sit beside the headings, so the panels keep their names.
+    expect(screen.getByRole("complementary", { name: "Built-in rules" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "What Median means" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/resolved/);
   });
 
   it("draws one day per cell with its worst weather and count, today last", async () => {

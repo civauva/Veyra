@@ -35,22 +35,39 @@ internal sealed class DatabaseViewBuilder(IMetricSearch search, IBlockEvents eve
     /// The engine, as <c>db.system.name</c> spells it, such as <c>microsoft.sql_server</c>.
     /// </param>
     /// <param name="server">The server, as <c>server.address</c> names it.</param>
-    /// <param name="range">The window, for example <c>6h</c>.</param>
+    /// <param name="span">The window: a named range ending now, or a from–to period (ADR 0022).</param>
+    /// <param name="system">
+    /// Whether the server's own databases, jobs, statements, and tables are listed (VEY-66).
+    /// </param>
     /// <param name="cancellationToken">Cancels the reads.</param>
     /// <returns>The screen, or null when the server sent no metrics within the window.</returns>
     public async Task<DatabaseMetricsResponse?> DatabaseAsync(
         string engine,
         string server,
-        string? range,
+        MetricSpan span,
+        bool system,
         CancellationToken cancellationToken)
     {
-        var now = clock.GetUtcNow();
-        var window = MetricWindow.Of(range, now);
+        var screen = await ScreenAsync(engine, server, span, system, cancellationToken);
+
+        // The Overview tab's figures come from the lists as they are sent, so they agree with the tabs (VEY-68).
+        return screen is null ? null : screen with { Overview = DatabaseOverview.Of(screen) };
+    }
+
+    private async Task<DatabaseMetricsResponse?> ScreenAsync(
+        string engine,
+        string server,
+        MetricSpan span,
+        bool system,
+        CancellationToken cancellationToken)
+    {
+        var window = MetricWindow.Of(span, clock.GetUtcNow());
+        var now = window.End;
         var block = TelemetryBlock.Database(engine, server);
 
         if (engine == MetricNames.PostgresEngine)
         {
-            return await PostgresAsync(block, window, now, cancellationToken);
+            return await PostgresAsync(block, window, now, system, cancellationToken);
         }
 
         var series = await search.FindSeriesAsync(
@@ -91,7 +108,8 @@ internal sealed class DatabaseViewBuilder(IMetricSearch search, IBlockEvents eve
             await readingQuarter,
             await readingDay,
             await listingSamples,
-            await readingStatements);
+            await readingStatements,
+            system);
     }
 
     // A PostgreSQL server's screen: the server's series over the window, the last five minutes, and the deadlocks of
@@ -101,6 +119,7 @@ internal sealed class DatabaseViewBuilder(IMetricSearch search, IBlockEvents eve
         TelemetryBlock block,
         MetricWindow window,
         DateTimeOffset now,
+        bool system,
         CancellationToken cancellationToken)
     {
         var findingServer = search.FindSeriesAsync(
@@ -148,7 +167,8 @@ internal sealed class DatabaseViewBuilder(IMetricSearch search, IBlockEvents eve
             await readingWindow,
             await readingRecent,
             await readingQuarter,
-            await readingDay);
+            await readingDay,
+            system);
     }
 
     // Each statement's totals over the whole window, read as one bucket per series: one row per series, however long

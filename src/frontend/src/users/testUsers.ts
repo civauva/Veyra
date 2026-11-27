@@ -1,4 +1,4 @@
-import type { Account, UserDetail, UserSummary } from "../api/types";
+import type { Account, UserDetail, UserList, UserSummary } from "../api/types";
 
 /*
  * People for tests and the e2e run, matching the VEY-20 mockups: two Admins, three Editors, one locked, and Viewers,
@@ -95,6 +95,34 @@ export const people: UserSummary[] = [
   },
 ];
 
+/**
+ * The Users screen's answer for these people, as the server gives it with the counts of all of {@link people}: five
+ * with a second factor, six signed in within 30 days, both Admins with one, and Marco and Mei without.
+ *
+ * @param listed - The people the search and the chip kept.
+ * @param counts - The chip counts, when a search narrows them.
+ * @returns The answer.
+ */
+export function userListOf(listed: UserSummary[], counts: Partial<UserList["counts"]> = {}): UserList {
+  return {
+    people: listed,
+    counts: { everyone: 8, noFactor: 3, locked: 1, off: 1, ...counts },
+    posture: {
+      people: 8,
+      withSecondFactor: 5,
+      recentSignIns: 6,
+      admins: 2,
+      adminsWithSecondFactor: 2,
+      missing: 2,
+      missingAdmins: 0,
+    },
+    roles: { admins: 2, editors: 3, viewers: 3 },
+  };
+}
+
+/** Everyone on the Users screen, as the server answers with no search and no chip. */
+export const userList: UserList = userListOf(people);
+
 /** Tom in full: locked, two sessions, sign-ins with a new address, and his history. */
 export const tomDetail: UserDetail = {
   user: tom,
@@ -151,6 +179,16 @@ export const tomDetail: UserDetail = {
     { at: "2026-07-02T10:00:00Z", kind: "RoleChanged", by: "Dana Kim", detail: "Viewer Editor" },
     { at: "2026-06-23T09:00:00Z", kind: "Added", by: "Dana Kim", detail: "Viewer" },
   ],
+  // The server counts every attempt; far more than the three listed above (VEY-68).
+  signInDays: {
+    days: Array.from({ length: 14 }, (_, index) => ({
+      day: new Date(Date.UTC(2026, 10, 10 - 13 + index)).toISOString().slice(0, 10),
+      signedIn: index === 13 ? 1 : index === 11 ? 1 : 0,
+      failed: index === 13 ? 64 : 0,
+    })),
+    signedIn: 2,
+    failed: 64,
+  },
 };
 
 /** Lena's own account, as the Account page shows it. */

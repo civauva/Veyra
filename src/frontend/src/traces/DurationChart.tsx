@@ -22,6 +22,12 @@ interface DurationChartProps {
   points: TraceDurationPoint[];
   /** The 95th percentile, drawn as a line; traces above it are slow. Null when there are no traces. */
   p95Ms: number | null;
+  /** How many traces were read, which the points sample. */
+  read: number;
+  /** How many traces read failed, counted on the server (VEY-68). */
+  failed: number;
+  /** How many traces read were slow and did not fail, counted on the server (VEY-68). */
+  slow: number;
   /** The start of the window on the time axis. */
   from: Date;
   /** The end of the window. */
@@ -45,7 +51,18 @@ const durationTicks = [0.1, 0.3, 1, 3, 10, 30, 100, 300, 1000, 3000, 10_000, 30_
  * are red and slow ones amber, so an incident shows as a band of colour. Clicking a dot opens its trace; dragging a
  * box picks traces by time and duration. The filter panel offers the same choices by keyboard.
  */
-export function DurationChart({ points, p95Ms, from, to, picked, onPick, onOpen }: DurationChartProps) {
+export function DurationChart({
+  points,
+  p95Ms,
+  read,
+  failed,
+  slow,
+  from,
+  to,
+  picked,
+  onPick,
+  onOpen,
+}: DurationChartProps) {
   const frame = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(800);
   const [drag, setDrag] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
@@ -127,16 +144,13 @@ export function DurationChart({ points, p95Ms, from, to, picked, onPick, onOpen 
     });
   }
 
-  const failed = points.filter((point) => point.failed).length;
-  const slow = p95Ms === null ? 0 : points.filter((point) => !point.failed && point.durationMs >= p95Ms).length;
-
   return (
     <div ref={frame} className="duration-chart">
       <svg
         width={width}
         height={height}
         role="img"
-        aria-label={`Duration of ${points.length} traces: ${failed} failed, ${slow} slower than the 95th percentile${
+        aria-label={`Duration of ${read} traces: ${failed} failed, ${slow} slower than the 95th percentile${
           p95Ms === null ? "" : ` of ${formatDuration(p95Ms)}`
         }.`}
         onPointerDown={(event) => {

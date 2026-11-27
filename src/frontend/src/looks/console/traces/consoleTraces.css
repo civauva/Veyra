@@ -1,0 +1,450 @@
+/*
+ * Console's traces and one trace (VEY-79, ADR 0029): the filter chips, the duration chart beside the slowest services,
+ * the list, and a trace's head, waterfall, selected span, and services. Colours come from the tokens, so light and dark
+ * both apply.
+ */
+
+/* ---- The filter chips ---- */
+
+.tr-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.cn-filter.on {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: var(--selected);
+}
+
+.tr-attribute b {
+  font-weight: 600;
+}
+
+.tr-attribute button {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tr-attribute button:hover {
+  color: var(--error-fg);
+}
+
+.tr-add {
+  border-style: dashed;
+  padding-right: 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tr-attribute-form {
+  display: flex;
+  width: 240px;
+}
+
+.tr-search {
+  display: flex;
+  flex: 0 1 340px;
+  margin-left: auto;
+}
+
+.tr-search .cn-find,
+.tr-attribute-form .cn-find {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+/* ---- The chart beside the slowest services ---- */
+
+.tr-row {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.62fr);
+}
+
+.tr-chart {
+  padding: 6px 8px 0;
+}
+
+.tr-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin: 0;
+  padding: 6px 14px 10px;
+  color: var(--muted);
+  font-size: 11.5px;
+  list-style: none;
+}
+
+.tr-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tr-legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.tr-legend i.slow {
+  background: var(--warning-fg);
+}
+
+.tr-legend i.bad {
+  background: var(--error-fg);
+}
+
+.tr-legend .tr-legend-note {
+  margin-left: auto;
+  color: var(--faint);
+}
+
+.tr-service {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tr-service:hover,
+.tr-service[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+.tr-chosen td {
+  background: var(--selected);
+}
+
+/* ---- One trace: the head ---- */
+
+.tr-icon.bad {
+  border-color: color-mix(in srgb, var(--error-fg) 40%, transparent);
+  background: var(--error-bg);
+  color: var(--error-fg);
+}
+
+.tr-head-text {
+  min-width: 0;
+  flex: 1 1 320px;
+}
+
+.tr-head-text h1 {
+  overflow-wrap: anywhere;
+}
+
+.tr-facts span + span::before {
+  content: "·";
+  margin-right: 14px;
+  color: var(--faint);
+}
+
+.tr-facts .mono {
+  font-family: var(--mono);
+}
+
+.tr-actions {
+  margin-left: auto;
+}
+
+/* ---- One trace: the tabs, the waterfall, the span ---- */
+
+.tr-tabs {
+  padding: 0;
+}
+
+.tr-tabs small {
+  margin-left: 6px;
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.tr-main {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.5fr);
+  align-items: start;
+}
+
+.tr-side {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+.tr-errors {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--cn-line-2);
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tr-errors[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--selected);
+  color: var(--fg);
+}
+
+.tr-errors:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.tr-waterfall {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tr-wf-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 34%) minmax(0, 1fr) 72px;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+}
+
+.tr-wf-row.selected {
+  background: var(--selected);
+}
+
+.tr-wf-head {
+  min-height: 26px;
+  color: var(--faint);
+  font-size: 10.5px;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+}
+
+.tr-wf-ticks {
+  display: flex;
+  justify-content: space-between;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.tr-wf-name {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tr-wf-name button.tr-wf-pick {
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-weight: 500;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tr-wf-name button.tr-wf-pick small {
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.tr-wf-twist {
+  width: 16px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--faint);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.tr-wf-mark {
+  width: 3px;
+  height: 14px;
+  flex: none;
+  border-radius: 2px;
+  background: transparent;
+}
+
+.tr-wf-mark.on {
+  background: var(--accent);
+}
+
+.tr-wf-track {
+  position: relative;
+  height: 10px;
+}
+
+.tr-wf-track i {
+  position: absolute;
+  top: 0;
+  height: 10px;
+  min-width: 2px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--info-fg) 70%, transparent);
+}
+
+.tr-wf-track i.critical {
+  background: var(--accent);
+}
+
+.tr-wf-track i.bad {
+  background: var(--error-fg);
+}
+
+.tr-wf-time {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tr-kv {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 14px;
+  margin: 0;
+  font-size: 12.5px;
+}
+
+.tr-kv dt {
+  color: var(--muted);
+}
+
+.tr-kv dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.tr-kv dd.mono {
+  font-family: var(--mono);
+}
+
+.tr-banner {
+  display: grid;
+  gap: 2px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--error-fg) 45%, transparent);
+  border-radius: 9px;
+  background: var(--error-bg);
+  font-size: 12px;
+}
+
+.tr-banner b {
+  color: var(--fg);
+}
+
+.tr-banner small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.tr-logs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tr-logs li {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+}
+
+.tr-logs li span:nth-child(3) {
+  overflow-wrap: anywhere;
+}
+
+/* ---- Narrower screens ---- */
+
+@media (max-width: 1179px) {
+  .tr-row,
+  .tr-main {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 719px) {
+  .tr-search {
+    flex: 1 1 100%;
+    margin-left: 0;
+  }
+
+  .tr-legend .tr-legend-note {
+    margin-left: 0;
+  }
+
+  .tr-actions {
+    margin-left: 0;
+  }
+
+  .tr-wf-row {
+    grid-template-columns: minmax(120px, 44%) minmax(0, 1fr) 56px;
+    gap: 6px;
+    padding: 0 10px;
+  }
+
+  .tr-logs li {
+    grid-template-columns: auto auto minmax(0, 1fr);
+  }
+
+  .tr-logs li > :last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+/* ---- One trace: four figures, the notice, the key of the mark ---- */
+
+.sq-figures.tr-figures {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.tr-notice {
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--warning-fg) 40%, transparent);
+  border-radius: 9px;
+  background: var(--warning-bg);
+  font-size: 12.5px;
+}
+
+.tr-wf-mark.tr-wf-key {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+@media (max-width: 719px) {
+  .sq-figures.tr-figures {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

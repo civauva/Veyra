@@ -8,8 +8,44 @@ async function scrollsSideways(page: Page): Promise<boolean> {
 }
 
 test.describe("Users", () => {
+  test("asks the server for a person's sign-in days on the viewer's calendar", async ({ page }) => {
+    // The server counts the sign-ins per day in the zone the viewer sees times in (VEY-68).
+    await answerApi(page, { look: "forecast" });
+    const detail = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+
+      return url.pathname.startsWith("/api/v1/users/") && (url.searchParams.get("timeZone") ?? "").length > 0;
+    });
+    await page.goto("/users");
+
+    await page.getByRole("button", { name: /Tom Okafor/ }).click();
+    await detail;
+    await expect(page.getByRole("region", { name: "Tom Okafor" })).toBeVisible();
+  });
+
+  test("asks the server for the people of the search and the chip", async ({ page }) => {
+    // The server filters and counts the people (VEY-67), so each choice must reach it.
+    await answerApi(page, { look: "forecast" });
+    const asked = (name: string, value: string) =>
+      page.waitForRequest((request) => {
+        const url = new URL(request.url());
+
+        return url.pathname === "/api/v1/users" && url.searchParams.get(name) === value;
+      });
+    await page.goto("/users");
+    await expect(page.getByRole("list", { name: "People" })).toBeVisible();
+
+    const search = asked("search", "tom");
+    await page.getByRole("searchbox", { name: "Find a person" }).fill("tom");
+    await search;
+
+    const show = asked("show", "locked");
+    await page.getByRole("radiogroup", { name: "Show" }).getByText("Locked").click();
+    await show;
+  });
+
   test("lays the badges out and opens a person beside them or as a sheet", async ({ page }, testInfo) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/users");
 
     const badges = page.getByRole("list", { name: "People" }).getByRole("listitem");
@@ -37,7 +73,7 @@ test.describe("Users", () => {
 
   test("opens a person with the keyboard", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name === "phone", "Phones have no keyboard to tab with.");
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/users");
 
     const badge = page.getByRole("button", { name: /Tom Okafor/ });
@@ -50,7 +86,7 @@ test.describe("Users", () => {
   });
 
   test("adds a user from the side panel", async ({ page }) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/users");
 
     await page.getByRole("button", { name: "+ Add user" }).click();
@@ -66,7 +102,7 @@ test.describe("Users", () => {
 test.describe("Account", () => {
   test("shows the account without sideways scrolling, in the dark theme too", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "dark" });
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/account");
 
     await expect(page.getByRole("heading", { level: 1, name: "Your account" })).toBeVisible();
@@ -78,7 +114,7 @@ test.describe("Account", () => {
   });
 
   test("is reached from the person at the foot of the sidebar", async ({ page }, testInfo) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/");
 
     if (testInfo.project.name === "phone") {
@@ -97,7 +133,7 @@ test.describe("Times in the person's zone (VEY-22)", () => {
   test.use({ timezoneId: "Europe/Berlin" });
 
   test("shows times in the browser's zone, with UTC one click away", async ({ page }, testInfo) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/logs");
     // Phones show records as cards without the column heads, so the zone is checked on the frame there.
     const phone = testInfo.project.name === "phone";
@@ -123,7 +159,7 @@ test.describe("Times in the person's zone (VEY-22)", () => {
   });
 
   test("picks a zone on the Account page without sideways scrolling", async ({ page }) => {
-    await answerApi(page);
+    await answerApi(page, { look: "forecast" });
     await page.goto("/account");
 
     const times = page.getByRole("region", { name: "Times" });
@@ -138,7 +174,7 @@ test.describe("Times in the person's zone (VEY-22)", () => {
 
 test.describe("Signing in with a code", () => {
   test("asks for the code after the password", async ({ page }, testInfo) => {
-    await answerApi(page, { signIn: "code" });
+    await answerApi(page, { look: "forecast", signIn: "code" });
     await page.goto("/");
 
     await page.getByLabel("Email").fill("ana@example.com");

@@ -1,4 +1,4 @@
-import { CommandBlock } from "./CommandBlock";
+import { CommandBlock } from "../ui/CommandBlock";
 
 /** The Compose file of Veyra's deployment, as the commands name it from the repository's folder. */
 const compose = "docker compose -f deploy/docker-compose.yml";

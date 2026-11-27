@@ -94,6 +94,34 @@ writer (ADR 0014). Veyra stores what it receives and does not sample; sampling h
 - **Writing.** One background writer takes up to 5,000 spans and stores them with one binary `COPY`, retrying like the
   log writer. A batch is written as it arrives; nothing waits for the rest of a trace.
 
+## Live streams
+
+Once a batch is stored, its writer hands it to `ILiveTelemetry` in `Veyra.Core` (ADR 0022). The Query module's hub
+implements it and serves `GET /api/v1/live` and `GET /api/v1/logs/stream` from it
+([REST API](../api/rest.md#live-get-apiv1live-and-get-apiv1logsstream)).
+
+```mermaid
+flowchart LR
+  W[Writer: batch stored] -- "records / counts" --> H[Live hub<br/>counts per second]
+  H -- "batch, if anyone follows logs" --> P[(Waiting batches<br/>64, oldest dropped)]
+  P --> M[Hub loop: match each listener's filter]
+  M --> L1[(Listener queue<br/>1,000, oldest dropped)]
+  L1 --> S[SSE stream to the browser]
+```
+
+- **After the write.** Only stored batches are handed over, so a retried batch is never shown twice. Logs hand over
+  their records; spans and metric points only their count per environment, for the rates.
+- **Never in the way.** The writer's call only counts and queues; it never waits for a listener. Matching against the
+  listeners runs on the hub's own loop. A failure in the hand-off is logged and the batch stays written.
+- **Bounded.** At most 64 batches wait for the hub's loop, and at most 1,000 records wait for each listener. When
+  either is full, the oldest goes; the listeners it would have reached get a `skipped` event with how many. Without
+  anyone following logs, records are only counted.
+- **Listeners.** At most `Veyra:Query:LiveListeners` streams (50) are open on one instance, set on the Settings
+  screen. One more is answered `503`.
+- **Rates.** Each signal is counted per environment and second, over the last ten whole seconds. Points that the
+  series limit later drops are counted too: the rate says what arrives.
+- **Lost for Live only.** Records a listener skipped are still stored and searchable; Live shows that it skipped them.
+
 ## When data can be lost
 
 Veyra answers success once records are queued, before they are written. That keeps senders fast, and it means:
@@ -149,12 +177,43 @@ Veyra answers success once records are queued, before they are written. That kee
   (words, attributes, a trace), read the records. A word or an attribute is counted with 64 MB of work memory and
   four parallel workers, set for that one transaction, because a common one is on nearly every page of a day. See
   `V0003__create_log_counts.sql`.
+- **Ingest counts (ADR 0023).** `storage.ingest_count_minute` holds, per minute, environment, and signal (`logs`,
+  `spans`, `points`), how many were stored. The log, span, and metric writers each add their batch's counts in the
+  same transaction as the batch, with one `INSERT … ON CONFLICT DO UPDATE` on the batch's few keys, so the counts are
+  exact and current, and a batch that fails adds nothing. A record counts in the minute of its timestamp, a span in
+  that of its start, a point in that of its time; metric points the series limit drops are not counted. The Overview
+  reads them through `IIngestCounts` in `Veyra.Core`, adding the minutes up per step, hours included. The table has
+  daily partitions, created with the others and dropped after 30 days, the longest range a screen offers, whatever
+  the retention of the signals. Counting starts with the migration `V0010__create_ingest_counts.sql`; telemetry stored
+  before it is not counted.
+- **Job runs (ADR 0027).** `storage.job_run` holds one row per run of a job: its source (`trace` or `sqlagent`),
+  block, environment, name, run ID, start, duration, status, steps, records, retries, trace, and message. The span
+  writer adds a run for each root span of the batch that carries one of `Jobs:NameAttributes`, in the transaction of
+  the batch's `COPY`, after the copy, so its steps (the root's direct children, at most 100) are read from the spans
+  already stored and those of the batch; the steps are kept with the run, because the spans go after 7 days. The
+  activity writer adds a SQL Server Agent run for each job history row of step 0, in the batch that stores the row;
+  its steps stay in `storage.db_record` and are read from there. A unique index on the job and the run makes a resent
+  span or row an update, and lists a job's runs newest first; a second index on the start serves windows of every job,
+  added up per job in the database. Daily partitions, created at startup and every hour, are dropped after
+  `JobRunRetentionDays` (30). Read through `IJobRuns` in `Veyra.Core`. See `V0012__create_job_runs.sql`; runs that
+  arrived before it are not in the table.
 - **Metric rollups (ADR 0015).** `storage.metric_rollup_5m` and `storage.metric_rollup_1h` hold one row per series
   and 5 minutes or hour: the number of points, the sum of their values, and the last point as stored. A background job
   rolls up every finished 5 minutes once it is 2 minutes old, and every finished hour; reads take the newest minutes
   from the points, so charts stay current. A point that arrives for a time already rolled up marks its hour in
   `storage.metric_rollup_dirty`; the hour is read from the points until the job rolls it up again, so late points
-  are never missing. See `V0004__create_metric_rollups.sql`.
+  are never missing. A read uses a rollup when each of its rows falls into one bucket: buckets that are whole
+  multiples of it, or one bucket over the whole read, such as a statement's total over a range ending now (VEY-65),
+  starting on its boundary. See `V0004__create_metric_rollups.sql`.
+- **Metric windows (ADR 0022).** Every metrics endpoint takes `from` and `to`, or a `range` ending now, up to 31 days.
+  `Veyra.Query` chooses the step: whole minutes up to six hours, read from the points and the 5-minute rollups, and
+  whole hours beyond, read from the hourly rollups. Buckets start on multiples of their width, so every rollup row
+  falls into one bucket, and the step keeps a line at most 180 points (72 for overview cards and resource lists).
+- **Inventory (ADR 0022).** `IMetricSearch.ListBlocksAsync` lists every block that has series kept, grouped through the
+  `metric_series_block` index: per environment, and per host for a container, with the hosts its series name, its
+  instances, its newest resource attributes, and when it was last seen. Retention deletes series it no longer keeps
+  points for, so this is everything Veyra knows. The Resources lists read it, so a host that stopped stays listed as
+  silent until its metrics age out.
 - **Upgrading.** Records and points written before counts and rollups existed are listed in
   `storage.log_count_backfill` and `storage.metric_rollup_backfill`. A background job counts and rolls them up a day
   at a time, newest first; until a day is done, it is read from its records and points, so nothing is wrong meanwhile,

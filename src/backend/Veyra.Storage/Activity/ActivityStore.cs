@@ -2,6 +2,8 @@ using System.Text.Json;
 using Npgsql;
 using NpgsqlTypes;
 using Veyra.Core.Activity;
+using Veyra.Core.Jobs;
+using Veyra.Storage.Jobs;
 
 namespace Veyra.Storage.Activity;
 
@@ -21,7 +23,8 @@ namespace Veyra.Storage.Activity;
 /// </para>
 /// </remarks>
 /// <param name="dataSource">The PostgreSQL connection pool.</param>
-internal sealed class ActivityStore(NpgsqlDataSource dataSource) : IDatabaseActivityWriter, IDatabaseActivitySearch
+internal sealed class ActivityStore(NpgsqlDataSource dataSource)
+    : IDatabaseActivityWriter, IDatabaseActivitySearch, IBackupHistory
 {
     private const string _sessionColumns =
         "block_name, environment, sampled_at, session_id, request_status, session_status, command, database_name, "
@@ -171,22 +174,42 @@ internal sealed class ActivityStore(NpgsqlDataSource dataSource) : IDatabaseActi
             });
         command.Parameters.AddWithValue(limit);
 
-        var records = new List<ActivityRecord>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await ReadRecordsAsync(command, cancellationToken);
+    }
 
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            records.Add(new ActivityRecord(
-                reader.GetString(0),
-                reader.IsDBNull(1) ? null : reader.GetString(1),
-                new DateTimeOffset(reader.GetDateTime(2), TimeSpan.Zero),
-                reader.GetString(3),
-                reader.GetString(4),
-                JsonSerializer.Deserialize<Dictionary<string, string>>(reader.GetString(5)) ?? [],
-                reader.GetString(6)));
-        }
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<ActivityRecord>> ListRecordsMatchingAsync(
+        string block,
+        string kind,
+        DateTimeOffset periodStart,
+        DateTimeOffset periodEnd,
+        ActivityAttributeMatch match,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(match);
 
-        return records;
+        // The match is part of the read, so the limit counts only records that are kept (VEY-68).
+        await using var command = dataSource.CreateCommand(
+            $"""
+            SELECT block_name, environment, sampled_at, kind, key, attributes::text, body
+            FROM storage.{ActivityTables.Records}
+            WHERE block_name = $1 AND kind = $2 AND sampled_at >= $3 AND sampled_at <= $4
+              AND (attributes ->> $5 = ANY($6)
+                OR EXISTS (SELECT 1 FROM unnest($7::text[]) AS part WHERE strpos(attributes ->> $5, part) > 0))
+            ORDER BY sampled_at DESC
+            LIMIT $8
+            """);
+        command.Parameters.AddWithValue(block);
+        command.Parameters.AddWithValue(kind);
+        command.Parameters.AddWithValue(periodStart);
+        command.Parameters.AddWithValue(periodEnd);
+        command.Parameters.AddWithValue(match.Attribute);
+        command.Parameters.AddWithValue(match.Values.ToArray());
+        command.Parameters.AddWithValue(match.Containing.ToArray());
+        command.Parameters.AddWithValue(limit);
+
+        return await ReadRecordsAsync(command, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -220,6 +243,73 @@ internal sealed class ActivityStore(NpgsqlDataSource dataSource) : IDatabaseActi
 
         return sessions;
     }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<BackupDay>> ListDaysAsync(
+        string block,
+        DateTimeOffset periodStart,
+        DateTimeOffset periodEnd,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(block);
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = ListDaysCommand(block, periodStart, periodEnd);
+        command.Connection = connection;
+
+        var days = new List<BackupDay>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            days.Add(
+                new BackupDay(
+                    reader.GetFieldValue<DateOnly>(0),
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    reader.GetInt32(3),
+                    reader.GetDouble(4)));
+        }
+
+        return days;
+    }
+
+    /// <summary>
+    /// The statement that counts a server's backups per day, database, and type (ADR 0025). It reads the period's
+    /// records of one kind by the kind index, so only the days of the period are read; the plan tests prove it.
+    /// </summary>
+    /// <param name="block">The server's block.</param>
+    /// <param name="periodStart">The start of the period, inclusive.</param>
+    /// <param name="periodEnd">The end of the period, inclusive.</param>
+    /// <returns>The command, without a connection.</returns>
+    public static NpgsqlCommand ListDaysCommand(string block, DateTimeOffset periodStart, DateTimeOffset periodEnd)
+    {
+        // A backup's time is when it finished; it took from its "started" column, in Unix milliseconds, until then. A
+        // column that is not a number counts as no time, so one odd row never fails the whole count.
+        var command = new NpgsqlCommand(
+            $$"""
+            SELECT (sampled_at AT TIME ZONE 'UTC')::date,
+                   coalesce(attributes ->> 'database_name', ''),
+                   coalesce(attributes ->> 'backup_type', ''),
+                   count(*)::int,
+                   coalesce(sum(CASE WHEN attributes ->> 'started' ~ '^[0-9]{1,18}$'
+                       THEN greatest(0, extract(epoch FROM sampled_at)
+                           - (attributes ->> 'started')::bigint / 1000.0)
+                       ELSE 0 END), 0)::float8
+            FROM storage.{{ActivityTables.Records}}
+            WHERE block_name = $1 AND kind = $2 AND sampled_at >= $3 AND sampled_at <= $4
+            GROUP BY 1, 2, 3
+            """);
+        command.Parameters.AddWithValue(block);
+        command.Parameters.AddWithValue(BackupKind);
+        command.Parameters.AddWithValue(periodStart);
+        command.Parameters.AddWithValue(periodEnd);
+
+        return command;
+    }
+
+    /// <summary>The kind of record each backup is kept as (ADR 0025).</summary>
+    public const string BackupKind = "sqlserver.backup";
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<SessionCaller>> ListCallersAsync(
@@ -260,7 +350,8 @@ internal sealed class ActivityStore(NpgsqlDataSource dataSource) : IDatabaseActi
     }
 
     // Records the agent sends again and again, such as the plan of a busy statement every 15 minutes, are kept once a
-    // day per key; the rest are kept as they come.
+    // day per key; the rest are kept as they come. A SQL Server Agent job's run is also added to the job runs
+    // (ADR 0027), in the same batch, which PostgreSQL runs as one transaction.
     private static async Task WriteRecordsAsync(
         NpgsqlConnection connection,
         List<ActivityRecord> records,
@@ -296,6 +387,11 @@ internal sealed class ActivityStore(NpgsqlDataSource dataSource) : IDatabaseActi
             batch.BatchCommands.Add(command);
         }
 
+        foreach (var run in JobRuns.Ordered(records.Select(JobRuns.Agent).OfType<JobRun>()))
+        {
+            batch.BatchCommands.Add(JobRuns.Upsert(run));
+        }
+
         await batch.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -309,7 +405,30 @@ internal sealed class ActivityStore(NpgsqlDataSource dataSource) : IDatabaseActi
         "sqlserver.index",
         "sqlserver.snapshot",
         "sqlserver.job",
+        "sqlserver.backup",
     };
+
+    private static async Task<IReadOnlyList<ActivityRecord>> ReadRecordsAsync(
+        NpgsqlCommand command,
+        CancellationToken cancellationToken)
+    {
+        var records = new List<ActivityRecord>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            records.Add(new ActivityRecord(
+                reader.GetString(0),
+                reader.IsDBNull(1) ? null : reader.GetString(1),
+                new DateTimeOffset(reader.GetDateTime(2), TimeSpan.Zero),
+                reader.GetString(3),
+                reader.GetString(4),
+                JsonSerializer.Deserialize<Dictionary<string, string>>(reader.GetString(5)) ?? [],
+                reader.GetString(6)));
+        }
+
+        return records;
+    }
 
     private static async Task<IReadOnlyList<SessionSnapshot>> ReadSnapshotsAsync(
         NpgsqlCommand command,

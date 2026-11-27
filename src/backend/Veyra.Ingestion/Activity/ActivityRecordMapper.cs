@@ -39,6 +39,7 @@ internal static class ActivityRecordMapper
         "sqlserver.index",
         "sqlserver.job",
         "sqlserver.ag",
+        "sqlserver.backup",
     };
 
     /// <summary>Whether a record is a row of one of Veyra's own queries.</summary>

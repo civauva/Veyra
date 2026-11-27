@@ -56,4 +56,13 @@ public sealed class StorageOptions
     /// How many days of database servers' plans, deadlocks, events, and setting snapshots to keep (ADR 0020).
     /// </summary>
     public int DatabaseRecordRetentionDays { get; set; } = 90;
+
+    /// <summary>
+    /// How many days of job runs to keep (ADR 0027): 30 by default, the longest range a screen offers, so a month's
+    /// success share outlives the 7 days of traces the runs were read from.
+    /// </summary>
+    public int JobRunRetentionDays { get; set; } = 30;
+
+    /// <summary>How job runs are recognised in the traces (ADR 0027).</summary>
+    public JobOptions Jobs { get; set; } = new();
 }

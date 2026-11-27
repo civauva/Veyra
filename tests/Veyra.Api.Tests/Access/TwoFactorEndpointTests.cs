@@ -145,6 +145,26 @@ public class TwoFactorEndpointTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task UserDetail_InTheViewersZone_CountsTheSignInsPerDay()
+    {
+        await using var factory = await VeyraApiFactory.CreateAsync(postgres);
+        using var admin = await factory.CreateAdminClientAsync();
+        var id = await CreateViewerAsync(admin);
+        using var wrong = await factory.CreateHttpsClient().PostAsJsonAsync(
+            "/api/v1/session",
+            new { email = "mei@example.com", password = "wrong password!" });
+
+        var detail = await admin.GetFromJsonAsync<JsonElement>($"/api/v1/users/{id}?timeZone=Europe%2FBerlin");
+        using var badZone = await admin.GetAsync(new Uri($"/api/v1/users/{id}?timeZone=Mars", UriKind.Relative));
+
+        var days = detail.GetProperty("signInDays");
+        Assert.Equal(14, days.GetProperty("days").GetArrayLength());
+        Assert.Equal(1, days.GetProperty("days")[13].GetProperty("failed").GetInt32());
+        Assert.Equal((0, 1), (days.GetProperty("signedIn").GetInt32(), days.GetProperty("failed").GetInt32()));
+        Assert.Equal(HttpStatusCode.BadRequest, badZone.StatusCode);
+    }
+
+    [Fact]
     public async Task ResetPassword_ByAnAdmin_LetsTheNewPasswordSignIn()
     {
         await using var factory = await VeyraApiFactory.CreateAsync(postgres);

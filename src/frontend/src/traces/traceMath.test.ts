@@ -2,17 +2,17 @@ import { describe, expect, it } from "vitest";
 
 import type { TraceSpan } from "../api/types";
 
-import { criticalPath, formatDuration, traceBounds, waterfallRows } from "./traceMath";
+import { formatDuration, waterfallRows } from "./traceMath";
 
-/** A span of a checkout that failed in psp-client; times in milliseconds after 12:00:00. */
-function span(id: string, parent: string | null, start: number, duration: number, extra: Partial<TraceSpan> = {}) {
+/** A span as the server sends it, in tree order with its depth; times in milliseconds after 12:00:00. */
+function span(id: string, parent: string | null, depth: number, children: number, extra: Partial<TraceSpan> = {}) {
   return {
     spanId: id,
     parentSpanId: parent,
     name: `span ${id}`,
     kind: "Internal",
-    start: new Date(Date.UTC(2026, 10, 9, 12, 0, 0, start)).toISOString(),
-    durationMs: duration,
+    start: new Date(Date.UTC(2026, 10, 9, 12, 0, 0, 0)).toISOString(),
+    durationMs: 1,
     status: "Unset",
     statusMessage: null,
     service: "payments",
@@ -23,60 +23,49 @@ function span(id: string, parent: string | null, start: number, duration: number
     events: [],
     links: [],
     dropped: { attributes: 0, events: 0, links: 0 },
+    depth,
+    children,
+    missingParent: false,
     ...extra,
   } satisfies TraceSpan;
 }
 
+/** A checkout in the server's tree order (VEY-68), with a span whose parent never arrived at the end. */
 const checkout = [
-  span("a", null, 0, 1840),
-  span("b", "a", 6, 60),
-  span("c", "a", 52, 1782),
-  span("d", "c", 106, 1612),
-  span("e", "c", 100, 14),
-  span("f", "d", 116, 1500),
-  span("g", "a", 1834, 5),
+  span("a", null, 0, 3),
+  span("b", "a", 1, 0),
+  span("c", "a", 1, 2),
+  span("e", "c", 2, 0),
+  span("d", "c", 2, 1),
+  span("f", "d", 3, 0),
+  span("g", "a", 1, 0),
+  span("x", "missing", 0, 1, { missingParent: true }),
+  span("y", "x", 1, 0),
 ];
 
 describe("waterfallRows", () => {
-  it("orders spans depth first, children by start, with their depth", () => {
+  it("keeps the server's order, depths, and gaps", () => {
     const rows = waterfallRows(checkout);
 
-    expect(rows.map((row) => `${row.span.spanId}${row.depth}`)).toEqual(["a0", "b1", "c1", "e2", "d2", "f3", "g1"]);
+    expect(rows.map((row) => `${row.span.spanId}${row.depth}`)).toEqual([
+      "a0",
+      "b1",
+      "c1",
+      "e2",
+      "d2",
+      "f3",
+      "g1",
+      "x0",
+      "y1",
+    ]);
     expect(rows.find((row) => row.span.spanId === "c")?.children).toBe(2);
+    expect(rows.find((row) => row.span.spanId === "x")).toMatchObject({ depth: 0, missingParent: true });
   });
 
-  it("puts spans whose parent has not arrived at the top level and marks them", () => {
-    const rows = waterfallRows([...checkout, span("x", "missing", 84, 14), span("y", "x", 88, 8)]);
+  it("hides the spans under collapsed spans, and only those", () => {
+    const rows = waterfallRows(checkout, new Set(["c", "x"]));
 
-    const orphan = rows.find((row) => row.span.spanId === "x");
-    expect(orphan).toMatchObject({ depth: 0, missingParent: true });
-    expect(rows.find((row) => row.span.spanId === "y")).toMatchObject({ depth: 1, missingParent: false });
-  });
-
-  it("hides the children of collapsed spans", () => {
-    const rows = waterfallRows(checkout, new Set(["c"]));
-
-    expect(rows.map((row) => row.span.spanId)).toEqual(["a", "b", "c", "g"]);
-  });
-});
-
-describe("criticalPath", () => {
-  it("walks back from the end through the children that ran one after another", () => {
-    // b and e overlap the work that finished after them, so making them faster would not have helped.
-    expect([...criticalPath(checkout)].sort()).toEqual(["a", "c", "d", "f", "g"]);
-  });
-
-  it("is empty for no spans", () => {
-    expect(criticalPath([]).size).toBe(0);
-  });
-});
-
-describe("traceBounds", () => {
-  it("runs from the first start to the last end", () => {
-    const bounds = traceBounds([span("a", null, 10, 100), span("b", "a", 50, 200)]);
-
-    expect(bounds.durationMs).toBe(240);
-    expect(new Date(bounds.start).getUTCMilliseconds()).toBe(10);
+    expect(rows.map((row) => row.span.spanId)).toEqual(["a", "b", "c", "g", "x"]);
   });
 });
 

@@ -1,0 +1,28 @@
+/*
+ * A command or script with its Copy button (CommandBlock): the Agents page's install lines and an alert's fix steps.
+ */
+
+.command-block {
+  position: relative;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--chip);
+}
+
+.command-block pre {
+  margin: 0;
+  padding: 12px 64px 12px 14px;
+  overflow-x: auto;
+  font: 11.5px/1.55 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.command-block .link-button {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font-size: 12px;
+  font-weight: 650;
+}

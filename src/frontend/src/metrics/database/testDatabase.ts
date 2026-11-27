@@ -1,6 +1,8 @@
 import type {
   PermissionsView,
-  AgentJobView,
+  AgentJobsView,
+  HiddenRows,
+  AlertListItem,
   AvailabilityView,
   ChartLine,
   ConfigurationView,
@@ -161,9 +163,38 @@ const reportSession: LiveSession = {
   text: "EXEC dbo.MonthlyReport @month",
 };
 
+/** Nothing left out: the answer with System on, or a server with nothing of its own to hide (VEY-66). */
+export const noneHidden: HiddenRows = { count: 0, names: [] };
+
+/**
+ * What the server answers with System off (VEY-66): the rows it marks as its own left out, and counted, so a test
+ * can mock the server for either choice.
+ *
+ * @param rows - The rows with System on.
+ * @param system - Whether System is on.
+ * @param name - The name an alert gives a row, or null.
+ * @returns The rows the server lists, and what it left out.
+ */
+export function asServer<Row extends { system: boolean }>(
+  rows: Row[],
+  system: boolean,
+  name: (row: Row) => string | null = () => null,
+): { rows: Row[]; hidden: HiddenRows } {
+  if (system) {
+    return { rows, hidden: noneHidden };
+  }
+
+  const left = rows.filter((row) => row.system);
+  const names = [...new Set(left.map(name).filter((one): one is string => one !== null))].sort();
+
+  return { rows: rows.filter((row) => !row.system), hidden: { count: left.length, names } };
+}
+
 /** The Live tab: session 73 holds a lock that makes session 117 wait. */
 export const liveView: DatabaseLive = {
   engine: "microsoft.sql_server",
+  // The server picks those with a request (VEY-68); the head blocker sleeps.
+  running: [blockedSession, reportSession],
   server: "sql-prod-01",
   environment: "production",
   sampledAt: "2026-11-10T11:00:08Z",
@@ -177,6 +208,7 @@ export const liveView: DatabaseLive = {
     longestRequestSeconds: 134,
     oldestTransactionSeconds: 412,
     oldestTransactionSession: 73,
+    longestRequestSession: 117,
     grantsWaiting: 0,
     tempdbFreeRatio: 0.82,
     tempdbSizeBytes: 24e9,
@@ -199,6 +231,7 @@ export const liveView: DatabaseLive = {
   blocking: [{ session: 73, waiting: 1, children: [{ session: 117, waiting: 0, children: [] }] }],
   sessions: [blockedSession, headBlocker, reportSession],
   waits: { LCK_M_U: lockWait, PAGEIOLATCH_SH: diskWait },
+  chained: [],
 };
 
 /** The Live tab when all is well: one report runs and nobody waits. */
@@ -208,6 +241,7 @@ export const liveQuietView: DatabaseLive = {
   findings: [],
   blocking: [],
   sessions: [reportSession],
+  running: [reportSession],
 };
 
 /** A missing-index finding with the statement that creates it. */
@@ -232,6 +266,7 @@ const implicitConversion: PlanWarning = {
 
 /** The statement with a finding: the monthly report. */
 export const monthlyReportRow: QueryRow = {
+  system: false,
   queryHash: monthlyReportHash,
   database: "reporting",
   name: "Monthly sales by region",
@@ -247,10 +282,14 @@ export const monthlyReportRow: QueryRow = {
 
 /** The Queries tab: one statement with a finding and one without. */
 export const queriesView: DatabaseQueries = {
-  range: "6h",
+  range: "24h",
+  from: "2026-11-09T11:00:20Z",
+  to: "2026-11-10T11:00:20Z",
+  queryStoreOff: [{ database: "reporting", on: false, script: "ALTER DATABASE [reporting] SET QUERY_STORE = ON;" }],
   statements: [
     monthlyReportRow,
     {
+      system: false,
       queryHash: updateOrdersHash,
       database: "shop",
       name: "Update the status of an order",
@@ -270,15 +309,26 @@ export const queriesView: DatabaseQueries = {
     { database: "shop", on: true, script: null },
     { database: "reporting", on: false, script: "ALTER DATABASE [reporting] SET QUERY_STORE = ON;" },
   ],
+  hiddenStatements: noneHidden,
+  busiest: monthlyReportRow,
+};
+
+/** The Queries tab in the Simple view, as the server answers it: only the statement with a finding (VEY-67). */
+export const queriesSimpleView: DatabaseQueries = {
+  ...queriesView,
+  statements: queriesView.statements.filter((row) => row.findings.length > 0),
 };
 
 /** The monthly report's own page. */
 export const queryView: DatabaseQuery = {
   queryHash: monthlyReportHash,
+  callerSamples: 40,
   database: "reporting",
   name: "Monthly sales by region",
   text: "EXEC dbo.MonthlyReport @month",
-  range: "6h",
+  range: "24h",
+  from: "2026-11-09T11:00:20Z",
+  to: "2026-11-10T11:00:20Z",
   totals: monthlyReportRow,
   points: Array.from({ length: 12 }, (_, index) => ({
     start: new Date(Date.UTC(2026, 10, 10, 5, 0) + index * 1_800_000).toISOString(),
@@ -320,7 +370,9 @@ export const queryView: DatabaseQuery = {
 
 /** The Blocking tab: one episode behind session 73 and one deadlock. */
 export const blockingView: DatabaseBlocking = {
-  range: "6h",
+  range: "24h",
+  from: "2026-11-09T11:00:20Z",
+  to: "2026-11-10T11:00:20Z",
   episodes: [
     {
       start: "2026-11-10T10:53:00Z",
@@ -376,6 +428,7 @@ export const blockingView: DatabaseBlocking = {
 /** One database of the storage read, healthy unless overridden. */
 function storageOf(name: string, overrides: Partial<DatabaseStorage> = {}): DatabaseStorage {
   return {
+    system: ["master", "model", "msdb", "tempdb"].includes(name),
     name,
     state: "ONLINE",
     recoveryModel: "FULL",
@@ -430,6 +483,22 @@ export const storageView: StorageView = {
     { volume: "L:", sizeBytes: 200e9, freeBytes: 150e9, usedRatio: 0.25, daysUntilFull: null },
   ],
   findings: [],
+  hiddenDatabases: noneHidden,
+  hiddenFindings: noneHidden,
+  // The server merges and ranks the findings (VEY-68).
+  needsDoing: [
+    {
+      finding: {
+        kind: "backup-late",
+        severity: "warning",
+        title: "shop has no full backup for 1 d 7 h",
+        detail: "The nightly backup job failed.",
+        fix: "Run a full backup now.",
+        script: "BACKUP DATABASE [shop] TO DISK = N'\\\\backup-01\\sql\\shop.bak' WITH CHECKSUM;",
+      },
+      database: "shop",
+    },
+  ],
 };
 
 /** The index advice: an unused index and a missing one with its statement. */
@@ -437,6 +506,7 @@ export const indexesView: IndexAdvice = {
   findings: [missingIndex],
   indexes: [
     {
+      system: false,
       database: "shop",
       table: "dbo.Orders",
       name: "IX_Orders_Status",
@@ -449,6 +519,7 @@ export const indexesView: IndexAdvice = {
       escalations: 0,
     },
   ],
+  hiddenIndexes: noneHidden,
 };
 
 /** The Server tab: CPU, memory, workload, and the wait types. */
@@ -474,53 +545,65 @@ export const serverView: ServerView = {
   sqlCpuLine: line("SQL Server CPU", 0.34, 0.08, 2),
   otherCpuLine: line("Other CPU", 0.04, 0.01, 3),
   waits: [
-    { term: lockWait, seconds: 440 },
-    { term: diskWait, seconds: 120 },
+    { system: false, term: lockWait, seconds: 440 },
+    { system: false, term: diskWait, seconds: 120 },
   ],
   findings: [],
+  hiddenWaits: noneHidden,
 };
 
 /** The Jobs tab: the nightly backup failed, the index maintenance ran. */
-export const jobsView: AgentJobView[] = [
-  {
-    name: "Nightly full backup - shop",
-    failed: true,
-    lastRun: "2026-11-10T01:00:00Z",
-    lastSeconds: 4_324,
-    runningSeconds: null,
-    nextRun: "2026-11-11T01:00:00Z",
-    late: false,
-    usualSeconds: 1_800,
-    runs: [
-      {
-        at: "2026-11-10T01:00:00Z",
-        succeeded: false,
-        seconds: 4_324,
-        message: "The job failed.",
-        steps: [
-          {
-            id: 1,
-            name: "Back up shop",
-            succeeded: false,
-            seconds: 4_324,
-            message: "Operating system error 112: disk full.",
-          },
-        ],
-      },
-    ],
-  },
-  {
-    name: "Index maintenance",
-    failed: false,
-    lastRun: "2026-11-10T00:00:00Z",
-    lastSeconds: 1_341,
-    runningSeconds: null,
-    nextRun: "2026-11-11T00:00:00Z",
-    late: false,
-    usualSeconds: 1_300,
-    runs: [],
-  },
-];
+export const jobsView: AgentJobsView = {
+  hiddenJobs: noneHidden,
+  enabled: 2,
+  jobs: [
+    {
+      system: false,
+      name: "Nightly full backup - shop",
+      failed: true,
+      lastRun: "2026-11-10T01:00:00Z",
+      lastSeconds: 4_324,
+      runningSeconds: null,
+      nextRun: "2026-11-11T01:00:00Z",
+      late: false,
+      usualSeconds: 1_800,
+      needsLook: true,
+      runs: [
+        {
+          at: "2026-11-10T01:00:00Z",
+          succeeded: false,
+          seconds: 4_324,
+          message: "The job failed.",
+          steps: [
+            {
+              id: 1,
+              name: "Back up shop",
+              succeeded: false,
+              seconds: 4_324,
+              message: "Operating system error 112: disk full.",
+            },
+          ],
+        },
+      ],
+    },
+    {
+      system: false,
+      name: "Index maintenance",
+      failed: false,
+      lastRun: "2026-11-10T00:00:00Z",
+      lastSeconds: 1_341,
+      runningSeconds: null,
+      nextRun: "2026-11-11T00:00:00Z",
+      late: false,
+      usualSeconds: 1_300,
+      needsLook: false,
+      runs: [],
+    },
+  ],
+};
+
+/** The Jobs tab in the Simple view, as the server answers it: only the job that needs a look (VEY-67). */
+export const jobsSimpleView: AgentJobsView = { ...jobsView, jobs: jobsView.jobs.filter((job) => job.needsLook) };
 
 /** The Events tab: a deadlock the server reported. */
 export const eventsView: ServerEvent[] = [
@@ -538,6 +621,7 @@ export const eventsView: ServerEvent[] = [
 
 /** The availability read: one group with a healthy secondary. */
 export const availabilityView: AvailabilityView = {
+  trouble: [],
   replicas: [
     { group: "ag-shop", replica: "sql-prod-01", role: "PRIMARY", healthy: true },
     { group: "ag-shop", replica: "sql-prod-02", role: "SECONDARY", healthy: true },
@@ -581,4 +665,42 @@ export const permissionsMissingJobSteps: PermissionsView = {
   script:
     "USE msdb;\nIF USER_ID(N'veyra_monitor') IS NULL CREATE USER [veyra_monitor] FOR LOGIN [veyra_monitor];\n" +
     "GRANT SELECT ON dbo.sysjobsteps TO [veyra_monitor];\nGO",
+};
+
+/** The open caution on sql-prod-01 of VEY-62: shop has had no full backup for 31 hours. */
+export const sqlProdBackupAlert: AlertListItem = {
+  id: "0193a2b4-0000-7000-8000-000000000077",
+  rule: "db-backup-age",
+  environment: "production",
+  block: {
+    kind: "database",
+    name: "microsoft.sql_server sql-prod-01",
+    part: "shop",
+    id: "database:production/microsoft.sql_server sql-prod-01",
+  },
+  severity: "Caution",
+  worst: "Caution",
+  value: 31 * 3600,
+  peak: 31 * 3600,
+  peakAt: null,
+  threshold: 26 * 3600,
+  windowSeconds: 300,
+  openedAt: "2026-11-10T03:00:00Z",
+  updatedAt: "2026-11-10T11:00:00Z",
+  resolvedAt: null,
+  area: "databases",
+};
+
+/** The open warning on sql-prod-01 of VEY-62: session 73 has held up others for seven minutes. */
+export const sqlProdHeadBlockerAlert: AlertListItem = {
+  ...sqlProdBackupAlert,
+  id: "0193a2b4-0000-7000-8000-000000000078",
+  rule: "db-head-blocker",
+  area: "blocking",
+  block: { ...sqlProdBackupAlert.block, part: null },
+  severity: "Warning",
+  worst: "Warning",
+  value: 420,
+  peak: 420,
+  threshold: 300,
 };

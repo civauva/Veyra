@@ -5,6 +5,7 @@ using Veyra.Access.SecondFactor;
 using Veyra.Access.Sessions;
 using Veyra.Access.Users;
 using Veyra.Core.Security;
+using Veyra.Core.Time;
 
 namespace Veyra.Access.Api;
 
@@ -22,39 +23,96 @@ public sealed class UsersController : ControllerBase
     private readonly UserDirectory _directory;
     private readonly SecondFactorService _secondFactor;
     private readonly SessionService _sessions;
+    private readonly TimeProvider _clock;
 
     internal UsersController(
         UserService users,
         UserDirectory directory,
         SecondFactorService secondFactor,
-        SessionService sessions)
+        SessionService sessions,
+        TimeProvider clock)
     {
+        _clock = clock;
         _users = users;
         _directory = directory;
         _secondFactor = secondFactor;
         _sessions = sessions;
     }
 
-    /// <summary>Lists all users with what their badges show.</summary>
+    /// <summary>
+    /// Lists the users a search and a chip keep, with what their badges show, and the counts of the chips, the rings,
+    /// and the role bar (VEY-67).
+    /// </summary>
+    /// <param name="search">Text a name, email, or team must hold, in any case; everyone when omitted.</param>
+    /// <param name="show"><c>everyone</c> (the default), <c>nofactor</c>, <c>locked</c>, or <c>off</c>.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
-    /// <returns>The users, ordered by email.</returns>
+    /// <returns>The users, ordered by email, with the figures.</returns>
+    /// <response code="200">The users.</response>
+    /// <response code="400">The chip is not one of the four.</response>
     [HttpGet]
-    public async Task<IEnumerable<UserResponse>> ListAsync(CancellationToken cancellationToken) =>
-        (await _directory.ListAsync(cancellationToken)).Select(AccessResponses.User);
+    [ProducesResponseType<UserListResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ListAsync(
+        [FromQuery] string? search,
+        [FromQuery] string? show,
+        CancellationToken cancellationToken)
+    {
+        var chip = PeopleShow.Everyone;
+
+        if (show is not null && (!Enum.TryParse(show, ignoreCase: true, out chip) || !Enum.IsDefined(chip)))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status400BadRequest,
+                title: "Show is everyone, nofactor, locked, or off.");
+        }
+
+        var everyone = await _directory.ListAsync(cancellationToken);
+
+        return Ok(UserListBuilder.Build(everyone, search, chip, _clock.GetUtcNow()));
+    }
 
     /// <summary>Returns one user in full: sign-ins, sessions, and the history of the account.</summary>
     /// <param name="id">The user's ID.</param>
+    /// <param name="timeZone">
+    /// The viewer's IANA time zone, whose midnight starts each day of the sign-in counts; UTC when not given.
+    /// </param>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The user.</returns>
     /// <response code="200">The user.</response>
+    /// <response code="400">The time zone is not an IANA name.</response>
     /// <response code="404">No user has this ID.</response>
     [HttpGet("{id:guid}")]
     [ProducesResponseType<UserDetailResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetAsync(Guid id, CancellationToken cancellationToken) =>
-        await _directory.DetailAsync(id, cancellationToken) is { } detail
-            ? Ok(AccessResponses.Detail(detail))
-            : NotFound();
+    public async Task<IActionResult> GetAsync(
+        Guid id,
+        [FromQuery] string? timeZone,
+        CancellationToken cancellationToken)
+    {
+        var zone = TimeZoneInfo.Utc;
+
+        if (!string.IsNullOrEmpty(timeZone))
+        {
+            if (!TimeZones.TryFind(timeZone, out var found))
+            {
+                return Problem(
+                    title: "The time zone must be an IANA name, such as Europe/Berlin.",
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+
+            zone = found;
+        }
+
+        if (await _directory.DetailAsync(id, cancellationToken) is not { } detail)
+        {
+            return NotFound();
+        }
+
+        var days = await _directory.SignInDaysAsync(id, zone, cancellationToken);
+
+        return Ok(AccessResponses.Detail(detail, days));
+    }
 
     /// <summary>Creates a local user.</summary>
     /// <param name="request">The new user's details and first password.</param>

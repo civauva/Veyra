@@ -1,0 +1,85 @@
+# The probe that tests a SQL Server connection through an agent (ADR 0028): Test connection before a server is
+# saved, and Validate now on a saved one. Veyra merges this file into the chosen agent's configuration, keyed by the
+# probe's ID, and removes it again once the answer arrives or after 2 minutes. It is not a Collector configuration of
+# its own, and it is not versioned with collector.yaml: Veyra reads its answer itself.
+#
+# The one read answers in one row: the version, update level, edition, and platform, the number of databases and the
+# first 20 names, and the permissions the login lacks, the same ones collector.yaml's and
+# azure-sql-database.yaml's permissions reads check. Lists are JSON, since a database name may hold any character. No
+# column may be NULL, which the receiver reports as an error.
+#
+# Veyra writes the datasource itself, as it does for collector.yaml's receivers; VEYRA_PROBE_ID is the probe's ID.
+
+receivers:
+  sqlquery/probe:
+    driver: sqlserver
+    datasource: >-
+      sqlserver://${env:SQLSERVER_USER}:${env:SQLSERVER_PASSWORD}@${env:SQLSERVER_HOST}:${env:SQLSERVER_PORT}?encrypt=${env:SQLSERVER_ENCRYPT:-true}&TrustServerCertificate=${env:SQLSERVER_TRUST_CERT:-false}&app+name=veyra-collector&database=${env:SQLSERVER_DATABASE:-master}
+    # The answer is wanted at once; the receiver is removed after the first one arrives.
+    collection_interval: 5s
+    queries:
+      - sql: >-
+          /* veyra-agent: probe */
+          SELECT 'sqlserver.probe' AS veyra_record, '${env:VEYRA_PROBE_ID}' AS probe,
+                 ISNULL(CONVERT(nvarchar(128), SERVERPROPERTY('ProductVersion')), N'') AS version,
+                 ISNULL(CONVERT(nvarchar(128), SERVERPROPERTY('ProductUpdateLevel')),
+                   ISNULL(CONVERT(nvarchar(128), SERVERPROPERTY('ProductLevel')), N'')) AS update_level,
+                 ISNULL(CONVERT(nvarchar(128), SERVERPROPERTY('Edition')), N'') AS edition,
+                 CASE CONVERT(int, SERVERPROPERTY('EngineEdition'))
+                   WHEN 5 THEN 'azure-sql-database' WHEN 8 THEN 'managed-instance' ELSE 'sqlserver' END AS platform,
+                 CONVERT(varchar(10), (SELECT COUNT(*) FROM sys.databases)) AS databases,
+                 ISNULL((SELECT TOP (20) name FROM sys.databases ORDER BY name FOR JSON PATH), N'[]')
+                   AS database_names,
+                 ISNULL((SELECT p.permission
+                   FROM (VALUES
+                     (N'VIEW SERVER STATE', 'server', HAS_PERMS_BY_NAME(NULL, NULL, 'VIEW SERVER STATE')),
+                     (N'VIEW ANY DEFINITION', 'server', HAS_PERMS_BY_NAME(NULL, NULL, 'VIEW ANY DEFINITION')),
+                     (N'CONNECT ANY DATABASE', 'server', HAS_PERMS_BY_NAME(NULL, NULL, 'CONNECT ANY DATABASE')),
+                     (N'SELECT ON msdb.dbo.backupset', 'server',
+                       HAS_PERMS_BY_NAME('msdb.dbo.backupset', 'OBJECT', 'SELECT')),
+                     (N'SELECT ON msdb.dbo.backupmediafamily', 'server',
+                       HAS_PERMS_BY_NAME('msdb.dbo.backupmediafamily', 'OBJECT', 'SELECT')),
+                     (N'SELECT ON msdb.dbo.suspect_pages', 'server',
+                       HAS_PERMS_BY_NAME('msdb.dbo.suspect_pages', 'OBJECT', 'SELECT')),
+                     (N'SELECT ON msdb.dbo.sysjobs', 'server', HAS_PERMS_BY_NAME('msdb.dbo.sysjobs', 'OBJECT', 'SELECT')),
+                     (N'SELECT ON msdb.dbo.sysjobhistory', 'server',
+                       HAS_PERMS_BY_NAME('msdb.dbo.sysjobhistory', 'OBJECT', 'SELECT')),
+                     (N'EXECUTE ON msdb.dbo.agent_datetime', 'server',
+                       HAS_PERMS_BY_NAME('msdb.dbo.agent_datetime', 'OBJECT', 'EXECUTE')),
+                     (N'SELECT ON msdb.dbo.sysjobsteps', 'server',
+                       HAS_PERMS_BY_NAME('msdb.dbo.sysjobsteps', 'OBJECT', 'SELECT')),
+                     (N'SELECT ON msdb.dbo.sysjobactivity', 'server',
+                       HAS_PERMS_BY_NAME('msdb.dbo.sysjobactivity', 'OBJECT', 'SELECT')),
+                     (N'SELECT ON msdb.dbo.sysjobschedules', 'server',
+                       HAS_PERMS_BY_NAME('msdb.dbo.sysjobschedules', 'OBJECT', 'SELECT')),
+                     (N'SELECT ON msdb.dbo.sysschedules', 'server',
+                       HAS_PERMS_BY_NAME('msdb.dbo.sysschedules', 'OBJECT', 'SELECT')),
+                     (N'SELECT ON msdb.dbo.log_shipping_monitor_primary', 'server',
+                       HAS_PERMS_BY_NAME('msdb.dbo.log_shipping_monitor_primary', 'OBJECT', 'SELECT')),
+                     (N'SELECT ON msdb.dbo.log_shipping_monitor_secondary', 'server',
+                       HAS_PERMS_BY_NAME('msdb.dbo.log_shipping_monitor_secondary', 'OBJECT', 'SELECT')),
+                     (N'VIEW DATABASE STATE', 'database',
+                       HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'VIEW DATABASE STATE')),
+                     (N'VIEW DEFINITION', 'database', HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'VIEW DEFINITION'))
+                   ) AS p(permission, scope, granted)
+                   WHERE ISNULL(p.granted, 0) = 0
+                     AND p.scope = CASE CONVERT(int, SERVERPROPERTY('EngineEdition'))
+                                     WHEN 5 THEN 'database' ELSE 'server' END
+                   FOR JSON PATH), N'[]') AS missing,
+                 'probe' AS body
+        logs:
+          - body_column: body
+            attribute_columns: [veyra_record, probe, version, update_level, edition, platform, databases,
+              database_names, missing]
+
+service:
+  pipelines:
+    logs/probe:
+      receivers:
+        - sqlquery/probe
+      # Shared with collector.yaml, which every agent's configuration holds once.
+      processors:
+        - memory_limiter
+        - batch/live
+      exporters:
+        - otlphttp

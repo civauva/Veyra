@@ -8,6 +8,7 @@ using OpAmp.Proto.V1;
 using Veyra.Agents.Agents;
 using Veyra.Agents.OpAmp;
 using Veyra.Agents.PostgresServers;
+using Veyra.Agents.Probes;
 using Veyra.Agents.SqlServers;
 using Veyra.Testing;
 
@@ -82,6 +83,30 @@ public class OpAmpServerTests(PostgresFixture postgres)
         Assert.Contains("veyra_monitor:Correct-Horse-7@10.0.0.5:1433", body, StringComparison.Ordinal);
         Assert.Contains($"Bearer {key}", body, StringComparison.Ordinal);
         Assert.Equal(SHA256.HashData(file.Body.Span), reply.RemoteConfig.ConfigHash.ToByteArray());
+    }
+
+    [Fact]
+    public async Task HandleAsync_PendingProbe_IsInTheConfigurationUntilItTimesOut()
+    {
+        await using var database = await AgentsDatabase.CreateAsync(postgres);
+        var (agent, key) = await SeedAgentAsync(database);
+        var server = Server(database);
+        await server.HandleAsync(key, First(), _veyra, CancellationToken.None);
+        var probe = await Probes(database).StartAsync(
+            new ProbeInput(AgentId: agent.Id, Address: "sql-new", Login: "veyra_monitor", Password: "Probe-Pass-1"),
+            CancellationToken.None);
+
+        var during = await server.HandleAsync(key, First(), _veyra, CancellationToken.None);
+        _clock.Advance(ProbeService.Timeout);
+        var after = await server.HandleAsync(key, First(), _veyra, CancellationToken.None);
+
+        var body = during!.RemoteConfig.Config.ConfigMap[""].Body.ToStringUtf8();
+        Assert.Contains($"sqlquery/probe/{probe!.Id:N}", body, StringComparison.Ordinal);
+        Assert.Contains("veyra_monitor:Probe-Pass-1@sql-new:1433", body, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "sqlquery/probe",
+            after!.RemoteConfig.Config.ConfigMap[""].Body.ToStringUtf8(),
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -166,6 +191,25 @@ public class OpAmpServerTests(PostgresFixture postgres)
         Assert.Equal("unknown type: \"sqlserverx\"", report.ConfigError);
         Assert.Equal(new byte[] { 9, 9 }, report.ConfigHash);
         Assert.Equal(_clock.GetUtcNow(), report.LastSeenAt);
+    }
+
+    [Fact]
+    public async Task HandleAsync_HealthWithStartTime_KeepsWhenTheCollectorStarted()
+    {
+        await using var database = await AgentsDatabase.CreateAsync(postgres);
+        var (agent, key) = await SeedAgentAsync(database);
+        var started = new DateTimeOffset(2026, 11, 26, 6, 0, 0, TimeSpan.Zero);
+        var message = First();
+        message.Health = new ComponentHealth
+        {
+            Healthy = true,
+            StartTimeUnixNano = (ulong)(started.ToUnixTimeMilliseconds() * 1_000_000),
+        };
+
+        await Server(database).HandleAsync(key, message, _veyra, CancellationToken.None);
+
+        var report = (await new AgentStore(database).FindAsync(agent.Id, CancellationToken.None))!.Report;
+        Assert.Equal(started, report.StartedAt);
     }
 
     [Fact]
@@ -297,5 +341,15 @@ public class OpAmpServerTests(PostgresFixture postgres)
             NullLogger<PostgresServerService>.Instance);
 
     private OpAmpServer Server(NpgsqlDataSource database) =>
-        new(new AgentStore(database), Servers(database), PostgresServers(database), _keys, _clock);
+        new(new AgentStore(database), Servers(database), PostgresServers(database), Probes(database), _keys, _clock);
+
+    private ProbeService Probes(NpgsqlDataSource database) =>
+        new(
+            new ProbeStore(database),
+            Servers(database),
+            new AgentStore(database),
+            new SqlServerPasswordProtector(_protection),
+            new SqlServerSignals(new FakeLogSearch(), new FakeMetricSearch()),
+            _clock,
+            NullLogger<ProbeService>.Instance);
 }

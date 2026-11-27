@@ -6,17 +6,22 @@ using Microsoft.Extensions.Options;
 using Npgsql;
 using Veyra.Core;
 using Veyra.Core.Activity;
+using Veyra.Core.Jobs;
 using Veyra.Core.Maintenance;
 using Veyra.Core.Metrics;
 using Veyra.Core.Schema;
+using Veyra.Core.Search;
 using Veyra.Core.Settings;
 using Veyra.Core.Telemetry;
 using Veyra.Core.Traces;
 using Veyra.Storage.Activity;
+using Veyra.Storage.Ingest;
+using Veyra.Storage.Jobs;
 using Veyra.Storage.Logs;
 using Veyra.Storage.Maintenance;
 using Veyra.Storage.Metrics;
 using Veyra.Storage.Schema;
+using Veyra.Storage.Search;
 using Veyra.Storage.Settings;
 using Veyra.Storage.Traces;
 
@@ -71,6 +76,10 @@ public static class StorageServiceCollectionExtensions
         services.AddSingleton<TraceRetention>();
         services.AddSingleton<ActivityPartitions>();
         services.AddSingleton<ActivityRetention>();
+        services.AddSingleton<IngestCountPartitions>();
+        services.AddSingleton<IngestCountRetention>();
+        services.AddSingleton<JobRunPartitions>();
+        services.AddSingleton<JobRunRetention>();
 
         if (configured)
         {
@@ -87,9 +96,13 @@ public static class StorageServiceCollectionExtensions
             services.AddSingleton<SpanStore>();
             services.AddSingleton<ISpanWriter>(provider => provider.GetRequiredService<SpanStore>());
             services.AddSingleton<ITraceSearch>(provider => provider.GetRequiredService<SpanStore>());
+            services.AddSingleton<ISignalSearch, SignalSearchStore>();
+            services.AddSingleton<IIngestCounts, IngestCountStore>();
+            services.AddSingleton<IJobRuns, JobRunStore>();
             services.AddSingleton<ActivityStore>();
             services.AddSingleton<IDatabaseActivityWriter>(provider => provider.GetRequiredService<ActivityStore>());
             services.AddSingleton<IDatabaseActivitySearch>(provider => provider.GetRequiredService<ActivityStore>());
+            services.AddSingleton<IBackupHistory>(provider => provider.GetRequiredService<ActivityStore>());
             services.AddSingleton<MetricRollups>();
             services.AddSingleton<ITelemetryClearer, StorageClearer>();
             services.AddSingleton<LogCountBackfill>();
@@ -113,10 +126,15 @@ public static class StorageServiceCollectionExtensions
             services.AddSingleton<UnconfiguredSpanStore>();
             services.AddSingleton<ISpanWriter>(provider => provider.GetRequiredService<UnconfiguredSpanStore>());
             services.AddSingleton<ITraceSearch>(provider => provider.GetRequiredService<UnconfiguredSpanStore>());
+            services.AddSingleton<ISignalSearch, UnconfiguredSignalSearch>();
+            services.AddSingleton<IIngestCounts, UnconfiguredIngestCounts>();
+            services.AddSingleton<IJobRuns, UnconfiguredJobRuns>();
             services.AddSingleton<UnconfiguredActivityStore>();
             services.AddSingleton<IDatabaseActivityWriter>(
                 provider => provider.GetRequiredService<UnconfiguredActivityStore>());
             services.AddSingleton<IDatabaseActivitySearch>(
+                provider => provider.GetRequiredService<UnconfiguredActivityStore>());
+            services.AddSingleton<IBackupHistory>(
                 provider => provider.GetRequiredService<UnconfiguredActivityStore>());
         }
 

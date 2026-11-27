@@ -53,6 +53,7 @@ internal sealed class AccessServices(NpgsqlDataSource database, FakeTimeProvider
         SessionStore,
         _hasher,
         new PasswordPolicy(_options),
+        _options,
         clock,
         NullLogger<UserService>.Instance);
 

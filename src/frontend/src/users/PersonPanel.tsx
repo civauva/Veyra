@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 
 import { api } from "../api/client";
 import type { Role, UserDetail } from "../api/types";
+import { HelpTip } from "../ui/HelpTip";
 import { Avatar } from "./Avatar";
 import { ResetPasswordDialog } from "./ResetPasswordDialog";
 import { SignInDays, SignInList, SessionList } from "./SignInViews";
@@ -267,11 +268,18 @@ export function PersonPanel({ id, isYou, tab, onTab, onClose, onChanged, now }: 
                   {formatWhen(person.createdAt, now)}
                   {detail.addedBy ? `, by ${detail.addedBy}` : ""}
                 </dd>
-                <dt>Last active</dt>
+                <FactName name="Last active">
+                  The last time they used Veyra: the newest activity of any of their sessions, to within five minutes.
+                </FactName>
                 <dd>{formatWhen(person.lastActiveAt, now)}</dd>
-                <dt>Sessions</dt>
+                <FactName name="Sessions">
+                  The browsers where they are signed in now. The Sessions tab lists them and can sign one out.
+                </FactName>
                 <dd>{detail.sessions.length === 1 ? "1 open" : `${detail.sessions.length} open`}</dd>
-                <dt>Sign-ins, 30 days</dt>
+                <FactName name="Sign-ins, 30 days">
+                  Sign-in attempts of the last 30 days: those that got in, and those refused, such as a wrong password
+                  or code. Many failures can mean someone is guessing; the Sign-ins tab shows where they came from.
+                </FactName>
                 <dd>
                   {detail.signedInLast30Days} signed in, {detail.failedLast30Days} failed
                 </dd>
@@ -283,10 +291,17 @@ export function PersonPanel({ id, isYou, tab, onTab, onClose, onChanged, now }: 
         {tab === "signins" && (
           <>
             <div className="person-sec">
-              <h3>Last 14 days</h3>
-              <SignInDays signIns={detail.signIns} now={now} />
+              <SectionName name="Last 14 days">
+                Sign-in attempts per day: those that got in rise above the line, failed ones hang below it. A burst of
+                failures stands out at once.
+              </SectionName>
+              <SignInDays counts={detail.signInDays} />
             </div>
             <div className="person-sec">
+              <SectionName name="Latest sign-ins">
+                Each attempt, newest first, with how it ended, the address it came from, and the browser. An address not
+                seen before is marked, as a sign-in from somewhere new is worth a look.
+              </SectionName>
               <SignInList signIns={detail.signIns} now={now} label="Latest sign-ins" />
             </div>
             <p className="person-help">
@@ -298,6 +313,10 @@ export function PersonPanel({ id, isYou, tab, onTab, onClose, onChanged, now }: 
         {tab === "sessions" && (
           <>
             <div className="person-sec">
+              <SectionName name="Open sessions">
+                Each browser where they are signed in, with its address, when it started, and its last activity. Sign
+                one out to end it at once; a session also ends by itself after a while without activity.
+              </SectionName>
               <SessionList
                 sessions={detail.sessions}
                 now={now}
@@ -356,6 +375,34 @@ export function PersonPanel({ id, isYou, tab, onTab, onClose, onChanged, now }: 
         />
       )}
     </section>
+  );
+}
+
+/** Props for {@link SectionName} and {@link FactName}. */
+interface NamedHelpProps {
+  /** The name, such as "Last 14 days". */
+  name: string;
+  /** What it means, behind the question mark. */
+  children: ReactNode;
+}
+
+/** A section's heading with a question mark that explains the section (VEY-60). */
+function SectionName({ name, children }: NamedHelpProps) {
+  return (
+    <div className="person-sec-head">
+      <h3>{name}</h3>
+      <HelpTip label={name}>{children}</HelpTip>
+    </div>
+  );
+}
+
+/** A fact's name with a question mark that explains the fact (VEY-60). */
+function FactName({ name, children }: NamedHelpProps) {
+  return (
+    <dt className="person-fact-name">
+      <span>{name}</span>
+      <HelpTip label={name}>{children}</HelpTip>
+    </dt>
   );
 }
 

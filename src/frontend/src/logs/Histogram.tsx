@@ -1,4 +1,5 @@
 import type { LogSummary } from "../api/types";
+import { HelpTip } from "../ui/HelpTip";
 import { zoneLabel } from "../time/zone";
 import { formatBucket, formatClock, formatCount } from "./format";
 
@@ -20,8 +21,9 @@ interface HistogramProps {
  */
 export function Histogram({ summary, counting = false, from, to }: HistogramProps) {
   const buckets = summary?.buckets ?? [];
-  const total = buckets.reduce((sum, bucket) => sum + bucket.total, 0);
-  const errors = buckets.reduce((sum, bucket) => sum + bucket.errors, 0);
+  // The server adds up the window (VEY-68); the tallest bar only sets the scale.
+  const total = summary?.total ?? 0;
+  const errors = summary?.errors ?? 0;
   const tallest = Math.max(1, ...buckets.map((bucket) => bucket.total));
   const caption = summary ? `Records per ${formatBucket(summary.bucketSeconds)} · errors in red` : "Records over time";
   const window = `${formatClock(from)} to ${formatClock(to)} ${zoneLabel(new Date(to))}`;
@@ -32,7 +34,13 @@ export function Histogram({ summary, counting = false, from, to }: HistogramProp
 
   return (
     <figure className="histogram">
-      <figcaption className="section-title">{caption}</figcaption>
+      <figcaption className="histogram-title">
+        <span className="section-title">{caption}</span>
+        <HelpTip label="Records over time">
+          How many records each slice of the searched window holds, for the filters chosen, with those at Error or worse
+          in red. A tall bar or a red band is the moment to look at; hover a bar for its counts.
+        </HelpTip>
+      </figcaption>
       <div className="histogram-bars" role="img" aria-label={label} aria-busy={counting}>
         {buckets.map((bucket) => (
           <span

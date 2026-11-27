@@ -19,6 +19,11 @@ namespace Veyra.Query.Traces.Api;
 /// <param name="Events">Moments during the span, oldest first.</param>
 /// <param name="Links">Pointers to other spans.</param>
 /// <param name="Dropped">How much the sender or Veyra's limits left out.</param>
+/// <param name="Depth">
+/// How many ancestors it has among the spans sent; 0 for the root and for a span whose parent has not arrived (VEY-68).
+/// </param>
+/// <param name="Children">How many of its direct children were sent (VEY-68).</param>
+/// <param name="MissingParent">Whether it names a parent that has not arrived (ADR 0014, VEY-68).</param>
 public sealed record SpanResponse(
     string SpanId,
     string? ParentSpanId,
@@ -35,4 +40,7 @@ public sealed record SpanResponse(
     IReadOnlyDictionary<string, string> ResourceAttributes,
     IReadOnlyList<SpanEvent> Events,
     IReadOnlyList<SpanLink> Links,
-    SpanDropped Dropped);
+    SpanDropped Dropped,
+    int Depth = 0,
+    int Children = 0,
+    bool MissingParent = false);

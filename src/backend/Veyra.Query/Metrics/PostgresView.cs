@@ -1,6 +1,7 @@
 using Veyra.Core.Metrics;
 using Veyra.Core.Telemetry;
 using Veyra.Query.Metrics.Api;
+using Veyra.Query.Systems;
 
 namespace Veyra.Query.Metrics;
 
@@ -73,13 +74,15 @@ internal static class PostgresView
     /// <param name="recent">The server's series and its tables' rows over the last five minutes.</param>
     /// <param name="quarter">The deadlock series over the last 15 minutes in one-minute buckets.</param>
     /// <param name="day">The database sizes and the tables' vacuums over the last day.</param>
+    /// <param name="system">Whether the server's own databases and the catalog's tables are listed (VEY-66).</param>
     /// <returns>The screen.</returns>
     public static DatabaseMetricsResponse Detail(
         TelemetryBlock block,
         SeriesData window,
         SeriesData recent,
         SeriesData quarter,
-        SeriesData day)
+        SeriesData day,
+        bool system)
     {
         ArgumentNullException.ThrowIfNull(window);
         ArgumentNullException.ThrowIfNull(recent);
@@ -87,6 +90,17 @@ internal static class PostgresView
 
         var lines = window.Window;
         var tables = Tables(recent, day);
+        var (databases, hiddenDatabases) = SystemRows.Keep(
+            Databases(recent, day, tables),
+            system,
+            database => database.System,
+            database => database.Name);
+        // The catalog's tables are left out before the cut to ten, so they never take the applications' places.
+        var (listed, hiddenTables) = SystemRows.Keep(
+            tables.Where(table => table.DeadRows > 0),
+            system,
+            table => table.System,
+            table => SystemRows.SystemDatabase(MetricNames.PostgresEngine, table.Database));
 
         return new DatabaseMetricsResponse(
             Card(block, window, recent, quarter),
@@ -99,23 +113,26 @@ internal static class PostgresView
             lines.Line("page life", new Dictionary<DateTimeOffset, double>()),
             lines.Line("longest query", DatabaseView.Longest(window, MetricNames.PostgresLongestQuery)),
             [],
-            Databases(recent, day, tables),
+            databases,
             [],
             [],
             [])
         {
+            From = lines.From,
+            To = lines.End,
             MaxConnections = lines.Line(
                 "maximum",
                 DatabaseView.Longest(window, MetricNames.PostgresMaxConnections)),
             Commits = lines.Line("commits", Counted(window, MetricNames.PostgresCommits)),
             Rollbacks = lines.Line("rollbacks", Counted(window, MetricNames.PostgresRollbacks)),
-            Tables = tables
-                .Where(table => table.DeadRows > 0)
+            Tables = listed
                 .OrderByDescending(table => table.DeadRows)
                 .ThenBy(table => table.Database, StringComparer.Ordinal)
                 .ThenBy(table => table.Name, StringComparer.Ordinal)
                 .Take(_maxTables)
                 .ToList(),
+            HiddenDatabases = hiddenDatabases,
+            HiddenTables = hiddenTables,
         };
     }
 
@@ -156,7 +173,12 @@ internal static class PostgresView
             .OfType<string>()
             .ToHashSet(StringComparer.Ordinal);
 
-    private static List<DatabasePartResponse> Databases(
+    /// <summary>A PostgreSQL server's databases, with their sizes, growth, connections, and wraparound.</summary>
+    /// <param name="recent">The server's series over the last five minutes, for the figures that say now.</param>
+    /// <param name="day">The database size and vacuum series over the last day, for growth.</param>
+    /// <param name="tables">Its tables, for their rows; empty when only the databases are wanted.</param>
+    /// <returns>The databases, the largest first, the server's own marked <c>System</c>.</returns>
+    public static List<DatabasePartResponse> Databases(
         SeriesData recent,
         SeriesData day,
         IReadOnlyList<DatabaseTableResponse> tables)
@@ -191,6 +213,7 @@ internal static class PostgresView
                     DeadRows = dead,
                     DeadRowsRatio = Share(dead, live),
                     Vacuums = Total(own.Select(table => table.Vacuums)),
+                    System = SystemObjects.IsSystemDatabase(MetricNames.PostgresEngine, name),
                 };
             })
             .OrderByDescending(database => database.SizeBytes ?? 0)
@@ -223,7 +246,11 @@ internal static class PostgresView
                     live,
                     dead,
                     Share(dead, live),
-                    vacuums.TryGetValue(table.Key, out var count) ? count : null);
+                    vacuums.TryGetValue(table.Key, out var count) ? count : null)
+                {
+                    System = SystemObjects.IsSystemDatabase(MetricNames.PostgresEngine, table.Key.Database)
+                        || table.Key.Schema is "pg_catalog" or "information_schema" or "pg_toast",
+                };
             })
             .ToList();
     }

@@ -1,4 +1,4 @@
-import { zoneLabel, zoneParts } from "../time/zone";
+import { localDay, shortDate, zoneLabel, zoneParts } from "../time/zone";
 
 /*
  * Formatting shared by every screen. Times are shown in the person's time zone (VEY-22, see time/zone.ts), so a time
@@ -40,6 +40,22 @@ export function formatClock(instant: Date | string): string {
   const parts = zoneParts(instant);
 
   return clock(parts.hour, parts.minute);
+}
+
+/**
+ * A window in the display zone: its clocks when it stays within one day, as `08:00 – 09:30`, and the day of each end
+ * when it spans days, as `Nov 8 13:05 – Nov 9 13:05`, so the last 24 hours never reads as one moment.
+ *
+ * @param from - The start of the window.
+ * @param to - The end of the window.
+ * @returns The window in words.
+ */
+export function formatSpan(from: Date | string, to: Date | string): string {
+  if (localDay(from) === localDay(to)) {
+    return `${formatClock(from)} – ${formatClock(to)}`;
+  }
+
+  return `${shortDate(from)} ${formatClock(from)} – ${shortDate(to)} ${formatClock(to)}`;
 }
 
 /**

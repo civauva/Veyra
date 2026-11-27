@@ -10,7 +10,7 @@ Versioned, tested OpenTelemetry Collector configurations for each monitored targ
 | [`windows/`](windows/collector.yaml) | Windows host metrics and Event Log errors, IIS sites in `iis.yaml`; checked in CI by `test/run.ps1` |
 | [`docker/`](docker/collector.yaml) | Docker container stats and logs, alone or beside `linux/`; checked in CI by `test/run.sh` |
 | [`postgres/`](postgres/collector.yaml) | PostgreSQL 14 and newer: connections, sizes, deadlocks, locks, vacuum, wraparound, blocking, long queries; checked in CI by `test/run.sh` |
-| [`sqlserver/`](sqlserver/collector.yaml) | SQL Server 2019, 2022, 2025: health, blocking, backups, SQL Agent jobs; checked in CI by `test/run.sh` |
+| [`sqlserver/`](sqlserver/collector.yaml) | SQL Server 2019, 2022, 2025: health, blocking, backups and their history, SQL Agent jobs; checked in CI by `test/run.sh` |
 | [`traces/`](traces/collector.yaml) | Tail sampling of traces between applications and Veyra |
 
 `sqlserver/collector.yaml` is also the template Veyra's agents are configured from (ADR 0019): Veyra copies its
@@ -18,6 +18,11 @@ components for each server added on the Settings screen and fills in the values.
 so the template and its CI check stay the one contract for both ways of running it. Its variables are the names the
 Agents module fills in; a new one needs a value there too. `windows/` and `linux/` are the templates of an agent that
 watches its own host (VEY-35), merged in the same way, and `docker/` joins `linux/` when the agent reads its
-containers (VEY-32). `postgres/collector.yaml` is the template for each PostgreSQL server added on the Settings screen
+containers (VEY-32). `sqlserver/collector.yaml` states its version in its header (`# veyra-template: sqlserver 0.2.0`); Veyra also ships the
+version before it, `sqlserver/collector.0.1.0.yaml`, so a server can be rolled back to it (ADR 0028). A change to the
+reads needs a new version: the current file becomes the previous one, under its version's name, and the embedded
+resource in `Veyra.Agents.csproj` follows. `sqlserver/probe.yaml` is the one-off read of Test connection and Validate
+now, merged into an agent's configuration while a probe runs. `postgres/collector.yaml` is the template for each
+PostgreSQL server added on the Settings screen
 (VEY-33), copied per server like the SQL Server one; its shared processors and exporter must stay the same as
 `sqlserver/`'s, since an agent that reads both keeps them once.

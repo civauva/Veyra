@@ -36,6 +36,34 @@ public sealed class SettingsController : ControllerBase
     public Task<SettingsPageResponse> GetAsync(CancellationToken cancellationToken) =>
         _settings.PageAsync(cancellationToken);
 
+    /// <summary>
+    /// Which settings and sections the screen lists for a search or a section in a view (VEY-67). The page of every
+    /// setting stays the model the screen edits; this decides what of it is shown.
+    /// </summary>
+    /// <param name="search">Words a setting's label, card, help, or key must all hold, in any case.</param>
+    /// <param name="section">The section, such as <c>Data</c>; ignored while searching.</param>
+    /// <param name="view"><c>simple</c> (the default) or <c>advanced</c>.</param>
+    /// <returns>The keys to show, in screen order, and the sections to list.</returns>
+    /// <response code="200">The listing.</response>
+    /// <response code="400">The view is neither simple nor advanced.</response>
+    [HttpGet("listing")]
+    [ProducesResponseType<SettingsListingResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public IActionResult Listing(
+        [FromQuery] string? search,
+        [FromQuery] string? section,
+        [FromQuery] string? view)
+    {
+        if (view is not null
+            && !view.Equals("simple", StringComparison.OrdinalIgnoreCase)
+            && !view.Equals("advanced", StringComparison.OrdinalIgnoreCase))
+        {
+            return Problem(statusCode: StatusCodes.Status400BadRequest, title: "The view is simple or advanced.");
+        }
+
+        return Ok(_settings.Listing(search, section, "advanced".Equals(view, StringComparison.OrdinalIgnoreCase)));
+    }
+
     /// <summary>Checks changes and says what they would do, without saving anything.</summary>
     /// <param name="request">The changes.</param>
     /// <param name="cancellationToken">Cancels the request.</param>

@@ -61,6 +61,30 @@ public class LogStoreTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task SearchAsync_SpanPastTheLimit_FindsItsRecords()
+    {
+        // The trace screen reads its newest records up to a limit; the chosen span's oldest record is beyond it.
+        const string trace = "bbbb0000bbbb0000bbbb0000bbbb0000";
+        await using var database = await CreateAsync();
+        var store = new LogStore(database);
+        await store.WriteAsync(
+            [
+                Record(_noon.AddMinutes(-30), "first span starts") with { TraceId = trace, SpanId = "00f067aa0ba902b7" },
+                .. Enumerable.Range(0, 5).Select(second =>
+                    Record(_noon.AddSeconds(second), "busy") with { TraceId = trace, SpanId = "53995c3f42cd8ad8" }),
+            ],
+            CancellationToken.None);
+
+        var newest = await store.SearchAsync(Window() with { TraceId = trace, Limit = 5 }, default);
+        var bySpan = await store.SearchAsync(
+            Window() with { TraceId = trace, SpanId = "00F067AA0BA902B7", Limit = 5 },
+            default);
+
+        Assert.DoesNotContain(newest.Items, item => item.Record.Body == "first span starts");
+        Assert.Equal("first span starts", Assert.Single(bySpan.Items).Record.Body);
+    }
+
+    [Fact]
     public async Task SearchAsync_AttributeAndEnvironmentFilters_MatchExactly()
     {
         await using var database = await CreateAsync();
@@ -145,6 +169,26 @@ public class LogStoreTests(PostgresFixture postgres)
 
         Assert.Equal(3, pages);
         Assert.Equal(records.Select(r => r.Body).Order(), seen.Order());
+    }
+
+    [Fact]
+    public async Task SearchAsync_OldestFirst_StartsAtTheOldestRecordPastTheLimitAndPagesForward()
+    {
+        await using var database = await CreateAsync();
+        var store = new LogStore(database);
+        var records = Enumerable.Range(0, 5).Select(i => Record(_noon.AddSeconds(i), $"record {i}")).ToList();
+        await store.WriteAsync(records, CancellationToken.None);
+
+        var first = await store.SearchAsync(
+            Window() with { Limit = 3, OldestFirst = true },
+            CancellationToken.None);
+        var second = await store.SearchAsync(
+            Window() with { Limit = 3, OldestFirst = true, After = first.Next },
+            CancellationToken.None);
+
+        Assert.Equal(["record 0", "record 1", "record 2"], first.Items.Select(item => item.Record.Body));
+        Assert.Equal(["record 3", "record 4"], second.Items.Select(item => item.Record.Body));
+        Assert.Null(second.Next);
     }
 
     [Fact]
@@ -250,6 +294,99 @@ public class LogStoreTests(PostgresFixture postgres)
 
         // Equal counts are ordered by message, so the result is stable.
         Assert.Equal(["b", "c"], groups.Select(group => group.Message));
+    }
+
+    [Fact]
+    public async Task SearchAsync_HostsLevelsAndPhrases_MatchExactlyAndReturnTheHost()
+    {
+        await using var database = await CreateAsync();
+        var store = new LogStore(database);
+        await store.WriteAsync(
+            [
+                Record(_noon, "request timed out after 30 s") with { HostName = "web-1", Severity = LogSeverity.Warning },
+                Record(_noon, "out of time, timed retry") with { HostName = "web-1", Severity = LogSeverity.Warning },
+                Record(_noon, "request timed out") with { HostName = "web-2", Severity = LogSeverity.Error },
+                Record(_noon, "no host"),
+            ],
+            CancellationToken.None);
+
+        var byHost = await store.SearchAsync(Window() with { Hosts = ["web-1"] }, default);
+        var byLevel = await store.SearchAsync(
+            Window() with { Levels = [LogSeverity.Error, LogSeverity.Fatal] },
+            default);
+        var byPhrase = await store.SearchAsync(
+            Window() with { Text = "timed out", Phrases = ["TIMED OUT"] },
+            default);
+        var none = await store.SearchAsync(Window() with { Levels = [] }, default);
+
+        Assert.Equal(2, byHost.Items.Count);
+        Assert.All(byHost.Items, item => Assert.Equal("web-1", item.Record.HostName));
+        Assert.Equal("request timed out", Assert.Single(byLevel.Items).Record.Body);
+        Assert.Equal(
+            ["request timed out", "request timed out after 30 s"],
+            byPhrase.Items.Select(item => item.Record.Body).Order());
+        Assert.Empty(none.Items);
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_Window_CountsEachLevelPerBucket()
+    {
+        await using var database = await CreateAsync();
+        var store = new LogStore(database);
+        await store.WriteAsync(
+            [
+                Record(_noon.AddMinutes(-50), "a"),
+                Record(_noon.AddMinutes(-50), "b"),
+                Record(_noon.AddMinutes(-40), "c") with { Severity = LogSeverity.Warning },
+                Record(_noon.AddMinutes(-10).AddSeconds(7), "d") with { Severity = LogSeverity.Error },
+            ],
+            CancellationToken.None);
+        var window = Window() with { From = _noon.AddHours(-1).AddSeconds(3), To = _noon };
+
+        var summary = await store.SummarizeAsync(window, TimeSpan.FromMinutes(30), CancellationToken.None);
+
+        var levels = summary.LevelsPerBucket!;
+        Assert.Equal(2, levels.Count);
+        Assert.Equal(2, levels[0][LogSeverity.Information]);
+        Assert.Equal(1, levels[0][LogSeverity.Warning]);
+        Assert.Equal(1, Assert.Single(levels[1]).Value);
+        Assert.Equal(LogSeverity.Error, Assert.Single(levels[1]).Key);
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_HostOrExactLevel_CountsOnlyThoseRecords()
+    {
+        await using var database = await CreateAsync();
+        var store = new LogStore(database);
+        await store.WriteAsync(
+            [
+                Record(_noon.AddMinutes(-50), "a") with { HostName = "web-1" },
+                Record(_noon.AddMinutes(-50), "b") with { HostName = "web-2", Severity = LogSeverity.Error },
+                Record(_noon.AddMinutes(-20), "c") with { Severity = LogSeverity.Error },
+            ],
+            CancellationToken.None);
+        var window = Window() with { From = _noon.AddHours(-1), To = _noon };
+
+        var byHost = await store.SummarizeAsync(window with { Hosts = ["web-1"] }, TimeSpan.FromHours(1), default);
+        var byLevel = await store.SummarizeAsync(
+            window with { Levels = [LogSeverity.Error] },
+            TimeSpan.FromHours(1),
+            default);
+
+        Assert.Equal((1L, 0L), (byHost.Buckets.Sum(b => b.Total), byHost.Buckets.Sum(b => b.Errors)));
+        Assert.Equal((2L, 2L), (byLevel.Buckets.Sum(b => b.Total), byLevel.Buckets.Sum(b => b.Errors)));
+    }
+
+    [Fact]
+    public async Task Migrate_LogRecord_HasAnIndexOfHostAndTime()
+    {
+        await using var database = await CreateAsync();
+
+        await using var command = database.CreateCommand(
+            "SELECT indexdef FROM pg_indexes WHERE schemaname = 'storage' AND indexname = 'log_record_host_time'");
+        var definition = (string?)await command.ExecuteScalarAsync();
+
+        Assert.Contains("(host_name, \"timestamp\" DESC)", definition, StringComparison.Ordinal);
     }
 
     private Task<NpgsqlDataSource> CreateAsync() => postgres.CreateMigratedDatabaseAsync(new StorageMigrations());

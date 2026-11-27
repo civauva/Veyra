@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 
-import { CommandBlock } from "./CommandBlock";
+import { CommandBlock } from "../ui/CommandBlock";
 import { installCommand, type InstallPlatform } from "./monitoringFormat";
 
 /** Props for {@link InstallBox}. */

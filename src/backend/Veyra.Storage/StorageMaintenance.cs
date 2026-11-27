@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Veyra.Storage.Activity;
+using Veyra.Storage.Ingest;
+using Veyra.Storage.Jobs;
 using Veyra.Storage.Logs;
 using Veyra.Storage.Metrics;
 using Veyra.Storage.Traces;
@@ -8,8 +10,9 @@ using Veyra.Storage.Traces;
 namespace Veyra.Storage;
 
 /// <summary>
-/// Keeps storage in shape while Veyra runs: daily partitions of logs, metric points, spans, and database activity ahead
-/// of the clock, and old or excess data removed. Runs once at startup and then every hour.
+/// Keeps storage in shape while Veyra runs: daily partitions of logs, metric points, spans, database activity, job
+/// runs, and ingest counts ahead of the clock, and old or excess data removed. Runs once at startup and then every
+/// hour.
 /// </summary>
 /// <param name="logPartitions">Creates the daily log partitions.</param>
 /// <param name="logRetention">Removes logs that are too old or over the size budget.</param>
@@ -19,6 +22,10 @@ namespace Veyra.Storage;
 /// <param name="traceRetention">Removes traces that are too old or over the size budget.</param>
 /// <param name="activityPartitions">Creates the daily partitions of database activity.</param>
 /// <param name="activityRetention">Removes old database activity.</param>
+/// <param name="ingestPartitions">Creates the daily partitions of the ingest counts.</param>
+/// <param name="ingestRetention">Removes ingest counts older than 30 days.</param>
+/// <param name="jobPartitions">Creates the daily partitions of the job runs.</param>
+/// <param name="jobRetention">Removes job runs older than their retention.</param>
 /// <param name="clock">The clock behind the hourly timer.</param>
 /// <param name="logger">Receives failures, which are retried on the next run.</param>
 internal sealed partial class StorageMaintenance(
@@ -30,6 +37,10 @@ internal sealed partial class StorageMaintenance(
     TraceRetention traceRetention,
     ActivityPartitions activityPartitions,
     ActivityRetention activityRetention,
+    IngestCountPartitions ingestPartitions,
+    IngestCountRetention ingestRetention,
+    JobRunPartitions jobPartitions,
+    JobRunRetention jobRetention,
     TimeProvider clock,
     ILogger<StorageMaintenance> logger) : BackgroundService
 {
@@ -85,6 +96,26 @@ internal sealed partial class StorageMaintenance(
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
                 LogFailed(exception, "Database activity");
+            }
+
+            try
+            {
+                await ingestPartitions.EnsureAsync(stoppingToken);
+                await ingestRetention.ApplyAsync(stoppingToken);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                LogFailed(exception, "Ingest count");
+            }
+
+            try
+            {
+                await jobPartitions.EnsureAsync(stoppingToken);
+                await jobRetention.ApplyAsync(stoppingToken);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                LogFailed(exception, "Job run");
             }
         }
         while (await timer.WaitForNextTickAsync(stoppingToken));

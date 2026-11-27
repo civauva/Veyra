@@ -72,12 +72,17 @@ export function formatAge(since: string, now: Date): string {
 }
 
 /**
- * A size in bytes with a readable unit, in powers of 1024 like the storage budget.
+ * A size in bytes with a readable unit, in powers of 1024 like the storage budget. A negative size, such as the growth
+ * of a database that shrank, reads the same with a minus.
  *
  * @param bytes - The size.
- * @returns For example `340 MB` or `1.2 GB`.
+ * @returns For example `340 MB`, `1.2 GB`, or `−199 MB`.
  */
 export function formatBytes(bytes: number): string {
+  if (bytes < 0) {
+    return `−${formatBytes(-bytes)}`;
+  }
+
   const units = ["B", "KB", "MB", "GB", "TB"];
   let value = bytes;
   let unit = 0;

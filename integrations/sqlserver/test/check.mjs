@@ -25,6 +25,15 @@ let plans = 0;
 
 /** The rows of the live view's sessions query (ADR 0020), with their attributes and body. */
 const sessions = [];
+
+/** The answers of the connection probe (ADR 0028). */
+const probes = [];
+
+/** The rows of the backup history (ADR 0025), with their attributes and device. */
+const backups = [];
+
+/** The attributes of the server read's info point, which name the instance and its machine (ADR 0025). */
+let info = {};
 const kinds = new Map();
 
 /** Every point of the statement metrics, with its attributes and whether it is a delta (VEY-43). */
@@ -47,6 +56,11 @@ for (const line of lines) {
           const parts = Object.values(attributes(point.attributes)).join(",");
           const reading = Number(point.asDouble ?? point.asInt);
           latest.set(`${metric.name}|${parts}`, reading);
+
+          if (metric.name === "sqlserver.server.info") {
+            info = attributes(point.attributes);
+          }
+
           highest.set(`${metric.name}|${parts}`, Math.max(highest.get(`${metric.name}|${parts}`) ?? -Infinity, reading));
 
           if (metric.name.startsWith("sqlserver.statement.")) {
@@ -75,6 +89,14 @@ for (const line of lines) {
 
         if (row.veyra_record === "sqlserver.session") {
           sessions.push({ ...row, text: text(record.body) ?? "" });
+        }
+
+        if (row.veyra_record === "sqlserver.probe") {
+          probes.push(row);
+        }
+
+        if (row.veyra_record === "sqlserver.backup") {
+          backups.push({ ...row, device: text(record.body) ?? "" });
         }
 
         if (attributes(record.attributes)["sqlserver.query_plan"] !== undefined) {
@@ -136,6 +158,20 @@ expect(value("sqlserver.database.size", "shop,data") > 0, "shop has no data size
 const received = [...kinds].map(([kind, count]) => `${kind} ${count}`).join(", ");
 expect(kinds.has("sqlserver.deadlock"), `no deadlock record arrived; records: ${received}`);
 
+// The machine and the backup history (ADR 0025): the seed took a full, a differential, and a log backup of shop.
+expect((value("sqlserver.os.memory.total") ?? 0) > 0, "the machine's memory never arrived");
+expect((info.os_name ?? "").length > 0, `the operating system never arrived: ${JSON.stringify(info)}`);
+for (const type of ["full", "differential", "log"]) {
+  const backup = backups.find((row) => row.database_name === "shop" && row.backup_type === type);
+  expect(backup !== undefined, `no ${type} backup of shop arrived; records: ${received}`);
+  expect(
+    backup === undefined
+      || (Number(backup.started) > 0 && Number(backup.started) <= Number(backup.sample) && Number(backup.bytes) > 0
+        && backup.copy_only === "0" && backup.device.startsWith("/var/opt/mssql/data/shop") && backup.key !== ""),
+    `the ${type} backup of shop is not whole: ${JSON.stringify(backup)}`,
+  );
+}
+
 // The check's login has every grant of the SQL Server guide, so the agent reports none missing (VEY-58).
 const permissions = [...latest].filter(([key]) => key.startsWith("sqlserver.login.permission.missing|"));
 expect(permissions.length === 15, `the agent reported ${permissions.length} permissions, not 15`);
@@ -186,6 +222,36 @@ const oneOff = statements.filter(
 expect(oneOff.reduce((sum, point) => sum + point.value, 0) >= 1, "the query run once was not counted");
 expect(oneOff.every((point) => point.database_name === "shop" && point.agent === "false"), "the query run once is not shop's");
 expect(statements.some((point) => point.agent === "true"), "no statement is marked as the agent's own");
+
+// The connection probe (ADR 0028): one row with the probe's ID, the server's version and edition, its databases as
+// JSON, and no permission missing, since the check's login has every grant.
+const probe = probes[0];
+expect(probe !== undefined, `the probe never answered; records: ${received}`);
+if (probe !== undefined) {
+  const parse = (json) => {
+    try {
+      return JSON.parse(json);
+    } catch {
+      return null;
+    }
+  };
+  const databases = parse(probe.database_names);
+  expect(probe.probe === "0195a00000007000800000000000c0de", `the probe answered under ${probe.probe}`);
+  expect(/^1[5-7]\./.test(probe.version ?? ""), `the probe read version ${probe.version}`);
+  expect((probe.edition ?? "").length > 0 && (probe.update_level ?? "").length > 0, "the probe read no edition");
+  expect(probe.platform === "sqlserver", `the probe read platform ${probe.platform}`);
+  expect(Number(probe.databases) >= 6, `the probe counted ${probe.databases} databases`);
+  expect(Array.isArray(databases) && databases.some((one) => one.name === "shop"), `the probe's databases: ${probe.database_names}`);
+  expect(JSON.stringify(parse(probe.missing)) === "[]", `the probe says the login lacks ${probe.missing}`);
+}
+
+// The template states its version, and the previous version ships beside it (ADR 0028).
+const template = readFileSync(new URL("../collector.yaml", import.meta.url), "utf8");
+const previous = readFileSync(new URL("../collector.0.1.0.yaml", import.meta.url), "utf8");
+expect(/^# veyra-template: sqlserver \d+\.\d+\.\d+$/m.test(template), "collector.yaml states no version");
+expect(/^# veyra-template: sqlserver 0\.1\.0$/m.test(previous), "collector.0.1.0.yaml is not version 0.1.0");
+expect(/^# veyra-collector: .+$/m.test(template) && /^# veyra-sql-server: .+$/m.test(template),
+  "collector.yaml states no Collector or SQL Server");
 
 if (failures.length > 0) {
   console.error(`SQL Server check failed:\n- ${failures.join("\n- ")}`);

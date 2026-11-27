@@ -5,8 +5,9 @@ using Veyra.Storage.Metrics;
 namespace Veyra.Storage.Maintenance;
 
 /// <summary>
-/// Deletes every log, metric, span, and SQL Server activity record Veyra keeps (VEY-59). Truncating the partitioned
-/// parents empties every daily partition at once; the partitions themselves stay, so writes carry on.
+/// Deletes every log, metric, span, SQL Server activity record, and job run Veyra keeps, and their counts (VEY-59).
+/// Truncating the partitioned parents empties every daily partition at once; the partitions themselves stay, so writes
+/// carry on.
 /// </summary>
 /// <param name="dataSource">The database.</param>
 /// <param name="metrics">The metric store, whose cached series IDs point at the series deleted here.</param>
@@ -24,7 +25,9 @@ internal sealed class StorageClearer(NpgsqlDataSource dataSource, MetricStore me
                  storage.metric_rollup_dirty,
                  storage.span,
                  storage.db_session,
-                 storage.db_record
+                 storage.db_record,
+                 storage.ingest_count_minute,
+                 storage.job_run
         """;
 
     /// <inheritdoc />

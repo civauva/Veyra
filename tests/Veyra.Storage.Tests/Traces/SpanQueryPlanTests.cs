@@ -23,7 +23,7 @@ public class SpanQueryPlanTests(PostgresFixture postgres)
     public async Task CreateRootsCommand_LastHour_ReadsOnlyTodaysRootIndex()
     {
         await using var database = await CreateWeekAsync();
-        var store = new SpanStore(database);
+        var store = TestStores.Spans(database);
         var query = new TraceQuery(_today.AddHours(11), _today.AddHours(12));
 
         await using var command = store.CreateRootsCommand(query, "trace_id, name, duration_us", 51, paged: true);
@@ -38,7 +38,7 @@ public class SpanQueryPlanTests(PostgresFixture postgres)
     public async Task CreateRootsCommand_OneServiceOverAWeek_ReadsTheServiceRootIndexOfEachDay()
     {
         await using var database = await CreateWeekAsync();
-        var store = new SpanStore(database);
+        var store = TestStores.Spans(database);
         var query = new TraceQuery(_today.AddDays(-6), _today.AddDays(1), Services: ["payments"], FailedOnly: true);
 
         await using var command = store.CreateRootsCommand(
@@ -55,10 +55,55 @@ public class SpanQueryPlanTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task CreateRootsCommand_WorstOrderOverAWeek_ReadsTheWorstFirstIndexOfEachDayInOrder()
+    {
+        await using var database = await CreateWeekAsync();
+        var store = TestStores.Spans(database);
+        var query = new TraceQuery(
+            _today.AddDays(-6),
+            _today.AddDays(1),
+            Order: TraceOrder.Worst,
+            AfterWorst: new TraceWorstCursor(
+                true,
+                TimeSpan.FromMilliseconds(120),
+                SpanStoreTests.Trace(9),
+                SpanStoreTests.Id(1)));
+
+        await using var command = store.CreateRootsCommand(
+            query,
+            "trace_id, span_id, name, service_name, environment, start_time, duration_us, status",
+            51,
+            paged: true);
+
+        // Without a sort the plan must read the roots in order, which only the worst-first index can do; a week is too
+        // many roots to sort for each page on a real installation.
+        var plan = await QueryPlan.ExplainAsync(database, command, [.. _largeTables, ("enable_sort", "off")]);
+
+        Assert.Equal(7, plan.Relations.Distinct().Count());
+        Assert.NotEmpty(plan.Indexes);
+        Assert.All(plan.Indexes, index => Assert.Contains("_expr_duration_us_", index, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task CreateFiguresCommand_LastHour_ReadsOnlyTodaysRootIndexes()
+    {
+        await using var database = await CreateWeekAsync();
+        var store = TestStores.Spans(database);
+        var query = new TraceQuery(_today.AddHours(11), _today.AddHours(12), Services: ["payments"]);
+
+        await using var command = store.CreateFiguresCommand(query, TimeSpan.FromMilliseconds(120));
+        var plan = await QueryPlan.ExplainAsync(database, command, _largeTables);
+
+        Assert.Equal(["span_20261109"], plan.Relations.Distinct());
+        Assert.NotEmpty(plan.Indexes);
+        Assert.All(plan.Indexes, index => Assert.Contains("service_name", index, StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task CreateTraceCommand_KnownDays_ReadsTheTraceIndexOfThoseDaysOnly()
     {
         await using var database = await CreateWeekAsync();
-        var store = new SpanStore(database);
+        var store = TestStores.Spans(database);
 
         await using var command = store.CreateTraceCommand(
             Convert.FromHexString(SpanStoreTests.Trace(3)),
@@ -91,7 +136,7 @@ public class SpanQueryPlanTests(PostgresFixture postgres)
             spans.Add(SpanStoreTests.Span(trace, SpanStoreTests.Id(3), SpanStoreTests.Id(1), "GET psp", start, 90));
         }
 
-        await new SpanStore(database).WriteAsync(spans, default);
+        await TestStores.Spans(database).WriteAsync(spans, default);
 
         await using var analyze = database.CreateCommand("ANALYZE storage.span");
         await analyze.ExecuteNonQueryAsync();

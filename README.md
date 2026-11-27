@@ -133,8 +133,10 @@ beyond those decisions are listed in [`docs/architecture/tech-stack.md`](docs/ar
 Veyra is pre-alpha and has **no released images yet**. It can be built and run from source with Docker Compose;
 see [`docs/guides/deployment.md`](docs/guides/deployment.md).
 
-Today it receives logs, metrics, and traces over OTLP, stores them in PostgreSQL, and shows them on the Forecast
-home, in the Log Explorer, on the Traces screens, and on the Metrics screens for hosts and services. Accounts have
+Today it receives logs, metrics, and traces over OTLP, stores them in PostgreSQL, and shows them in two looks: Console,
+the default, with dense panels and tables, and Forecast, which reads the environment like a weather report. Both have
+the Overview, the Log Explorer, Traces, Metrics, Incidents, Jobs, and the screens for hosts, services, and database
+servers. Accounts have
 roles and optional two-factor sign-in, and the Users screen shows each account's sign-ins and sessions; senders use
 ingestion keys. Built-in rules raise alerts on a service's error rate and request latency and on a host's disk space
 and growth, each with its own details screen; the Alerts screen keeps 90 days of history, and alerts go to webhook and

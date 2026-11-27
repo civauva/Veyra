@@ -1,8 +1,10 @@
 import type { AlertDelivery, AlertDetails, AlertEvent, AlertRule } from "../api/types";
+import { HelpTip } from "../ui/HelpTip";
 import { formatClock, formatCount } from "../logs/format";
 import { deliveryNote, deliveryTag, eventTitle } from "./alertFormat";
 import { formatMeasure, notFillingDays } from "./ruleWords";
 import { isCatalogRule } from "./ruleCatalog";
+import { localDay, shortDate } from "../time/zone";
 
 /** Props for {@link AlertTimeline}. */
 interface AlertTimelineProps {
@@ -12,21 +14,35 @@ interface AlertTimelineProps {
 
 /**
  * What happened to the alert, oldest first: every change of severity, and under each change the messages it sent to
- * channels, with their state. A message that keeps failing says why and when it is tried again.
+ * channels, with their state. A message that keeps failing says why and when it is tried again. A row of another day
+ * than the alert's last check carries its date.
  */
 export function AlertTimeline({ alert }: AlertTimelineProps) {
-  const notified = new Set(alert.events.flatMap((event) => event.deliveries.map((d) => d.channelId))).size;
+  // The server lists each channel told once (VEY-68).
+  const notified = alert.told.length;
+  const day = localDay(alert.resolvedAt ?? alert.updatedAt);
 
   return (
     <section className="glass alert-panel" aria-labelledby="alert-timeline">
-      <h2 id="alert-timeline" className="cap">
-        Timeline
-      </h2>
+      <div className="alert-name">
+        <h2 id="alert-timeline" className="cap">
+          Timeline
+        </h2>
+        <HelpTip label="Timeline">
+          Every change of the alert, oldest first: when it opened, rose to warning, eased to caution, and resolved.
+          Under each change are the messages sent to channels, and whether they went through.
+        </HelpTip>
+      </div>
       <ol className="timeline">
         {alert.events.flatMap((event) => [
-          <EventRow key={`${event.kind}-${event.at}`} event={event} rule={alert.rule} />,
+          <EventRow key={`${event.kind}-${event.at}`} event={event} rule={alert.rule} day={day} />,
           ...event.deliveries.map((delivery) => (
-            <DeliveryRow key={`${event.kind}-${event.at}-${delivery.channelId}`} at={event.at} delivery={delivery} />
+            <DeliveryRow
+              key={`${event.kind}-${event.at}-${delivery.channelId}`}
+              at={event.at}
+              delivery={delivery}
+              day={day}
+            />
           )),
         ])}
       </ol>
@@ -41,12 +57,12 @@ export function AlertTimeline({ alert }: AlertTimelineProps) {
   );
 }
 
-function EventRow({ event, rule }: { event: AlertEvent; rule: AlertRule }) {
+function EventRow({ event, rule, day }: { event: AlertEvent; rule: AlertRule; day: string }) {
   const tone = event.kind === "Resolved" ? "resolved" : event.severity === "Warning" ? "warning" : "caution";
 
   return (
     <li className={`timeline-row event ${tone}`}>
-      <time dateTime={event.at}>{formatClock(event.at)}</time>
+      <When at={event.at} day={day} />
       <i className="timeline-dot" aria-hidden="true" />
       <span>
         <b>{eventTitle(event)}</b>
@@ -56,7 +72,7 @@ function EventRow({ event, rule }: { event: AlertEvent; rule: AlertRule }) {
   );
 }
 
-function DeliveryRow({ at, delivery }: { at: string; delivery: AlertDelivery }) {
+function DeliveryRow({ at, delivery, day }: { at: string; delivery: AlertDelivery; day: string }) {
   const tag = deliveryTag(delivery);
   const note = deliveryNote(delivery);
   const kind = delivery.channelKind === "Email" ? "Email" : "Webhook";
@@ -64,7 +80,7 @@ function DeliveryRow({ at, delivery }: { at: string; delivery: AlertDelivery }) 
 
   return (
     <li className={`timeline-row delivery ${tag.tone}`}>
-      <time dateTime={time}>{formatClock(time)}</time>
+      <When at={time} day={day} />
       <i className="timeline-dot" aria-hidden="true" />
       <span>
         {kind} <b>{delivery.channelName}</b>
@@ -76,6 +92,16 @@ function DeliveryRow({ at, delivery }: { at: string; delivery: AlertDelivery }) 
       </span>
       <span className={`tag ${tag.tone}`}>{tag.text}</span>
     </li>
+  );
+}
+
+/** The time of a row, with its date above it when it is not on the day of the alert's last check. */
+function When({ at, day }: { at: string; day: string }) {
+  return (
+    <time dateTime={at}>
+      {localDay(at) !== day && <span className="timeline-day">{shortDate(at)}</span>}
+      {formatClock(at)}
+    </time>
   );
 }
 

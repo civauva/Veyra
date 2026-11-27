@@ -27,4 +27,11 @@ public sealed record HomeResponse(
     HomeMetricsResponse Metrics,
     HourlyResponse Hourly,
     LogStorageResponse Storage,
-    IReadOnlyList<HomeDiskResponse> Disks);
+    IReadOnlyList<HomeDiskResponse> Disks)
+{
+    /// <summary>
+    /// What the dashboards show of the estate, worked out on the server: services by name and the worst first, host
+    /// tiles, the disk outlook, and the counts (VEY-68).
+    /// </summary>
+    public required HomeEstateResponse Estate { get; init; }
+}

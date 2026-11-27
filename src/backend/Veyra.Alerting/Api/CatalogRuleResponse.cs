@@ -18,6 +18,10 @@ namespace Veyra.Alerting.Api;
 /// <param name="Enabled">Whether it runs.</param>
 /// <param name="Caution">The caution level, in its unit, or null for none.</param>
 /// <param name="Warning">The warning level, in its unit.</param>
+/// <param name="Meaning">
+/// What its alert means and why it matters, with <c>{server}</c> and <c>{part}</c> to fill in (VEY-60).
+/// </param>
+/// <param name="Steps">What to do to resolve its alert, in order.</param>
 public sealed record CatalogRuleResponse(
     string Id,
     string Name,
@@ -30,4 +34,6 @@ public sealed record CatalogRuleResponse(
     bool LowerIsWorse,
     bool Enabled,
     double? Caution,
-    double Warning);
+    double Warning,
+    string Meaning,
+    IReadOnlyList<FixStepResponse> Steps);

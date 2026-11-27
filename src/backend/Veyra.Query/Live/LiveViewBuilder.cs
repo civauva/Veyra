@@ -29,12 +29,14 @@ internal sealed class LiveViewBuilder(IDatabaseActivitySearch activity, IMetricS
     /// <param name="engine">The engine, such as <c>microsoft.sql_server</c>.</param>
     /// <param name="server">The server's name.</param>
     /// <param name="at">A moment to look back at, or <see langword="null"/> for now.</param>
+    /// <param name="filter">What the sessions and chains are filtered by.</param>
     /// <param name="cancellationToken">Cancels the reads.</param>
     /// <returns>The tab, or <see langword="null"/> when the server sent neither reads nor metrics.</returns>
     public async Task<LiveResponse?> LiveAsync(
         string engine,
         string server,
         DateTimeOffset? at,
+        LiveFilter filter,
         CancellationToken cancellationToken)
     {
         var now = clock.GetUtcNow();
@@ -67,7 +69,7 @@ internal sealed class LiveViewBuilder(IDatabaseActivitySearch activity, IMetricS
         var requests = data.Rates(data.Named(SqlServerNames.BatchRequests));
         var blocked = data.Levels(data.Named(SqlServerNames.Blocked));
 
-        return Build(engine, server, snapshot, at is null ? null : moment, now, window, requests, blocked);
+        return Build(engine, server, snapshot, at is null ? null : moment, now, window, requests, blocked, filter);
     }
 
     /// <summary>Turns a read into the tab. Pure; tested without a database.</summary>
@@ -79,6 +81,9 @@ internal sealed class LiveViewBuilder(IDatabaseActivitySearch activity, IMetricS
     /// <param name="window">The window of the two lines.</param>
     /// <param name="requests">Batch requests per second per bucket.</param>
     /// <param name="blocked">Blocked sessions per bucket.</param>
+    /// <param name="filter">
+    /// What the sessions and chains are filtered by; the tiles and findings stay the whole server's.
+    /// </param>
     /// <returns>The tab.</returns>
     public static LiveResponse Build(
         string engine,
@@ -88,7 +93,8 @@ internal sealed class LiveViewBuilder(IDatabaseActivitySearch activity, IMetricS
         DateTimeOffset now,
         MetricWindow window,
         IReadOnlyDictionary<DateTimeOffset, double> requests,
-        IReadOnlyDictionary<DateTimeOffset, double> blocked)
+        IReadOnlyDictionary<DateTimeOffset, double> blocked,
+        LiveFilter? filter = null)
     {
         ArgumentNullException.ThrowIfNull(window);
 
@@ -120,6 +126,7 @@ internal sealed class LiveViewBuilder(IDatabaseActivitySearch activity, IMetricS
             ? [Missing(server)]
             : LiveFindings.Build(sessions, trees, free, tempdb?.GrantsWaiting ?? 0, waits);
         var requestLine = window.Line("Batch requests", requests);
+        var (listed, chains, chained) = Filtered(sessions, trees, filter);
 
         return new LiveResponse(
             engine,
@@ -142,12 +149,49 @@ internal sealed class LiveViewBuilder(IDatabaseActivitySearch activity, IMetricS
                 OldestTransactionSession: oldest?.Id,
                 GrantsWaiting: tempdb?.GrantsWaiting ?? 0,
                 TempdbFreeRatio: free,
-                TempdbSizeBytes: (tempdb?.TempdbSizeKilobytes ?? 0) * 1024),
+                TempdbSizeBytes: (tempdb?.TempdbSizeKilobytes ?? 0) * 1024)
+            {
+                LongestRequestSession = sessions
+                    .Where(session => session.Status != "sleeping" && session.ElapsedSeconds > 0)
+                    .MaxBy(session => session.ElapsedSeconds)?.Id,
+            },
             findings,
-            trees,
-            sessions,
-            waits);
+            chains,
+            listed,
+            waits)
+        {
+            Chained = chained,
+        };
     }
+
+    // The sessions that meet the filter, the chains with at least one of them, and those chains' other sessions, so a
+    // chain can still name who blocks whom (VEY-66).
+    private static (
+        List<LiveSessionResponse> Listed,
+        IReadOnlyList<BlockingNodeResponse> Chains,
+        List<LiveSessionResponse> Chained) Filtered(
+        List<LiveSessionResponse> sessions,
+        IReadOnlyList<BlockingNodeResponse> trees,
+        LiveFilter? filter)
+    {
+        if (filter is null || filter.IsEmpty)
+        {
+            return (sessions, trees, []);
+        }
+
+        var listed = sessions.Where(filter.Meets).ToList();
+        var meeting = listed.Select(session => session.Id).ToHashSet();
+        var chains = trees.Where(tree => Members(tree).Any(meeting.Contains)).ToList();
+        var members = chains.SelectMany(Members).ToHashSet();
+        var chained = sessions
+            .Where(session => members.Contains(session.Id) && !meeting.Contains(session.Id))
+            .ToList();
+
+        return (listed, chains, chained);
+    }
+
+    private static IEnumerable<int> Members(BlockingNodeResponse node) =>
+        node.Children.SelectMany(Members).Prepend(node.Session);
 
     private static LiveSessionResponse Session(SessionSample sample, int waiting)
     {

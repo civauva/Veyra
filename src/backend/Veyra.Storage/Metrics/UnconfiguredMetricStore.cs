@@ -54,6 +54,18 @@ internal sealed class UnconfiguredMetricStore : IMetricWriter, IMetricSearch
         CancellationToken cancellationToken) =>
         throw new InvalidOperationException(StorageHealthCheck.NotConfiguredMessage);
 
+    /// <summary>Always fails: there is no database to read.</summary>
+    /// <param name="kinds">Ignored.</param>
+    /// <param name="firstSeenBefore">Ignored.</param>
+    /// <param name="cancellationToken">Ignored.</param>
+    /// <returns>Never completes successfully.</returns>
+    /// <exception cref="InvalidOperationException">Always.</exception>
+    public Task<IReadOnlyList<MetricBlockSeen>> ListBlocksAsync(
+        IReadOnlyList<Core.Alerts.AlertBlockKind> kinds,
+        DateTimeOffset firstSeenBefore,
+        CancellationToken cancellationToken) =>
+        throw new InvalidOperationException(StorageHealthCheck.NotConfiguredMessage);
+
     /// <summary>Always fails: there is no database to measure.</summary>
     /// <param name="now">Ignored.</param>
     /// <param name="cancellationToken">Ignored.</param>
